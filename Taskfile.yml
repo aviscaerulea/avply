@@ -1,0 +1,51 @@
+# vim: set ft=yaml fenc=utf-8 ff=unix sw=2 ts=2 et :
+version: '3'
+
+vars:
+  APP_NAME: vcutter
+  VERSION:
+    sh: git describe --tags --always --dirty | sed 's/^v//'
+  ARCH: x64
+  OUT_DIR: out/Release
+
+tasks:
+  default:
+    desc: クリーンビルドを実行
+    cmds:
+      - task: clean
+      - task: build
+
+  kill:
+    desc: 実行中のアプリケーションを強制終了（起動していない場合は無視）
+    cmds:
+      - cmd: taskkill /IM {{.APP_NAME}}.exe /F
+        ignore_error: true
+
+  clean:
+    desc: out/ 以下のファイルを削除
+    deps: [kill]
+    cmds:
+      - rm -rf out
+
+  copy-assets:
+    desc: ビルド成果物ディレクトリへのアセットコピー
+    internal: true
+    cmds:
+      - cp {{.APP_NAME}}.toml {{.OUT_DIR}}/
+      - cmd: cp -f *.local.toml {{.OUT_DIR}}/
+        ignore_error: true
+
+  build:
+    desc: ビルド（{{.OUT_DIR}}/{{.APP_NAME}}.exe）
+    deps: [kill]
+    cmds:
+      - mkdir -p {{.OUT_DIR}}
+      - pwsh.exe -NonInteractive -File build.ps1
+      - task: copy-assets
+
+  rebuild:
+    desc: 実行中のバイナリを停止し、クリーンビルドして再起動
+    cmds:
+      - task: clean
+      - task: build
+      - pwsh.exe -NoProfile -Command "Start-Process '{{.OUT_DIR}}/{{.APP_NAME}}.exe'"
