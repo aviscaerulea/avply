@@ -26,6 +26,7 @@ qt_add_executable(avply WIN32
     src/Config.h
     src/Config.cpp
     src/icons.qrc
+    src/app.rc
 )
 
 target_include_directories(avply PRIVATE src)
@@ -33,6 +34,8 @@ target_include_directories(avply PRIVATE src)
 # BOM なし UTF-8 ソースを正しくコンパイルする（MSVC デフォルトは CP932）
 if(MSVC)
     target_compile_options(avply PRIVATE /utf-8)
+    # rc.exe を UTF-8 codepage で実行する（VERSIONINFO 等で日本語を含めても文字化けしないため）
+    target_compile_options(avply PRIVATE $<$<COMPILE_LANGUAGE:RC>:/c65001>)
 endif()
 
 target_link_libraries(avply PRIVATE

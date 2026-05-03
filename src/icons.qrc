@@ -4,5 +4,6 @@
         <file>play.png</file>
         <file>pause.png</file>
         <file>stop.png</file>
+        <file>app.ico</file>
     </qresource>
 </RCC>
