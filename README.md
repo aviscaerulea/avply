@@ -93,7 +93,7 @@ pwsh.exe -File build.ps1
 
 - 言語：C++17
 - GUI フレームワーク：Qt 6.10 Widgets + Multimedia（LGPLv3）
-- 映像コーデック：AV1（av1_nvenc, VBR CQ 35, preset p6）
+- 映像コーデック：AV1（av1_nvenc, VBR CQ 28, preset p6）
 - 音声コーデック：Opus 96kbps
 - ハードウェアアクセラレーション：NVIDIA NVENC（CUDA）
 - 外部ツール連携：ffmpeg / ffprobe（QProcess 経由）
