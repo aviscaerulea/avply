@@ -1,0 +1,49 @@
+#pragma once
+#include <QObject>
+#include <QString>
+#include <QProcess>
+
+// ffmpeg に渡す変換パラメータ
+struct EncodeParams {
+    QString inputPath;
+    QString outputPath;
+    double inSec = 0.0;        // カット開始位置（秒）
+    double outSec = 0.0;       // カット終了位置（秒）
+    int inputWidth = 0;        // 入力映像の幅（FHD 超判定に使用）
+    double inputBitrate = 0.0; // 入力映像のビットレート（bps）。maxrate 設定に使用
+};
+
+// ffmpeg による動画変換を管理するクラス
+// 変換の開始・中断・進捗通知を担う
+class Encoder : public QObject {
+    Q_OBJECT
+public:
+    explicit Encoder(const QString& ffmpegPath, QObject* parent = nullptr);
+
+    // 変換を開始する
+    void encode(const EncodeParams& params);
+
+    // 変換を中断する
+    void cancel();
+
+    bool isRunning() const;
+
+signals:
+    // 進捗変化（0〜100）
+    void progressChanged(int pct);
+
+    // 変換完了。ok=false の場合は err にエラー内容が入る
+    void finished(bool ok, const QString& outputPath, const QString& err);
+
+private slots:
+    void onReadyReadOutput();
+    void onProcessFinished(int exitCode, QProcess::ExitStatus status);
+
+private:
+    QString m_ffmpegPath;
+    QProcess* m_process = nullptr;
+    EncodeParams m_params;
+    double m_totalDuration = 0.0; // out - in（秒）
+    bool m_cancelled = false;     // ユーザによる cancel() 呼び出しフラグ
+    QString m_tempPath;           // %TEMP% 内の一時出力パス
+};

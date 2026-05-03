@@ -1,0 +1,27 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "msvc-release",
+      "displayName": "MSVC 2026 Release (x64)",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/out",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.8.3/msvc2022_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "msvc-release",
+      "displayName": "Release ビルド",
+      "configurePreset": "msvc-release",
+      "configuration": "Release"
+    }
+  ]
+}

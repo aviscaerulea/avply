@@ -1,0 +1,48 @@
+# ビルド出力
+build/
+out/
+*.obj
+*.pdb
+
+# CMake 生成ファイル
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+_deps/
+
+# Qt MOC/RCC 生成ファイル
+*.moc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+.vs/
+*.aps
+
+# 一時・設定ファイル
+*.local.toml
+*.user
+.DS_Store
+Thumbs.db
+aqtinstall.log
+
+# ローカル環境設定（非共有）
+.claude/CLAUDE.local.md
+**/.env
+**/.credential
+**/*.local.*
+**/*.local
+
+# 開発ツール
+.idea/
+.task/
+.serena/
+
+# 実行ファイル
+**/*.exe
