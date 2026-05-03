@@ -12,7 +12,6 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>
-#include <QTimer>
 
 static constexpr int kMinWidth  = 640;
 static constexpr int kMinHeight = 360;
@@ -64,18 +63,16 @@ VideoView::VideoView(QWidget* parent)
         emit playbackStateChanged(state == QMediaPlayer::PlayingState);
     });
 
-    // メディア読み込み完了後に最初のフレームを 1 コマ表示する
+    // メディア読み込み完了時に再生を開始する
     connect(m_player, &QMediaPlayer::mediaStatusChanged,
             this, [this](QMediaPlayer::MediaStatus s) {
         if (!m_primeFirstFrame) return;
         if (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia) {
             m_primeFirstFrame = false;
+            // ネイティブサーフェス確立とフレーム描画タイミングを近づけるため
+            // show() はメディアロード完了直前まで遅延させる
+            m_videoWidget->show();
             m_player->play();
-            // play() 確定後に pause()/setPosition(0) を実行してフレームを描画する
-            QTimer::singleShot(0, this, [this]() {
-                m_player->pause();
-                m_player->setPosition(0);
-            });
         }
     });
 }
@@ -86,7 +83,6 @@ void VideoView::setSource(const QString& filePath)
 {
     m_player->stop();
     m_primeFirstFrame = true;
-    m_videoWidget->show();
     m_player->setSource(QUrl::fromLocalFile(filePath));
 }
 
