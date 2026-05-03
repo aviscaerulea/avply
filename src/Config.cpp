@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QStringConverter>
 #include <algorithm>
@@ -109,6 +110,11 @@ AppConfig Config::load()
     if (cfg.ffmpegPath.isEmpty()) {
         const QString fallback = scoopFallback();
         if (QFile::exists(fallback)) cfg.ffmpegPath = fallback;
+    }
+    if (cfg.ffmpegPath.isEmpty()) {
+        // scoop 以外（chocolatey、winget、手動配置）でも設定不要で動作させる
+        const QString resolved = QStandardPaths::findExecutable("ffmpeg");
+        if (!resolved.isEmpty()) cfg.ffmpegPath = resolved;
     }
     return cfg;
 }

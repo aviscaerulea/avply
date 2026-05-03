@@ -68,7 +68,10 @@ src/
 ### ffmpeg パス設定
 
 UI からの編集はせず、実行ファイルと同階層の `avply.toml`（ローカル上書きは `avply.local.toml`）の `[ffmpeg].path` で指定する。
-未設定時は `%USERPROFILE%/scoop/apps/ffmpeg/current/bin/ffmpeg.exe` にフォールバックする。
+未設定時は以下の順でフォールバックする。
+
+1. scoop 既定パス `%USERPROFILE%/scoop/apps/ffmpeg/current/bin/ffmpeg.exe`
+2. `QStandardPaths::findExecutable("ffmpeg")` による `PATH` 解決
 
 ### カーソルキーシーク設定
 
