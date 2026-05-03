@@ -16,7 +16,9 @@ class QDropEvent;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    // initialPath にパスを渡すと起動完了後にそのファイルを読み込む
+    // （Windows の D&D 起動・「送る」・「プログラムを指定して開く」想定）
+    explicit MainWindow(const QString& initialPath = QString(), QWidget* parent = nullptr);
     ~MainWindow() override;
 
 protected:
@@ -94,6 +96,7 @@ private:
     QLabel*       m_filePathLabel;
     QPushButton*  m_openBtn;
     VideoView*    m_videoView;
+    QPushButton*  m_playPauseBtn;
     QLabel*       m_posLabel;
     QLabel*       m_speedLabel;
     RangeSlider*  m_seekSlider;
@@ -102,6 +105,7 @@ private:
     QPushButton*  m_setOutBtn;
     QLabel*       m_outLabel;
     QPushButton*  m_convertBtn;
+    QLabel*       m_videoInfoLabel;
     QLabel*       m_outputLabel;
 
     Encoder* m_encoder = nullptr;

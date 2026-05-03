@@ -18,11 +18,12 @@
 #include <QStatusBar>
 #include <QKeyEvent>
 #include <QApplication>
+#include <QStyle>
 #include <cmath>
 
 static constexpr int kSliderMax = 10000;
 
-MainWindow::MainWindow(QWidget* parent)
+MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
     , m_encoder(nullptr)
 {
@@ -64,11 +65,25 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_seekSlider, &QSlider::valueChanged,
             this, &MainWindow::onSeekSliderChanged);
 
+    // --- 再生/停止ボタン（シークバー左、状態の視認も兼ねる） ---
+    m_playPauseBtn = new QPushButton;
+    m_playPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_playPauseBtn->setFixedWidth(32);
+    m_playPauseBtn->setEnabled(false);
+    connect(m_playPauseBtn, &QPushButton::clicked, this, [this]() {
+        if (m_info.valid) m_videoView->togglePlay();
+    });
+    connect(m_videoView, &VideoView::playbackStateChanged,
+            this, [this](bool playing) {
+        m_playPauseBtn->setIcon(style()->standardIcon(
+            playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+    });
+
     // --- 開始/終了 設定行 ---
-    m_setInBtn  = new QPushButton("開始を設定");
-    m_inLabel   = new QLabel("開始：未設定");
-    m_setOutBtn = new QPushButton("終了を設定");
-    m_outLabel  = new QLabel("終了：未設定");
+    m_setInBtn  = new QPushButton("開始設定");
+    m_inLabel   = new QLabel("--:--:--");
+    m_setOutBtn = new QPushButton("終了設定");
+    m_outLabel  = new QLabel("--:--:--");
     m_setInBtn->setEnabled(false);
     m_setOutBtn->setEnabled(false);
     connect(m_setInBtn,  &QPushButton::clicked, this, &MainWindow::onSetIn);
@@ -84,13 +99,19 @@ MainWindow::MainWindow(QWidget* parent)
     // --- 変換ボタン（シークバー行の右側に配置する） ---
     m_convertBtn = new QPushButton("変換");
     m_convertBtn->setFixedWidth(120);
+    m_convertBtn->setEnabled(false);
     connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
 
     auto* seekRow = new QHBoxLayout;
+    seekRow->addWidget(m_playPauseBtn);
     seekRow->addWidget(m_seekSlider, 1);
     seekRow->addWidget(m_convertBtn);
 
-    // --- 出力ファイルラベル（ステータスバー左に配置） ---
+    // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
+    m_videoInfoLabel = new QLabel;
+    m_videoInfoLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    // --- 出力ファイルラベル（ステータスバー、動画情報の右） ---
     m_outputLabel = new QLabel;
     m_outputLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
@@ -98,7 +119,8 @@ MainWindow::MainWindow(QWidget* parent)
     auto* central = new QWidget;
     auto* main    = new QVBoxLayout(central);
     main->setSpacing(8);
-    main->setContentsMargins(12, 12, 12, 12);
+    // bottom はわずかな余白だけ残して開始/終了行とステータスバーの間隔を詰める
+    main->setContentsMargins(12, 12, 12, 4);
     main->addLayout(fileRow);
     main->addWidget(m_videoView);
     main->addLayout(seekRow);
@@ -106,9 +128,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     setCentralWidget(central);
 
-    // --- ステータスバー：左に出力状況、右に再生位置と再生速度 ---
+    // --- ステータスバー：左から動画情報・出力状況、右に再生位置と再生速度 ---
     // 項目間の縦罫線を非表示にして、ラベル先頭の半角スペースのみで間隔を作る
     statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
+    statusBar()->addWidget(m_videoInfoLabel);
     statusBar()->addWidget(m_outputLabel, 1);
     statusBar()->addPermanentWidget(m_posLabel);
     statusBar()->addPermanentWidget(m_speedLabel);
@@ -137,6 +160,16 @@ MainWindow::MainWindow(QWidget* parent)
         adjustSize();
         setFixedHeight(height());
     });
+
+    // コマンドラインで初期ファイルが指定されていれば起動完了後に読み込む
+    // 拡張子フィルタを通すことで非対応形式は静かに無視する
+    if (!initialPath.isEmpty()) {
+        QTimer::singleShot(0, this, [this, initialPath]() {
+            if (isAcceptedVideo(initialPath) && QFile::exists(initialPath)) {
+                loadFile(initialPath);
+            }
+        });
+    }
 }
 
 MainWindow::~MainWindow() = default;
@@ -206,7 +239,7 @@ void MainWindow::onSetIn()
 {
     m_inSec = sliderToSec(m_seekSlider->value());
     m_inSet = true;
-    m_inLabel->setText("開始：" + formatSec(m_inSec));
+    m_inLabel->setText(formatSec(m_inSec));
     updateRangeMarkers();
 }
 
@@ -214,7 +247,7 @@ void MainWindow::onSetOut()
 {
     m_outSec = sliderToSec(m_seekSlider->value());
     m_outSet = true;
-    m_outLabel->setText("終了：" + formatSec(m_outSec));
+    m_outLabel->setText(formatSec(m_outSec));
     updateRangeMarkers();
 }
 
@@ -275,7 +308,7 @@ void MainWindow::onConvertOrCancel()
     connect(m_encoder, &Encoder::progressChanged, this, &MainWindow::onEncoderProgress);
     connect(m_encoder, &Encoder::finished,        this, &MainWindow::onEncoderFinished);
 
-    m_outputLabel->setText("変換中です：" + outputPath);
+    m_outputLabel->setText("  変換中です：" + outputPath);
     m_seekSlider->setProgress(0);
     setConverting(true);
 
@@ -294,7 +327,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     if (ok) {
         // 完了時は 100% で青を区間全体に重ねた状態を維持する
         m_seekSlider->setProgress(100);
-        m_outputLabel->setText("完了しました：" + outputPath);
+        m_outputLabel->setText("  完了しました：" + outputPath);
         return;
     }
 
@@ -303,11 +336,11 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
     // ユーザ中止：err 空文字 → ダイアログ抑制
     if (err.isEmpty()) {
-        m_outputLabel->setText("中止しました");
+        m_outputLabel->setText("  中止しました");
         return;
     }
 
-    m_outputLabel->setText("失敗しました：" + err);
+    m_outputLabel->setText("  失敗しました：" + err);
     QMessageBox::critical(this, "変換エラー", err);
 }
 
@@ -344,15 +377,41 @@ void MainWindow::loadFile(const QString& path)
         QSignalBlocker block(m_seekSlider);
         m_seekSlider->setValue(0);
     }
-    m_seekSlider->setEnabled(true);
     m_seekSlider->clearRangeMarkers();
     m_seekSlider->clearProgress();
-    m_setInBtn->setEnabled(true);
-    m_setOutBtn->setEnabled(true);
-    m_inLabel->setText("開始：未設定");
-    m_outLabel->setText("終了：未設定");
+    m_inLabel->setText("--:--:--");
+    m_outLabel->setText("--:--:--");
     m_outputLabel->clear();
     m_posLabel->setText("  00:00:00 / " + formatSec(info.duration));
+
+    // 動画情報をステータスバー左端に表示する
+    // 形式：解像度  fps  映像コーデック ビットレート  音声コーデック ビットレート サンプリング ch
+    QString videoInfo = QString("  %1x%2").arg(info.width).arg(info.height);
+    if (info.frameRate > 0.0) {
+        videoInfo += "  " + QString::number(info.frameRate, 'g', 4) + "fps";
+    }
+    if (!info.codec.isEmpty()) {
+        videoInfo += "  " + info.codec;
+        if (info.videoBitrate > 0.0) {
+            videoInfo += " " + QString::number(info.videoBitrate / 1.0e6, 'f', 1) + "Mbps";
+        }
+    }
+    if (!info.audioCodec.isEmpty()) {
+        videoInfo += "  " + info.audioCodec;
+        if (info.audioBitrate > 0.0) {
+            videoInfo += " " + QString::number(static_cast<int>(info.audioBitrate / 1000.0)) + "kbps";
+        }
+        if (info.audioSampleRate > 0) {
+            videoInfo += " " + QString::number(info.audioSampleRate / 1000.0, 'g', 3) + "kHz";
+        }
+        if (info.audioChannels > 0) {
+            videoInfo += " " + QString::number(info.audioChannels) + "ch";
+        }
+    }
+    m_videoInfoLabel->setText(videoInfo);
+
+    // 動画読込が完了したのでファイル依存ボタンをまとめて活性化する
+    setUiEnabled(true);
 
     // 新規ファイル読込時は再生速度を等速に戻す
     m_playbackRate = 1.0;
@@ -369,10 +428,15 @@ bool MainWindow::isAcceptedVideo(const QString& path)
 
 void MainWindow::setUiEnabled(bool enabled)
 {
+    // ファイル依存ボタンは「enabled かつ動画読込済」のときのみ活性化する
+    const bool fileLoaded = enabled && m_info.valid;
+    const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
     m_openBtn->setEnabled(enabled);
-    m_seekSlider->setEnabled(enabled && m_info.valid);
-    m_setInBtn->setEnabled(enabled && m_info.valid);
-    m_setOutBtn->setEnabled(enabled && m_info.valid);
+    m_seekSlider->setEnabled(fileLoaded);
+    m_playPauseBtn->setEnabled(fileLoaded);
+    m_setInBtn->setEnabled(fileLoaded);
+    m_setOutBtn->setEnabled(fileLoaded);
+    m_convertBtn->setEnabled(fileLoaded && ffmpegOk);
 }
 
 void MainWindow::setConverting(bool converting)
@@ -382,6 +446,8 @@ void MainWindow::setConverting(bool converting)
     setAcceptDrops(!converting);
     m_videoView->setAcceptDrops(!converting);
     m_convertBtn->setText(converting ? "中止" : "変換");
+    // 変換中は中止ボタンとして convertBtn のみ活性に保つ
+    if (converting) m_convertBtn->setEnabled(true);
 }
 
 void MainWindow::updateRangeMarkers()
@@ -480,7 +546,7 @@ void MainWindow::validateFfmpegPath()
 {
     if (!m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath)) return;
 
-    m_convertBtn->setEnabled(false);
+    // 変換ボタンの活性は setUiEnabled が QFile::exists で都度判定するためここでは状態を持たない
     QMessageBox::warning(this, "設定エラー",
         "ffmpeg.exe のパスが見つかりません。\n"
         "実行ファイルと同階層の vcutter.toml に\n"
