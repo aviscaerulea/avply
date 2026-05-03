@@ -34,15 +34,6 @@ aqtinstall.log
 
 # ローカル環境設定（非共有）
 .claude/CLAUDE.local.md
-**/.env
-**/.credential
-**/*.local.*
-**/*.local
-
-# 開発ツール
-.idea/
-.task/
-.serena/
 
 # 実行ファイル
 **/*.exe
