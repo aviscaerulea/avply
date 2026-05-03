@@ -28,6 +28,9 @@ public:
     // 再生位置（ミリ秒）を変更する
     void setPosition(qint64 ms);
 
+    // 再生速度を変更する（1.0 が等速）
+    void setPlaybackRate(qreal rate);
+
     // 再生状態を切り替える（再生中なら停止、停止中なら再生）
     void togglePlay();
 

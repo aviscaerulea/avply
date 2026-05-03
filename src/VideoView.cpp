@@ -94,6 +94,11 @@ void VideoView::setPosition(qint64 ms)
     m_player->setPosition(ms);
 }
 
+void VideoView::setPlaybackRate(qreal rate)
+{
+    m_player->setPlaybackRate(rate);
+}
+
 void VideoView::togglePlay()
 {
     if (isPlaying()) {

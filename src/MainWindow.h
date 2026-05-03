@@ -62,7 +62,17 @@ private:
     // カーソルキーによる相対シーク（delta > 0 で早送り、< 0 で巻き戻し）
     void seekRelative(int deltaMs);
 
-    // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
+    // 再生速度を相対変更してステータス表示を更新する（delta は 0.05 単位想定）
+    void changePlaybackRate(qreal delta);
+
+    // 再生速度ラベルの表示を現在値で更新する
+    void updateSpeedDisplay();
+
+    // 「開く...」ダイアログの初期ディレクトリを返す
+    // 動画読込済なら同フォルダ、未読込なら %USERPROFILE%
+    QString openDialogStartDir() const;
+
+    // アプリケーション全体のキー入力を捕捉してシーク・再生制御に変換する
     bool eventFilter(QObject* watched, QEvent* event) override;
 
     // 動画情報
@@ -78,11 +88,15 @@ private:
     int     m_seekLeftMs  = 3000;
     int     m_seekRightMs = 3000;
 
+    // 現在の再生速度（1.0 = 等速）
+    qreal m_playbackRate = 1.0;
+
     // ウィジェット
     QLabel*       m_filePathLabel;
     QPushButton*  m_openBtn;
     VideoView*    m_videoView;
     QLabel*       m_posLabel;
+    QLabel*       m_speedLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QLabel*       m_inLabel;

@@ -18,6 +18,7 @@
 #include <QStatusBar>
 #include <QKeyEvent>
 #include <QApplication>
+#include <cmath>
 
 static constexpr int kSliderMax = 10000;
 
@@ -50,6 +51,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     // --- 再生位置ラベル（ステータスバー右端に配置） ---
     m_posLabel = new QLabel("--:--:-- / --:--:--");
+
+    // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
+    m_speedLabel = new QLabel("x1.00");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -105,9 +109,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     setCentralWidget(central);
 
-    // --- ステータスバー：左に出力状況、右に再生位置 ---
+    // --- ステータスバー：左に出力状況、右に再生位置と再生速度 ---
     statusBar()->addWidget(m_outputLabel, 1);
     statusBar()->addPermanentWidget(m_posLabel);
+    statusBar()->addPermanentWidget(m_speedLabel);
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
     m_seekTimer.setSingleShot(true);
@@ -168,7 +173,7 @@ void MainWindow::dropEvent(QDropEvent* event)
 void MainWindow::onOpenFile()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, "動画ファイルを開く", {},
+        this, "動画ファイルを開く", openDialogStartDir(),
         "動画ファイル (*.mp4 *.mkv *.mov *.avi *.webm);;すべてのファイル (*)");
     if (path.isEmpty()) return;
     loadFile(path);
@@ -346,6 +351,11 @@ void MainWindow::loadFile(const QString& path)
     m_outLabel->setText("終了：未設定");
     m_outputLabel->clear();
     m_posLabel->setText("00:00:00 / " + formatSec(info.duration));
+
+    // 新規ファイル読込時は再生速度を等速に戻す
+    m_playbackRate = 1.0;
+    m_videoView->setPlaybackRate(m_playbackRate);
+    updateSpeedDisplay();
 }
 
 bool MainWindow::isAcceptedVideo(const QString& path)
@@ -402,14 +412,29 @@ QString MainWindow::formatSec(double sec)
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
     if (event->type() == QEvent::KeyPress) {
+        // モーダルダイアログ表示中は素通しする（ファイル選択や警告ダイアログを誤動作させない）
+        if (QApplication::activeModalWidget()) {
+            return QMainWindow::eventFilter(watched, event);
+        }
         const auto* ke = static_cast<QKeyEvent*>(event);
-        if (ke->key() == Qt::Key_Left) {
+        switch (ke->key()) {
+        case Qt::Key_Left:
             seekRelative(-m_seekLeftMs);
             return true;
-        }
-        if (ke->key() == Qt::Key_Right) {
+        case Qt::Key_Right:
             seekRelative(m_seekRightMs);
             return true;
+        case Qt::Key_Space:
+            if (m_info.duration > 0.0) m_videoView->togglePlay();
+            return true;
+        case Qt::Key_Up:
+            changePlaybackRate(0.05);
+            return true;
+        case Qt::Key_Down:
+            changePlaybackRate(-0.05);
+            return true;
+        default:
+            break;
         }
     }
     return QMainWindow::eventFilter(watched, event);
@@ -421,6 +446,29 @@ void MainWindow::seekRelative(int deltaMs)
     const qint64 durationMs = static_cast<qint64>(m_info.duration * 1000.0);
     const qint64 newPos = qBound(qint64(0), m_videoView->position() + deltaMs, durationMs);
     m_videoView->setPosition(newPos);
+}
+
+void MainWindow::changePlaybackRate(qreal delta)
+{
+    if (m_info.duration <= 0.0) return;
+    // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
+    const qreal next = std::round((m_playbackRate + delta) * 100.0) / 100.0;
+    m_playbackRate = qBound(qreal(0.05), next, qreal(4.0));
+    m_videoView->setPlaybackRate(m_playbackRate);
+    updateSpeedDisplay();
+}
+
+void MainWindow::updateSpeedDisplay()
+{
+    m_speedLabel->setText(QString::asprintf("x%.2f", m_playbackRate));
+}
+
+QString MainWindow::openDialogStartDir() const
+{
+    if (!m_filePath.isEmpty()) {
+        return QFileInfo(m_filePath).absolutePath();
+    }
+    return QDir::homePath();
 }
 
 void MainWindow::validateFfmpegPath()
