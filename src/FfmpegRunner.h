@@ -6,8 +6,13 @@ struct VideoInfo {
     double duration = 0.0; // 総再生時間（秒）
     int width = 0;
     int height = 0;
-    QString codec;         // 映像コーデック名（例: av1, h264）
+    double frameRate = 0.0;  // 映像フレームレート（fps）。取得できない場合は 0
+    QString codec;           // 映像コーデック名（例: av1, h264）
     double videoBitrate = 0.0; // 映像ビットレート（bps）。取得できない場合は 0
+    QString audioCodec;      // 音声コーデック名（例: aac, opus）。取得できない場合は空文字
+    double audioBitrate = 0.0; // 音声ビットレート（bps）。取得できない場合は 0
+    int audioSampleRate = 0;   // 音声サンプリングレート（Hz）。取得できない場合は 0
+    int audioChannels = 0;     // 音声チャンネル数。取得できない場合は 0
     bool valid = false;
 };
 

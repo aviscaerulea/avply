@@ -44,19 +44,40 @@ VideoInfo probe(const QString& ffprobePath, const QString& filePath, FfmpegResul
     const QJsonObject fmt = root["format"].toObject();
     info.duration = fmt["duration"].toString("0").toDouble();
 
-    // 映像ストリームの情報を取得
+    // 映像・音声ストリームの情報を取得（最初に見つかったものを採用）
     const QJsonArray streams = root["streams"].toArray();
+    bool gotVideo = false;
+    bool gotAudio = false;
     for (const QJsonValue& v : streams) {
         const QJsonObject s = v.toObject();
-        if (s["codec_type"].toString() == "video") {
+        const QString type = s["codec_type"].toString();
+        if (!gotVideo && type == "video") {
             info.codec = s["codec_name"].toString();
             info.width = s["width"].toInt();
             info.height = s["height"].toInt();
             // ビットレートは文字列として格納されている
             const QString br = s["bit_rate"].toString();
             if (!br.isEmpty()) info.videoBitrate = br.toDouble();
-            break;
+            // フレームレートは "num/den" 形式の文字列で格納されている
+            const QString fr = s["avg_frame_rate"].toString();
+            const auto parts = fr.split('/');
+            if (parts.size() == 2) {
+                const double num = parts[0].toDouble();
+                const double den = parts[1].toDouble();
+                if (den > 0.0) info.frameRate = num / den;
+            }
+            gotVideo = true;
         }
+        else if (!gotAudio && type == "audio") {
+            info.audioCodec = s["codec_name"].toString();
+            const QString abr = s["bit_rate"].toString();
+            if (!abr.isEmpty()) info.audioBitrate = abr.toDouble();
+            const QString sr = s["sample_rate"].toString();
+            if (!sr.isEmpty()) info.audioSampleRate = sr.toInt();
+            info.audioChannels = s["channels"].toInt();
+            gotAudio = true;
+        }
+        if (gotVideo && gotAudio) break;
     }
 
     info.valid = true;
