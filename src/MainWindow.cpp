@@ -11,6 +11,7 @@
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QResizeEvent>
 #include <QMimeData>
 #include <QUrl>
 #include <QSignalBlocker>
@@ -18,7 +19,10 @@
 #include <QStatusBar>
 #include <QKeyEvent>
 #include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QStyle>
+#include <algorithm>
 #include <cmath>
 
 static constexpr int kSliderMax = 10000;
@@ -27,8 +31,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
     , m_encoder(nullptr)
 {
-    setWindowTitle("vcutter");
-    setFixedWidth(static_cast<int>(1080 * 0.8)); // 864
+    setWindowTitle("avply");
     setAcceptDrops(true);
 
     // --- ファイル選択行 ---
@@ -66,23 +69,24 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, &MainWindow::onSeekSliderChanged);
 
     // --- 再生/停止ボタン（シークバー左、状態の視認も兼ねる） ---
-    m_playPauseBtn = new QPushButton;
-    m_playPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_playPauseBtn->setFixedWidth(32);
+    // Unicode 記号で表示しフォント色 = テーマ色に追従させる
+    // 外枠を消してアイコン文字を大きく表示する
+    m_playPauseBtn = new QPushButton(QString::fromUtf8(u8"⏯"));
+    m_playPauseBtn->setStyleSheet("QPushButton { border: none; font-size: 18pt; }");
+    m_playPauseBtn->setFixedWidth(40);
     m_playPauseBtn->setEnabled(false);
     connect(m_playPauseBtn, &QPushButton::clicked, this, [this]() {
         if (m_info.valid) m_videoView->togglePlay();
     });
     connect(m_videoView, &VideoView::playbackStateChanged,
             this, [this](bool playing) {
-        m_playPauseBtn->setIcon(style()->standardIcon(
-            playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+        m_playPauseBtn->setText(QString::fromUtf8(playing ? u8"⏸" : u8"⏯"));
     });
 
     // --- 開始/終了 設定行 ---
-    m_setInBtn  = new QPushButton("開始設定");
+    m_setInBtn  = new QPushButton("開始位置");
     m_inLabel   = new QLabel("--:--:--");
-    m_setOutBtn = new QPushButton("終了設定");
+    m_setOutBtn = new QPushButton("終了位置");
     m_outLabel  = new QLabel("--:--:--");
     m_setInBtn->setEnabled(false);
     m_setOutBtn->setEnabled(false);
@@ -122,7 +126,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // bottom はわずかな余白だけ残して開始/終了行とステータスバーの間隔を詰める
     main->setContentsMargins(12, 12, 12, 4);
     main->addLayout(fileRow);
-    main->addWidget(m_videoView);
+    // 余剰スペースを全てプレビューに割り当ててウィンドウリサイズに追従させる
+    main->addWidget(m_videoView, 1);
     main->addLayout(seekRow);
     main->addLayout(inOutRow);
 
@@ -155,10 +160,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     qApp->installEventFilter(this);
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
-    // レイアウト確定後に高さを中身基準で固定する
+    // レイアウト確定後に下部UI高を保存し、最小ウィンドウサイズを連動式で設定する
     QTimer::singleShot(0, this, [this]() {
         adjustSize();
-        setFixedHeight(height());
+        m_lowerUiH = height() - m_videoView->height();
+        updateMinimumWindowSize();
     });
 
     // コマンドラインで初期ファイルが指定されていれば起動完了後に読み込む
@@ -263,18 +269,20 @@ void MainWindow::onConvertOrCancel()
     if (m_ffmpegPath.isEmpty() || !QFile::exists(m_ffmpegPath)) {
         QMessageBox::warning(this, "設定エラー",
             "ffmpeg.exe のパスが正しく設定されていません。\n"
-            "vcutter.toml を確認してください。");
+            "avply.toml を確認してください。");
         return;
     }
     if (m_filePath.isEmpty()) {
         QMessageBox::warning(this, "入力エラー", "動画ファイルを選択してください。");
         return;
     }
-    if (!m_inSet || !m_outSet) {
-        QMessageBox::warning(this, "範囲エラー", "開始と終了を両方設定してください。");
+    if (m_info.duration <= 0.0) {
+        QMessageBox::warning(this, "入力エラー", "動画の長さを取得できませんでした。");
         return;
     }
-    if (m_inSec >= m_outSec) {
+    const double effectiveIn  = m_inSet  ? m_inSec  : 0.0;
+    const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
+    if (effectiveIn >= effectiveOut) {
         QMessageBox::warning(this, "範囲エラー", "開始は終了より前に設定してください。");
         return;
     }
@@ -293,8 +301,8 @@ void MainWindow::onConvertOrCancel()
     EncodeParams params;
     params.inputPath    = m_filePath;
     params.outputPath   = outputPath;
-    params.inSec        = m_inSec;
-    params.outSec       = m_outSec;
+    params.inSec        = effectiveIn;
+    params.outSec       = effectiveOut;
     params.inputWidth   = m_info.width;
     params.inputBitrate = m_info.videoBitrate;
 
@@ -417,6 +425,33 @@ void MainWindow::loadFile(const QString& path)
     m_playbackRate = 1.0;
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
+
+    // 動画のアスペクト比をウィンドウ連動の基準として更新する
+    m_videoAspect = static_cast<double>(info.width) / info.height;
+    updateMinimumWindowSize();
+
+    // モニタ縦横 80% を上限としてアスペクト比維持で動画サイズを縮める
+    const QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen();
+    const QRect geom = sc->availableGeometry();
+    const double maxWindowW  = geom.width()  * 0.8;
+    const double maxWindowH  = geom.height() * 0.8;
+    const double maxPreviewH = maxWindowH - m_lowerUiH;
+
+    // 元動画サイズに対するスケール係数（1.0 を超えない範囲で最も小さい制約を採用）
+    double scale = 1.0;
+    if (info.width > maxWindowW) {
+        scale = std::min(scale, maxWindowW / info.width);
+    }
+    if (maxPreviewH > 0 && info.height > maxPreviewH) {
+        scale = std::min(scale, maxPreviewH / info.height);
+    }
+
+    const int previewW = qRound(info.width  * scale);
+    const int previewH = qRound(info.height * scale);
+
+    m_resizingProgrammatically = true;
+    resize(std::max(600, previewW), previewH + m_lowerUiH);
+    m_resizingProgrammatically = false;
 }
 
 bool MainWindow::isAcceptedVideo(const QString& path)
@@ -450,17 +485,41 @@ void MainWindow::setConverting(bool converting)
     if (converting) m_convertBtn->setEnabled(true);
 }
 
+void MainWindow::updateMinimumWindowSize()
+{
+    constexpr int kMinW = 600;
+    const int minH = qRound(kMinW / m_videoAspect) + m_lowerUiH;
+    setMinimumSize(kMinW, minH);
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    // 動画未読込時は m_videoAspect がデフォルト 16:9 のため矯正しない
+    if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
+
+    // 幅基準で「正しい高さ」を逆算してウィンドウのアスペクト比を矯正する
+    const int targetH = qRound(width() / m_videoAspect) + m_lowerUiH;
+    if (targetH != height()) {
+        m_resizingProgrammatically = true;
+        resize(width(), targetH);
+        m_resizingProgrammatically = false;
+    }
+}
+
 void MainWindow::updateRangeMarkers()
 {
     // 区間が変わったら過去の進捗オーバーレイは無効になる
     m_seekSlider->clearProgress();
 
-    if (!m_inSet || !m_outSet || m_info.duration <= 0.0) {
+    if ((!m_inSet && !m_outSet) || m_info.duration <= 0.0) {
         m_seekSlider->clearRangeMarkers();
         return;
     }
-    const double inRatio  = m_inSec  / m_info.duration;
-    const double outRatio = m_outSec / m_info.duration;
+    const double effectiveIn  = m_inSet  ? m_inSec  : 0.0;
+    const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
+    const double inRatio  = effectiveIn  / m_info.duration;
+    const double outRatio = effectiveOut / m_info.duration;
     m_seekSlider->setRangeMarkers(inRatio, outRatio);
 }
 
@@ -549,7 +608,7 @@ void MainWindow::validateFfmpegPath()
     // 変換ボタンの活性は setUiEnabled が QFile::exists で都度判定するためここでは状態を持たない
     QMessageBox::warning(this, "設定エラー",
         "ffmpeg.exe のパスが見つかりません。\n"
-        "実行ファイルと同階層の vcutter.toml に\n"
+        "実行ファイルと同階層の avply.toml に\n"
         "  [ffmpeg]\n"
         "  path = \"<ffmpeg.exe へのパス>\"\n"
         "を設定してから起動し直してください。");

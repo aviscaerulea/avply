@@ -39,6 +39,14 @@ public:
 
     bool isPlaying() const;
 
+    // デフォルトサイズ
+    // 起動直後のレイアウト計算で 16:9 800x450 を初期サイズとする
+    QSize sizeHint() const override;
+
+    // 縮小限界
+    // ユーザリサイズで極端に小さくならないようにする
+    QSize minimumSizeHint() const override;
+
 protected:
     // プレビュー領域の左クリックで再生/停止トグル、D&D イベントを捕捉する
     bool eventFilter(QObject* watched, QEvent* event) override;

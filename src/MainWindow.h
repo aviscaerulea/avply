@@ -25,6 +25,9 @@ protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
+    // ウィンドウリサイズ時に動画アスペクト比に合わせて高さを矯正する
+    void resizeEvent(QResizeEvent* event) override;
+
 private slots:
     void onOpenFile();
     void onSeekSliderChanged(int value);
@@ -76,6 +79,9 @@ private:
     // アプリケーション全体のキー入力を捕捉してシーク・再生制御に変換する
     bool eventFilter(QObject* watched, QEvent* event) override;
 
+    // ウィンドウ最小サイズを動画アスペクト比から再計算する
+    void updateMinimumWindowSize();
+
     // 動画情報
     QString   m_filePath;
     VideoInfo m_info;
@@ -91,6 +97,14 @@ private:
 
     // 現在の再生速度（1.0 = 等速）
     qreal m_playbackRate = 1.0;
+
+    // ウィンドウのアスペクト比連動用状態
+    // m_videoAspect は現在の基準比率（動画未読込時は 16:9 = 800/450）
+    // m_lowerUiH はレイアウト確定後の下部 UI 合計高さ（一度だけ取得）
+    // m_resizingProgrammatically は resizeEvent 内 resize の再帰防止フラグ
+    double m_videoAspect            = 16.0 / 9.0;
+    int    m_lowerUiH               = 0;
+    bool   m_resizingProgrammatically = false;
 
     // ウィジェット
     QLabel*       m_filePathLabel;

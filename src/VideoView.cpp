@@ -14,9 +14,6 @@
 #include <QUrl>
 #include <QDebug>
 
-static constexpr int kMinWidth  = 640;
-static constexpr int kMinHeight = 360;
-
 VideoView::VideoView(QWidget* parent)
     : QWidget(parent)
     , m_videoWidget(new QVideoWidget(this))
@@ -29,8 +26,6 @@ VideoView::VideoView(QWidget* parent)
     pal.setColor(QPalette::Window, QColor(0x1a, 0x1a, 0x1a));
     setPalette(pal);
     setAutoFillBackground(true);
-    // 非表示時もプレビュー領域を確保するため最小サイズはコンテナ側で固定する
-    setMinimumSize(kMinWidth, kMinHeight);
 
     m_videoWidget->setStyleSheet("background: #1a1a1a;");
     // 動画未ロード時は QVideoWidget を隠して VideoView 本体の暗色背景のみ見せる。
@@ -134,6 +129,16 @@ void VideoView::pause()
 bool VideoView::isPlaying() const
 {
     return m_player->playbackState() == QMediaPlayer::PlayingState;
+}
+
+QSize VideoView::sizeHint() const
+{
+    return QSize(800, 450);
+}
+
+QSize VideoView::minimumSizeHint() const
+{
+    return QSize(320, 180);
 }
 
 bool VideoView::eventFilter(QObject* watched, QEvent* event)
