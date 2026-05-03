@@ -37,6 +37,7 @@ private slots:
     void onSetOut();
     void onStop();
     void onConvertOrCancel();
+    void onTrimOrCancel();
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
 
@@ -50,8 +51,17 @@ private:
     // UI 有効/無効を切り替える（変換中は無効化）
     void setUiEnabled(bool enabled);
 
-    // 変換中表示に切り替える
-    void setConverting(bool converting);
+    // トリムが意味を持つか（実効範囲が動画全長と異なるか）を判定する
+    bool isTrimMeaningful() const;
+
+    // 実行中の操作種別。None ならアイドル
+    enum class Operation { None, Convert, Trim };
+
+    // 変換・トリム共通の起動/中止ハンドラ
+    void startOrCancel(EncodeMode mode);
+
+    // 実行状態に応じて UI をまとめて切り替える
+    void setRunning(Operation op);
 
     // 区間マーカーをスライダーに反映する
     void updateRangeMarkers();
@@ -127,10 +137,14 @@ private:
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;
     QPushButton*  m_convertBtn;
+    QPushButton*  m_trimBtn;
     QLabel*       m_videoInfoLabel;
     QLabel*       m_outputLabel;
 
     Encoder* m_encoder = nullptr;
+
+    // 実行中の操作種別。None ならアイドル
+    Operation m_runningOp = Operation::None;
 
     // シーク要求のスロットル（連続 valueChanged を間引く）
     QTimer  m_seekTimer;

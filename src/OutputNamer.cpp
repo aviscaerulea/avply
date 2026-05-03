@@ -5,7 +5,7 @@
 QString OutputNamer::generate(const QString& inputPath)
 {
     const QFileInfo fi(inputPath);
-    const QString base = fi.absolutePath() + "/" + fi.completeBaseName() + "_cut";
+    const QString base = fi.absolutePath() + "/" + fi.completeBaseName() + "_clip";
 
     QString path = base + ".mp4";
     if (!QFile::exists(path)) return path;

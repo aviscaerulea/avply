@@ -126,6 +126,11 @@ void VideoView::pause()
     if (isPlaying()) m_player->pause();
 }
 
+void VideoView::setInteractive(bool enabled)
+{
+    m_interactive = enabled;
+}
+
 bool VideoView::isPlaying() const
 {
     return m_player->playbackState() == QMediaPlayer::PlayingState;
@@ -162,7 +167,9 @@ bool VideoView::eventFilter(QObject* watched, QEvent* event)
     }
     case QEvent::MouseButtonPress: {
         const auto* me = static_cast<QMouseEvent*>(event);
-        if (me->button() == Qt::LeftButton && !m_player->source().isEmpty()) {
+        if (m_interactive
+            && me->button() == Qt::LeftButton
+            && !m_player->source().isEmpty()) {
             togglePlay();
             return true;
         }

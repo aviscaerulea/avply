@@ -38,32 +38,43 @@ void Encoder::encode(const EncodeParams& params)
 
     QStringList args;
     args << "-y"
-         << "-hide_banner"
-         << "-hwaccel" << "cuda"
-         << "-ss" << QString::number(params.inSec, 'f', 3)
+         << "-hide_banner";
+
+    if (params.mode == EncodeMode::Reencode) {
+        args << "-hwaccel" << "cuda";
+    }
+
+    args << "-ss" << QString::number(params.inSec, 'f', 3)
          << "-i" << params.inputPath
          << "-t" << QString::number(m_totalDuration, 'f', 3);
 
-    // FHD（幅 1920px）超の場合はアスペクト比を維持してスケールダウン
-    if (params.inputWidth > 1920) {
-        args << "-vf" << "scale=1920:-2";
+    if (params.mode == EncodeMode::Reencode) {
+        // QWXGA（幅 2048px）超の場合はアスペクト比を維持してスケールダウン
+        if (params.inputWidth > 2048) {
+            args << "-vf" << "scale=2048:-2";
+        }
+
+        args << "-c:v" << "av1_nvenc"
+             << "-rc" << "vbr"
+             << "-cq" << "35"
+             << "-preset" << "p6";
+
+        // 元ビットレートが判明している場合は maxrate を設定してサイズ膨張を防ぐ
+        if (params.inputBitrate > 0.0) {
+            const qint64 br = static_cast<qint64>(params.inputBitrate);
+            args << "-maxrate" << QString::number(br)
+                 << "-bufsize" << QString::number(br * 2);
+        }
+
+        args << "-c:a" << "libopus"
+             << "-b:a" << "96k";
+    }
+    else {
+        // ストリームコピー：再エンコードせずキーフレーム単位で切り出す
+        args << "-c" << "copy";
     }
 
-    args << "-c:v" << "av1_nvenc"
-         << "-rc" << "vbr"
-         << "-cq" << "35"
-         << "-preset" << "p6";
-
-    // 元ビットレートが判明している場合は maxrate を設定してサイズ膨張を防ぐ
-    if (params.inputBitrate > 0.0) {
-        const qint64 br = static_cast<qint64>(params.inputBitrate);
-        args << "-maxrate" << QString::number(br)
-             << "-bufsize" << QString::number(br * 2);
-    }
-
-    args << "-c:a" << "libopus"
-         << "-b:a" << "96k"
-         << "-movflags" << "+faststart"
+    args << "-movflags" << "+faststart"
          << m_tempPath;
 
     m_process = new QProcess(this);

@@ -113,11 +113,16 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         b->setEnabled(false);
     }
 
-    // --- 変換ボタン（シークバー行の右側に配置する） ---
+    // --- 変換ボタン・トリムボタン（シークバー行の右側に配置する） ---
     m_convertBtn = new QPushButton("変換");
-    m_convertBtn->setFixedWidth(120);
+    m_convertBtn->setFixedWidth(80);
     m_convertBtn->setEnabled(false);
     connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
+
+    m_trimBtn = new QPushButton("トリム");
+    m_trimBtn->setFixedWidth(80);
+    m_trimBtn->setEnabled(false);
+    connect(m_trimBtn, &QPushButton::clicked, this, &MainWindow::onTrimOrCancel);
 
     // 左側アイコン群を内側レイアウトでまとめ、ボタン同士をピッタリ隣接させる
     auto* leftIconRow = new QHBoxLayout;
@@ -133,6 +138,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     seekRow->addWidget(m_seekSlider, 1);
     seekRow->addWidget(m_setOutBtn);
     seekRow->addWidget(m_convertBtn);
+    seekRow->addWidget(m_trimBtn);
 
     // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
     m_videoInfoLabel = new QLabel;
@@ -296,7 +302,17 @@ void MainWindow::onStop()
 
 void MainWindow::onConvertOrCancel()
 {
-    // 変換中なら中止する
+    startOrCancel(EncodeMode::Reencode);
+}
+
+void MainWindow::onTrimOrCancel()
+{
+    startOrCancel(EncodeMode::StreamCopy);
+}
+
+void MainWindow::startOrCancel(EncodeMode mode)
+{
+    // 同モード実行中なら中止する（異モード実行中はボタン非活性で到達しない想定）
     if (m_encoder && m_encoder->isRunning()) {
         m_encoder->cancel();
         return;
@@ -317,25 +333,41 @@ void MainWindow::onConvertOrCancel()
         QMessageBox::warning(this, "入力エラー", "動画の長さを取得できませんでした。");
         return;
     }
-    const double effectiveIn  = m_inSet  ? m_inSec  : 0.0;
-    const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
+
+    // IN/OUT 未指定なら全長を自動指定する
+    // 中断時に赤バーを残すことで実際に処理対象だった範囲をユーザに示す
+    if (!m_inSet) {
+        m_inSec = 0.0;
+        m_inSet = true;
+    }
+    if (!m_outSet) {
+        m_outSec = m_info.duration;
+        m_outSet = true;
+    }
+    updateRangeMarkers();
+
+    const double effectiveIn  = m_inSec;
+    const double effectiveOut = m_outSec;
     if (effectiveIn >= effectiveOut) {
         QMessageBox::warning(this, "範囲エラー", "開始は終了より前に設定してください。");
         return;
     }
 
-    // NVENC AV1 対応確認
-    if (!Ffmpeg::checkAv1Nvenc(m_ffmpegPath)) {
-        QMessageBox::critical(this, "GPU エラー",
-            "av1_nvenc エンコーダが利用できません。\n"
-            "NVIDIA GPU と最新ドライバを確認してください。");
-        return;
+    if (mode == EncodeMode::Reencode) {
+        // NVENC AV1 対応確認
+        if (!Ffmpeg::checkAv1Nvenc(m_ffmpegPath)) {
+            QMessageBox::critical(this, "GPU エラー",
+                "av1_nvenc エンコーダが利用できません。\n"
+                "NVIDIA GPU と最新ドライバを確認してください。");
+            return;
+        }
     }
 
     // 出力パスを生成
     const QString outputPath = OutputNamer::generate(m_filePath);
 
     EncodeParams params;
+    params.mode         = mode;
     params.inputPath    = m_filePath;
     params.outputPath   = outputPath;
     params.inSec        = effectiveIn;
@@ -353,9 +385,11 @@ void MainWindow::onConvertOrCancel()
     connect(m_encoder, &Encoder::progressChanged, this, &MainWindow::onEncoderProgress);
     connect(m_encoder, &Encoder::finished,        this, &MainWindow::onEncoderFinished);
 
-    m_outputLabel->setText("  変換中です：" + outputPath);
+    const Operation op = (mode == EncodeMode::StreamCopy) ? Operation::Trim : Operation::Convert;
+    const QString label = (op == Operation::Trim) ? "トリム中" : "変換中";
+    m_outputLabel->setText(QString("  %1：0%").arg(label));
     m_seekSlider->setProgress(0);
-    setConverting(true);
+    setRunning(op);
 
     m_encoder->encode(params);
 }
@@ -363,11 +397,13 @@ void MainWindow::onConvertOrCancel()
 void MainWindow::onEncoderProgress(int pct)
 {
     m_seekSlider->setProgress(pct);
+    const QString label = (m_runningOp == Operation::Trim) ? "トリム中" : "変換中";
+    m_outputLabel->setText(QString("  %1：%2%").arg(label).arg(pct));
 }
 
 void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QString& err)
 {
-    setConverting(false);
+    setRunning(Operation::None);
 
     if (ok) {
         // 完了時は 100% で青を区間全体に重ねた状態を維持する
@@ -513,17 +549,38 @@ void MainWindow::setUiEnabled(bool enabled)
     m_setInBtn->setEnabled(fileLoaded);
     m_setOutBtn->setEnabled(fileLoaded);
     m_convertBtn->setEnabled(fileLoaded && ffmpegOk);
+    m_trimBtn   ->setEnabled(fileLoaded && ffmpegOk && isTrimMeaningful());
 }
 
-void MainWindow::setConverting(bool converting)
+bool MainWindow::isTrimMeaningful() const
 {
-    setUiEnabled(!converting);
-    // 変換中は D&D を拒否する（ウィンドウ全体・プレビュー領域の両方）
-    setAcceptDrops(!converting);
-    m_videoView->setAcceptDrops(!converting);
-    m_convertBtn->setText(converting ? "中止" : "変換");
-    // 変換中は中止ボタンとして convertBtn のみ活性に保つ
-    if (converting) m_convertBtn->setEnabled(true);
+    // 実効範囲（IN/OUT 未指定なら全長）が動画全長と一致する場合、トリムは無意味
+    // 浮動小数比較は秒数のため数 ms 程度の誤差を吸収するしきい値で判定する
+    if (m_info.duration <= 0.0) return false;
+    const double effectiveIn  = m_inSet  ? m_inSec  : 0.0;
+    const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
+    constexpr double eps = 0.001;
+    return effectiveIn > eps || effectiveOut < m_info.duration - eps;
+}
+
+void MainWindow::setRunning(Operation op)
+{
+    m_runningOp = op;
+    const bool running = (op != Operation::None);
+    if (running) m_videoView->pause();
+
+    setUiEnabled(!running);
+    // 実行中は D&D を拒否する（ウィンドウ全体・プレビュー領域の両方）
+    setAcceptDrops(!running);
+    m_videoView->setAcceptDrops(!running);
+    // 実行中はプレビュー領域のマウスクリックでの再生トグルも封じる
+    m_videoView->setInteractive(!running);
+
+    // クリックされた側のボタンを「中止」に切り替え、もう一方は非活性に保つ
+    m_convertBtn->setText(op == Operation::Convert ? "中止" : "変換");
+    m_trimBtn   ->setText(op == Operation::Trim    ? "中止" : "トリム");
+    if (op == Operation::Convert) m_convertBtn->setEnabled(true);
+    if (op == Operation::Trim)    m_trimBtn   ->setEnabled(true);
 }
 
 void MainWindow::updateMinimumWindowSize()
@@ -555,6 +612,11 @@ void MainWindow::updateRangeMarkers()
 {
     // 区間が変わったら過去の進捗オーバーレイは無効になる
     m_seekSlider->clearProgress();
+
+    // 区間変化に追従してトリムボタンの活性状態を更新する
+    // 実行中はこの直後に setRunning() → setUiEnabled(false) で再度無効化される
+    const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
+    m_trimBtn->setEnabled(m_info.valid && ffmpegOk && isTrimMeaningful());
 
     if ((!m_inSet && !m_outSet) || m_info.duration <= 0.0) {
         m_seekSlider->clearRangeMarkers();
@@ -590,6 +652,10 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         if (QApplication::activeModalWidget()) {
             return QMainWindow::eventFilter(watched, event);
         }
+        // 実行中（変換またはトリム）はシーク・再生トグル・速度変更を全て無効化する
+        // （Space / ←→ / ↑↓ いずれも処理負荷の増加と誤操作要因になる）
+        if (m_runningOp != Operation::None) return true;
+
         const auto* ke = static_cast<QKeyEvent*>(event);
         switch (ke->key()) {
         case Qt::Key_Left:

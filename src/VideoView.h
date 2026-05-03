@@ -39,6 +39,10 @@ public:
 
     bool isPlaying() const;
 
+    // プレビュー領域へのマウスクリックでの再生トグルを許可するか設定する
+    // 変換中などに UI 操作を抑止する用途。デフォルトは true（許可）
+    void setInteractive(bool enabled);
+
     // デフォルトサイズ
     // 起動直後のレイアウト計算で 16:9 800x450 を初期サイズとする
     QSize sizeHint() const override;
@@ -68,4 +72,7 @@ private:
 
     // 読み込み完了後に 1 フレームだけ描画するためのフラグ
     bool m_primeFirstFrame = false;
+
+    // マウスクリックでの再生トグル許可フラグ
+    bool m_interactive = true;
 };

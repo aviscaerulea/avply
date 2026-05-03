@@ -3,13 +3,20 @@
 #include <QString>
 #include <QProcess>
 
+// 変換処理モード
+enum class EncodeMode {
+    Reencode,    // av1_nvenc + libopus 再エンコード（高品質・低速）
+    StreamCopy,  // -c copy ストリームコピー（高速・キーフレーム単位カット）
+};
+
 // ffmpeg に渡す変換パラメータ
 struct EncodeParams {
+    EncodeMode mode = EncodeMode::Reencode;
     QString inputPath;
     QString outputPath;
     double inSec = 0.0;        // カット開始位置（秒）
     double outSec = 0.0;       // カット終了位置（秒）
-    int inputWidth = 0;        // 入力映像の幅（FHD 超判定に使用）
+    int inputWidth = 0;        // 入力映像の幅（QWXGA 超判定に使用）
     double inputBitrate = 0.0; // 入力映像のビットレート（bps）。maxrate 設定に使用
 };
 
