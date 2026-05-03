@@ -22,6 +22,7 @@
 #include <QGuiApplication>
 #include <QScreen>
 #include <QStyle>
+#include <QIcon>
 #include <algorithm>
 #include <cmath>
 
@@ -68,37 +69,49 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     connect(m_seekSlider, &QSlider::valueChanged,
             this, &MainWindow::onSeekSliderChanged);
 
-    // --- 再生/停止ボタン（シークバー左、状態の視認も兼ねる） ---
-    // Unicode 記号で表示しフォント色 = テーマ色に追従させる
-    // 外枠を消してアイコン文字を大きく表示する
-    m_playPauseBtn = new QPushButton(QString::fromUtf8(u8"⏯"));
-    m_playPauseBtn->setStyleSheet("QPushButton { border: none; font-size: 18pt; }");
-    m_playPauseBtn->setFixedWidth(40);
-    m_playPauseBtn->setEnabled(false);
+    // アイコン式ボタン共通スタイル
+    // 外枠と内側パディングを消し、ホバー時のみ薄いグレーで反応を示す
+    // padding: 0 を入れないとテキストボタン（【】）でホバー範囲が縦に膨らみ、
+    // アイコンボタン（再生・停止）と見た目のサイズが揃わない
+    const QString iconBtnStyle =
+        "QPushButton { border: none; padding: 0; }"
+        "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }";
+    // アイコン式ボタンの統一サイズ（再生・停止・【・】 すべて同じ矩形でホバーする）
+    const QSize iconBtnSize(36, 32);
+
+    // --- 再生/一時停止ボタン（シークバー左、再生状態の視認も兼ねる） ---
+    // PNG アイコンを使用する
+    m_iconPlay  = QIcon(":/icons/play.png");
+    m_iconPause = QIcon(":/icons/pause.png");
+    m_playPauseBtn = new QPushButton;
+    m_playPauseBtn->setIcon(m_iconPlay);
+    m_playPauseBtn->setIconSize(QSize(24, 24));
     connect(m_playPauseBtn, &QPushButton::clicked, this, [this]() {
         if (m_info.valid) m_videoView->togglePlay();
     });
     connect(m_videoView, &VideoView::playbackStateChanged,
             this, [this](bool playing) {
-        m_playPauseBtn->setText(QString::fromUtf8(playing ? u8"⏸" : u8"⏯"));
+        m_playPauseBtn->setIcon(playing ? m_iconPause : m_iconPlay);
     });
 
-    // --- 開始/終了 設定行 ---
-    m_setInBtn  = new QPushButton("開始位置");
-    m_inLabel   = new QLabel("--:--:--");
-    m_setOutBtn = new QPushButton("終了位置");
-    m_outLabel  = new QLabel("--:--:--");
-    m_setInBtn->setEnabled(false);
-    m_setOutBtn->setEnabled(false);
+    // --- 停止ボタン（シーク位置を 0 に戻し、開始/終了マーカーをクリアする） ---
+    m_stopBtn = new QPushButton;
+    m_stopBtn->setIcon(QIcon(":/icons/stop.png"));
+    m_stopBtn->setIconSize(QSize(24, 24));
+    connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStop);
+
+    // --- 開始/終了 設定ボタン（再生/停止と同じアイコン式スタイルに揃える） ---
+    m_setInBtn  = new QPushButton("【");
+    m_setOutBtn = new QPushButton("】");
     connect(m_setInBtn,  &QPushButton::clicked, this, &MainWindow::onSetIn);
     connect(m_setOutBtn, &QPushButton::clicked, this, &MainWindow::onSetOut);
 
-    auto* inOutRow = new QHBoxLayout;
-    inOutRow->addWidget(m_setInBtn);
-    inOutRow->addWidget(m_inLabel);
-    inOutRow->addStretch();
-    inOutRow->addWidget(m_setOutBtn);
-    inOutRow->addWidget(m_outLabel);
+    // 4 つのアイコン式ボタンに共通スタイルとサイズを一括適用する
+    for (QPushButton* b : { m_playPauseBtn, m_stopBtn, m_setInBtn, m_setOutBtn }) {
+        b->setStyleSheet(iconBtnStyle);
+        b->setFixedSize(iconBtnSize);
+        b->setEnabled(false);
+    }
 
     // --- 変換ボタン（シークバー行の右側に配置する） ---
     m_convertBtn = new QPushButton("変換");
@@ -106,9 +119,19 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_convertBtn->setEnabled(false);
     connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
 
+    // 左側アイコン群を内側レイアウトでまとめ、ボタン同士をピッタリ隣接させる
+    auto* leftIconRow = new QHBoxLayout;
+    leftIconRow->setSpacing(0);
+    leftIconRow->setContentsMargins(0, 0, 0, 0);
+    leftIconRow->addWidget(m_playPauseBtn);
+    leftIconRow->addWidget(m_stopBtn);
+    leftIconRow->addWidget(m_setInBtn);
+
     auto* seekRow = new QHBoxLayout;
-    seekRow->addWidget(m_playPauseBtn);
+    seekRow->setSpacing(4);
+    seekRow->addLayout(leftIconRow);
     seekRow->addWidget(m_seekSlider, 1);
+    seekRow->addWidget(m_setOutBtn);
     seekRow->addWidget(m_convertBtn);
 
     // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
@@ -129,7 +152,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 余剰スペースを全てプレビューに割り当ててウィンドウリサイズに追従させる
     main->addWidget(m_videoView, 1);
     main->addLayout(seekRow);
-    main->addLayout(inOutRow);
 
     setCentralWidget(central);
 
@@ -153,9 +175,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // 設定読込
     const AppConfig cfg = Config::load();
-    m_ffmpegPath  = cfg.ffmpegPath;
-    m_seekLeftMs  = cfg.seekLeftMs;
-    m_seekRightMs = cfg.seekRightMs;
+    m_ffmpegPath           = cfg.ffmpegPath;
+    m_seekLeftMs           = cfg.seekLeftMs;
+    m_seekRightMs          = cfg.seekRightMs;
+    m_initialScreenRatio   = cfg.initialScreenRatio;
+    m_playbackRate = cfg.playbackRate;
+    updateSpeedDisplay();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
@@ -245,7 +270,6 @@ void MainWindow::onSetIn()
 {
     m_inSec = sliderToSec(m_seekSlider->value());
     m_inSet = true;
-    m_inLabel->setText(formatSec(m_inSec));
     updateRangeMarkers();
 }
 
@@ -253,7 +277,20 @@ void MainWindow::onSetOut()
 {
     m_outSec = sliderToSec(m_seekSlider->value());
     m_outSet = true;
-    m_outLabel->setText(formatSec(m_outSec));
+    updateRangeMarkers();
+}
+
+void MainWindow::onStop()
+{
+    if (!m_info.valid) return;
+
+    m_videoView->pause();
+    m_videoView->setPosition(0);
+
+    m_inSet  = false;
+    m_outSet = false;
+    m_inSec  = 0.0;
+    m_outSec = m_info.duration;
     updateRangeMarkers();
 }
 
@@ -387,8 +424,6 @@ void MainWindow::loadFile(const QString& path)
     }
     m_seekSlider->clearRangeMarkers();
     m_seekSlider->clearProgress();
-    m_inLabel->setText("--:--:--");
-    m_outLabel->setText("--:--:--");
     m_outputLabel->clear();
     m_posLabel->setText("  00:00:00 / " + formatSec(info.duration));
 
@@ -421,20 +456,20 @@ void MainWindow::loadFile(const QString& path)
     // 動画読込が完了したのでファイル依存ボタンをまとめて活性化する
     setUiEnabled(true);
 
-    // 新規ファイル読込時は再生速度を等速に戻す
-    m_playbackRate = 1.0;
+    // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
+    // 再生速度はインスタンス起動中ずっと保持するためファイル間でリセットしない
     m_videoView->setPlaybackRate(m_playbackRate);
-    updateSpeedDisplay();
 
     // 動画のアスペクト比をウィンドウ連動の基準として更新する
     m_videoAspect = static_cast<double>(info.width) / info.height;
     updateMinimumWindowSize();
 
-    // モニタ縦横 80% を上限としてアスペクト比維持で動画サイズを縮める
+    // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
+    // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.8）
     const QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen();
     const QRect geom = sc->availableGeometry();
-    const double maxWindowW  = geom.width()  * 0.8;
-    const double maxWindowH  = geom.height() * 0.8;
+    const double maxWindowW  = geom.width()  * m_initialScreenRatio;
+    const double maxWindowH  = geom.height() * m_initialScreenRatio;
     const double maxPreviewH = maxWindowH - m_lowerUiH;
 
     // 元動画サイズに対するスケール係数（1.0 を超えない範囲で最も小さい制約を採用）
@@ -450,7 +485,12 @@ void MainWindow::loadFile(const QString& path)
     const int previewH = qRound(info.height * scale);
 
     m_resizingProgrammatically = true;
-    resize(std::max(600, previewW), previewH + m_lowerUiH);
+    resize(std::max(400, previewW), previewH + m_lowerUiH);
+    // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
+    // frameGeometry は resize 直後も Windows では即時反映されるため安全
+    QRect frame = frameGeometry();
+    frame.moveCenter(geom.center());
+    move(frame.topLeft());
     m_resizingProgrammatically = false;
 }
 
@@ -469,6 +509,7 @@ void MainWindow::setUiEnabled(bool enabled)
     m_openBtn->setEnabled(enabled);
     m_seekSlider->setEnabled(fileLoaded);
     m_playPauseBtn->setEnabled(fileLoaded);
+    m_stopBtn->setEnabled(fileLoaded);
     m_setInBtn->setEnabled(fileLoaded);
     m_setOutBtn->setEnabled(fileLoaded);
     m_convertBtn->setEnabled(fileLoaded && ffmpegOk);
@@ -487,7 +528,7 @@ void MainWindow::setConverting(bool converting)
 
 void MainWindow::updateMinimumWindowSize()
 {
-    constexpr int kMinW = 600;
+    constexpr int kMinW = 400;
     const int minH = qRound(kMinW / m_videoAspect) + m_lowerUiH;
     setMinimumSize(kMinW, minH);
 }
@@ -497,6 +538,9 @@ void MainWindow::resizeEvent(QResizeEvent* event)
     QMainWindow::resizeEvent(event);
     // 動画未読込時は m_videoAspect がデフォルト 16:9 のため矯正しない
     if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
+    // 最大化・全画面・最小化中は OS にサイズ制御を任せ、アスペクト矯正を行わない
+    // （矯正で resize すると画面領域を超えて下部 UI が画面外に押し出される）
+    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
 
     // 幅基準で「正しい高さ」を逆算してウィンドウのアスペクト比を矯正する
     const int targetH = qRound(width() / m_videoAspect) + m_lowerUiH;

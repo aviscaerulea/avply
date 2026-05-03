@@ -2,6 +2,7 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QPushButton>
+#include <QIcon>
 #include <QTimer>
 #include "FfmpegRunner.h"
 #include "VideoView.h"
@@ -34,6 +35,7 @@ private slots:
     void onPlayerPositionChanged(qint64 ms);
     void onSetIn();
     void onSetOut();
+    void onStop();
     void onConvertOrCancel();
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
@@ -95,6 +97,9 @@ private:
     int     m_seekLeftMs  = 5000;
     int     m_seekRightMs = 5000;
 
+    // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（avply.toml の [window].initial_screen_ratio）
+    double m_initialScreenRatio = 0.8;
+
     // 現在の再生速度（1.0 = 等速）
     qreal m_playbackRate = 1.0;
 
@@ -111,13 +116,16 @@ private:
     QPushButton*  m_openBtn;
     VideoView*    m_videoView;
     QPushButton*  m_playPauseBtn;
+    QPushButton*  m_stopBtn;
+
+    // 再生状態切替で頻繁に差し替えるアイコンはコンストラクタで一度だけ生成して保持する
+    QIcon m_iconPlay;
+    QIcon m_iconPause;
     QLabel*       m_posLabel;
     QLabel*       m_speedLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
-    QLabel*       m_inLabel;
     QPushButton*  m_setOutBtn;
-    QLabel*       m_outLabel;
     QPushButton*  m_convertBtn;
     QLabel*       m_videoInfoLabel;
     QLabel*       m_outputLabel;

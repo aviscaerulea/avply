@@ -25,6 +25,7 @@ qt_add_executable(avply WIN32
     src/OutputNamer.cpp
     src/Config.h
     src/Config.cpp
+    src/icons.qrc
 )
 
 target_include_directories(avply PRIVATE src)

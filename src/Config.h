@@ -8,6 +8,12 @@ struct AppConfig {
     // カーソルキーシーク量（ミリ秒）
     int seekLeftMs  = 5000;
     int seekRightMs = 5000;
+
+    // 動画読込時の初期再生速度（1.00 で等速）
+    double playbackRate = 1.0;
+
+    // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.8）
+    double initialScreenRatio = 0.8;
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ
