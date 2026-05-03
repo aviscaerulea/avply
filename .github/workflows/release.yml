@@ -1,0 +1,81 @@
+# vim: set ft=yaml fenc=utf-8 ff=unix sw=2 ts=2 et :
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_EVENT_RELEASE_TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B out `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build out --config Release
+
+      - name: Verify Qt DLL deployment
+        shell: pwsh
+        run: |
+          $required = @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll')
+          foreach ($dll in $required) {
+              if (-not (Test-Path "out\Release\$dll")) {
+                  Write-Error "windeployqt did not deploy required DLL: $dll"
+                  exit 1
+              }
+          }
+
+      - name: Copy assets
+        shell: pwsh
+        run: Copy-Item avply.toml out\Release\
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path out\Release\* `
+            -DestinationPath "out\avply-${{ steps.version.outputs.version }}-x64.zip" `
+            -Force
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          gh release upload "$TAG" \
+            "out/avply-${VERSION}-x64.zip" \
+            --clobber
