@@ -56,15 +56,12 @@ void Encoder::encode(const EncodeParams& params)
 
         args << "-c:v" << "av1_nvenc"
              << "-rc" << "vbr"
-             << "-cq" << "35"
-             << "-preset" << "p6";
-
-        // 元ビットレートが判明している場合は maxrate を設定してサイズ膨張を防ぐ
-        if (params.inputBitrate > 0.0) {
-            const qint64 br = static_cast<qint64>(params.inputBitrate);
-            args << "-maxrate" << QString::number(br)
-                 << "-bufsize" << QString::number(br * 2);
-        }
+             << "-cq" << "28"
+             << "-preset" << "p6"
+             // スライド切替後の品質回復を最大 4 秒以内（30fps 想定）に抑える
+             << "-g" << "120"
+             // フラットな背景・テキストのビット配分を改善する
+             << "-spatial_aq" << "1";
 
         args << "-c:a" << "libopus"
              << "-b:a" << "96k";

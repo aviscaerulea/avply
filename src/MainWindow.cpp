@@ -373,7 +373,6 @@ void MainWindow::startOrCancel(EncodeMode mode)
     params.inSec        = effectiveIn;
     params.outSec       = effectiveOut;
     params.inputWidth   = m_info.width;
-    params.inputBitrate = m_info.videoBitrate;
 
     // 旧 Encoder を破棄してから新規生成する
     if (m_encoder) {

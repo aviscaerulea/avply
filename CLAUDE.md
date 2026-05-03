@@ -50,7 +50,9 @@ src/
 
 変換（再エンコード）：
 
-- av1_nvenc, rc=vbr, cq=35, preset=p6
+- av1_nvenc, rc=vbr, cq=28, preset=p6
+- GOP 120 フレーム（30fps 想定で 4 秒間隔のキーフレーム）
+- spatial_aq 有効（フラット領域・テキストのビット配分改善）
 - libopus 96kbps
 - QWXGA（幅 2048px）超の場合は `scale=2048:-2`
 
