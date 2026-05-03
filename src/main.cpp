@@ -1,9 +1,14 @@
 #include <QApplication>
+#include <QByteArray>
 #include <QStringList>
 #include "MainWindow.h"
 
 int main(int argc, char* argv[])
 {
+    // 再生速度変更時に pitchCompensation を有効化するため
+    // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
+    qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+
     QApplication app(argc, argv);
     app.setApplicationName("vcutter");
     app.setApplicationVersion("1.0.0");

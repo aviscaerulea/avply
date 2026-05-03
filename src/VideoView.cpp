@@ -12,6 +12,7 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>
+#include <QDebug>
 
 static constexpr int kMinWidth  = 640;
 static constexpr int kMinHeight = 360;
@@ -43,6 +44,12 @@ VideoView::VideoView(QWidget* parent)
     m_player->setVideoOutput(m_videoWidget);
     m_player->setAudioOutput(m_audio);
     m_audio->setVolume(0.8);
+
+    // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
+    // 利用可否を qDebug に出して実機検証時の判断材料とする
+    qDebug() << "pitchCompensationAvailability:"
+             << static_cast<int>(m_player->pitchCompensationAvailability());
+    m_player->setPitchCompensation(true);
 
     // VideoView 本体および QVideoWidget の両方で D&D を受け付ける
     // QVideoWidget はレンダリング用のネイティブ子ウィジェットを内部に作るため、
