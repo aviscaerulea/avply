@@ -10,9 +10,9 @@ struct AppConfig {
     int seekRightMs = 5000;
 };
 
-// vcutter.toml / vcutter.local.toml から設定を読み込むユーティリティ
+// avply.toml / avply.local.toml から設定を読み込むユーティリティ
 namespace Config {
-    // 実行ファイルと同階層の vcutter.toml を読み、vcutter.local.toml が
+    // 実行ファイルと同階層の avply.toml を読み、avply.local.toml が
     // 存在すれば同キーを後勝ちで上書きする。
     // ffmpeg_path 未設定時は scoop デフォルトパスにフォールバックする。
     AppConfig load();

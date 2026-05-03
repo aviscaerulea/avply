@@ -10,9 +10,9 @@ int main(int argc, char* argv[])
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
 
     QApplication app(argc, argv);
-    app.setApplicationName("vcutter");
+    app.setApplicationName("avply");
     app.setApplicationVersion("1.0.0");
-    app.setOrganizationName("vcutter");
+    app.setOrganizationName("avply");
 
     // コマンドライン第 1 引数があれば初期ファイルとして MainWindow に渡す
     // （Windows の D&D 起動・「送る」・「プログラムを指定して開く」用）

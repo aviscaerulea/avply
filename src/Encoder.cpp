@@ -32,7 +32,7 @@ void Encoder::encode(const EncodeParams& params)
     // %TEMP% に一時出力ファイルパスを生成する
     // 完了後に本来の出力パスへ移動する設計
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    m_tempPath = QString("%1/vcutter_%2.mp4")
+    m_tempPath = QString("%1/avply_%2.mp4")
         .arg(tempDir)
         .arg(QDateTime::currentMSecsSinceEpoch());
 

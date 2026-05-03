@@ -86,8 +86,8 @@ AppConfig Config::load()
     const QString exeDir = QCoreApplication::applicationDirPath();
     AppConfig cfg;
 
-    mergeFromFile(exeDir + "/vcutter.toml",       cfg);
-    mergeFromFile(exeDir + "/vcutter.local.toml", cfg);
+    mergeFromFile(exeDir + "/avply.toml",       cfg);
+    mergeFromFile(exeDir + "/avply.local.toml", cfg);
 
     if (cfg.ffmpegPath.isEmpty()) {
         const QString fallback = scoopFallback();

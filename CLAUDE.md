@@ -1,4 +1,4 @@
-# vcutter — CLAUDE.md
+# avply — CLAUDE.md
 
 ## 開発環境
 
@@ -37,7 +37,7 @@ src/
   RangeSlider.h/cpp   開始〜終了区間を赤系でハイライト表示するスライダー
   Encoder.h/cpp       変換実行・進捗通知
   OutputNamer.h/cpp   出力ファイル名生成（{base}_cut.mp4 形式）
-  Config.h/cpp        vcutter.toml 読み込み（ffmpeg_path 等）
+  Config.h/cpp        avply.toml 読み込み（ffmpeg_path 等）
 ```
 
 ## 実装上の注意点
@@ -61,12 +61,12 @@ src/
 
 ### ffmpeg パス設定
 
-UI からの編集はせず、実行ファイルと同階層の `vcutter.toml`（ローカル上書きは `vcutter.local.toml`）の `[ffmpeg].path` で指定する。
+UI からの編集はせず、実行ファイルと同階層の `avply.toml`（ローカル上書きは `avply.local.toml`）の `[ffmpeg].path` で指定する。
 未設定時は `%USERPROFILE%/scoop/apps/ffmpeg/current/bin/ffmpeg.exe` にフォールバックする。
 
 ### カーソルキーシーク設定
 
-`vcutter.toml` の `[seek]` セクションで左右カーソルキーのスキップ量（ms）を指定する。
+`avply.toml` の `[seek]` セクションで左右カーソルキーのスキップ量（ms）を指定する。
 デフォルトは左右ともに 5000 ms。0 以下に設定するとそのキーのシークが無効になる。
 
 ### 出力ファイル名

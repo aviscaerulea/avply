@@ -1,5 +1,5 @@
 ﻿# vim: set ft=ps1 fenc=utf-8 ff=unix sw=4 ts=4 et :
-# vcutter ビルドスクリプト
+# avply ビルドスクリプト
 # DevShell モジュール経由で VS 開発環境をロードし cmake でビルドする。
 param([switch]$Reconfigure)
 $ErrorActionPreference = 'Stop'
