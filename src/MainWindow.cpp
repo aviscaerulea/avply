@@ -50,10 +50,11 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     // --- 再生位置ラベル（ステータスバー右端に配置） ---
-    m_posLabel = new QLabel("--:--:-- / --:--:--");
+    // 先頭 2 半角スペースは項目間の区切りとして機能する
+    m_posLabel = new QLabel("  --:--:-- / --:--:--");
 
     // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
-    m_speedLabel = new QLabel("x1.00");
+    m_speedLabel = new QLabel("  x1.00");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -80,17 +81,14 @@ MainWindow::MainWindow(QWidget* parent)
     inOutRow->addWidget(m_setOutBtn);
     inOutRow->addWidget(m_outLabel);
 
-    // --- 変換行（プログレスバー + トグルボタン） ---
-    m_progressBar = new QProgressBar;
-    m_progressBar->setRange(0, 100);
-    m_progressBar->setValue(0);
+    // --- 変換ボタン（シークバー行の右側に配置する） ---
     m_convertBtn = new QPushButton("変換");
     m_convertBtn->setFixedWidth(120);
     connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
 
-    auto* convertRow = new QHBoxLayout;
-    convertRow->addWidget(m_progressBar, 1);
-    convertRow->addWidget(m_convertBtn);
+    auto* seekRow = new QHBoxLayout;
+    seekRow->addWidget(m_seekSlider, 1);
+    seekRow->addWidget(m_convertBtn);
 
     // --- 出力ファイルラベル（ステータスバー左に配置） ---
     m_outputLabel = new QLabel;
@@ -103,13 +101,14 @@ MainWindow::MainWindow(QWidget* parent)
     main->setContentsMargins(12, 12, 12, 12);
     main->addLayout(fileRow);
     main->addWidget(m_videoView);
-    main->addWidget(m_seekSlider);
+    main->addLayout(seekRow);
     main->addLayout(inOutRow);
-    main->addLayout(convertRow);
 
     setCentralWidget(central);
 
     // --- ステータスバー：左に出力状況、右に再生位置と再生速度 ---
+    // 項目間の縦罫線を非表示にして、ラベル先頭の半角スペースのみで間隔を作る
+    statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
     statusBar()->addWidget(m_outputLabel, 1);
     statusBar()->addPermanentWidget(m_posLabel);
     statusBar()->addPermanentWidget(m_speedLabel);
@@ -195,7 +194,7 @@ void MainWindow::onSeekSliderChanged(int value)
 void MainWindow::onPlayerPositionChanged(qint64 ms)
 {
     const double sec = ms / 1000.0;
-    m_posLabel->setText(formatSec(sec) + " / " + formatSec(m_info.duration));
+    m_posLabel->setText("  " + formatSec(sec) + " / " + formatSec(m_info.duration));
 
     if (m_info.duration <= 0.0) return;
     const int value = static_cast<int>(sec / m_info.duration * kSliderMax);
@@ -277,7 +276,7 @@ void MainWindow::onConvertOrCancel()
     connect(m_encoder, &Encoder::finished,        this, &MainWindow::onEncoderFinished);
 
     m_outputLabel->setText("変換中です：" + outputPath);
-    m_progressBar->setValue(0);
+    m_seekSlider->setProgress(0);
     setConverting(true);
 
     m_encoder->encode(params);
@@ -285,7 +284,7 @@ void MainWindow::onConvertOrCancel()
 
 void MainWindow::onEncoderProgress(int pct)
 {
-    m_progressBar->setValue(pct);
+    m_seekSlider->setProgress(pct);
 }
 
 void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QString& err)
@@ -293,19 +292,21 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     setConverting(false);
 
     if (ok) {
-        m_progressBar->setValue(100);
+        // 完了時は 100% で青を区間全体に重ねた状態を維持する
+        m_seekSlider->setProgress(100);
         m_outputLabel->setText("完了しました：" + outputPath);
         return;
     }
 
+    // 中止・失敗時は進捗オーバーレイを除去して区間表示を元に戻す
+    m_seekSlider->clearProgress();
+
     // ユーザ中止：err 空文字 → ダイアログ抑制
     if (err.isEmpty()) {
-        m_progressBar->setValue(0);
         m_outputLabel->setText("中止しました");
         return;
     }
 
-    m_progressBar->setValue(0);
     m_outputLabel->setText("失敗しました：" + err);
     QMessageBox::critical(this, "変換エラー", err);
 }
@@ -345,12 +346,13 @@ void MainWindow::loadFile(const QString& path)
     }
     m_seekSlider->setEnabled(true);
     m_seekSlider->clearRangeMarkers();
+    m_seekSlider->clearProgress();
     m_setInBtn->setEnabled(true);
     m_setOutBtn->setEnabled(true);
     m_inLabel->setText("開始：未設定");
     m_outLabel->setText("終了：未設定");
     m_outputLabel->clear();
-    m_posLabel->setText("00:00:00 / " + formatSec(info.duration));
+    m_posLabel->setText("  00:00:00 / " + formatSec(info.duration));
 
     // 新規ファイル読込時は再生速度を等速に戻す
     m_playbackRate = 1.0;
@@ -384,6 +386,9 @@ void MainWindow::setConverting(bool converting)
 
 void MainWindow::updateRangeMarkers()
 {
+    // 区間が変わったら過去の進捗オーバーレイは無効になる
+    m_seekSlider->clearProgress();
+
     if (!m_inSet || !m_outSet || m_info.duration <= 0.0) {
         m_seekSlider->clearRangeMarkers();
         return;
@@ -460,7 +465,7 @@ void MainWindow::changePlaybackRate(qreal delta)
 
 void MainWindow::updateSpeedDisplay()
 {
-    m_speedLabel->setText(QString::asprintf("x%.2f", m_playbackRate));
+    m_speedLabel->setText(QString::asprintf("  x%.2f", m_playbackRate));
 }
 
 QString MainWindow::openDialogStartDir() const

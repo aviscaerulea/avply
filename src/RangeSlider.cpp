@@ -24,6 +24,20 @@ void RangeSlider::clearRangeMarkers()
     update();
 }
 
+void RangeSlider::setProgress(int pct)
+{
+    m_progressPct = std::clamp(pct, 0, 100);
+    m_hasProgress = true;
+    update();
+}
+
+void RangeSlider::clearProgress()
+{
+    m_hasProgress = false;
+    m_progressPct = 0;
+    update();
+}
+
 void RangeSlider::paintEvent(QPaintEvent* /*event*/)
 {
     QStyleOptionSlider opt;
@@ -45,6 +59,15 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
         const int y  = groove.center().y() - 3;
         const QRect rangeRect(x1, y, x2 - x1, 7);
         painter.fillRect(rangeRect, QColor(220, 60, 60, 220));
+
+        // 進捗オーバーレイ（青）を区間に重ねる。100% で区間全体が青に見える
+        if (m_hasProgress) {
+            const int progressW = static_cast<int>((x2 - x1) * m_progressPct / 100.0);
+            if (progressW > 0) {
+                const QRect progressRect(x1, y, progressW, 7);
+                painter.fillRect(progressRect, QColor(60, 130, 220, 220));
+            }
+        }
     }
 
     // ハンドルを最後に描いて区間ハイライトより前面に表示する

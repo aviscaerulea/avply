@@ -2,7 +2,6 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QPushButton>
-#include <QProgressBar>
 #include <QTimer>
 #include "FfmpegRunner.h"
 #include "VideoView.h"
@@ -102,7 +101,6 @@ private:
     QLabel*       m_inLabel;
     QPushButton*  m_setOutBtn;
     QLabel*       m_outLabel;
-    QProgressBar* m_progressBar;
     QPushButton*  m_convertBtn;
     QLabel*       m_outputLabel;
 
