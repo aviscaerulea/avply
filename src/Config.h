@@ -6,8 +6,8 @@ struct AppConfig {
     QString ffmpegPath;
 
     // カーソルキーシーク量（ミリ秒）
-    int seekLeftMs  = 3000;
-    int seekRightMs = 3000;
+    int seekLeftMs  = 5000;
+    int seekRightMs = 5000;
 };
 
 // vcutter.toml / vcutter.local.toml から設定を読み込むユーティリティ

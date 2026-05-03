@@ -86,8 +86,8 @@ private:
 
     // 設定
     QString m_ffmpegPath;
-    int     m_seekLeftMs  = 3000;
-    int     m_seekRightMs = 3000;
+    int     m_seekLeftMs  = 5000;
+    int     m_seekRightMs = 5000;
 
     // 現在の再生速度（1.0 = 等速）
     qreal m_playbackRate = 1.0;
