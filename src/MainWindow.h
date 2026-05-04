@@ -42,11 +42,14 @@ private slots:
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
 
 private:
-    // 動画ファイルを実際に読み込む（Open ダイアログと D&D 共通）
+    // メディアファイルを実際に読み込む（Open ダイアログと D&D 共通）
     void loadFile(const QString& path);
 
-    // 拡張子が動画として受け付け可能か判定する
-    static bool isAcceptedVideo(const QString& path);
+    // 拡張子がメディア（動画・音声）として受け付け可能か判定する
+    static bool isAcceptedMedia(const QString& path);
+
+    // ffprobe 結果が音声のみ（映像ストリーム未検出）であるかを返す
+    bool isAudioOnly() const { return m_info.codec.isEmpty() || m_info.width <= 0; }
 
     // UI 有効/無効を切り替える（変換中は無効化）
     void setUiEnabled(bool enabled);

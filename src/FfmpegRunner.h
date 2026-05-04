@@ -1,7 +1,7 @@
 #pragma once
 #include <QString>
 
-// 動画ファイルの基本情報
+// メディアファイル（動画・音声）の基本情報
 struct VideoInfo {
     double duration = 0.0; // 総再生時間（秒）
     int width = 0;

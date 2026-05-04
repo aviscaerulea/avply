@@ -36,7 +36,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     setAcceptDrops(true);
 
     // --- ファイル選択行 ---
-    m_filePathLabel = new QLabel("動画ファイルを選択するか、ウィンドウへドロップしてください");
+    m_filePathLabel = new QLabel("メディアファイルを選択するか、ウィンドウへドロップしてください");
     m_filePathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_openBtn = new QPushButton("開く...");
     connect(m_openBtn, &QPushButton::clicked, this, &MainWindow::onOpenFile);
@@ -51,7 +51,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, &MainWindow::onPlayerPositionChanged);
     connect(m_videoView, &VideoView::fileDropped,
             this, [this](const QString& path) {
-        if (isAcceptedVideo(path)) loadFile(path);
+        if (isAcceptedMedia(path)) loadFile(path);
     });
 
     // --- 再生位置ラベル（ステータスバー右端に配置） ---
@@ -202,7 +202,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 拡張子フィルタを通すことで非対応形式は静かに無視する
     if (!initialPath.isEmpty()) {
         QTimer::singleShot(0, this, [this, initialPath]() {
-            if (isAcceptedVideo(initialPath) && QFile::exists(initialPath)) {
+            if (isAcceptedMedia(initialPath) && QFile::exists(initialPath)) {
                 loadFile(initialPath);
             }
         });
@@ -217,7 +217,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 {
     if (!event->mimeData()->hasUrls()) return;
     for (const QUrl& url : event->mimeData()->urls()) {
-        if (url.isLocalFile() && isAcceptedVideo(url.toLocalFile())) {
+        if (url.isLocalFile() && isAcceptedMedia(url.toLocalFile())) {
             event->acceptProposedAction();
             return;
         }
@@ -229,7 +229,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     for (const QUrl& url : event->mimeData()->urls()) {
         if (!url.isLocalFile()) continue;
         const QString path = url.toLocalFile();
-        if (isAcceptedVideo(path)) {
+        if (isAcceptedMedia(path)) {
             loadFile(path);
             event->acceptProposedAction();
             return;
@@ -242,8 +242,9 @@ void MainWindow::dropEvent(QDropEvent* event)
 void MainWindow::onOpenFile()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, "動画ファイルを開く", openDialogStartDir(),
-        "動画ファイル (*.mp4 *.mkv *.mov *.avi *.webm);;すべてのファイル (*)");
+        this, "メディアファイルを開く", openDialogStartDir(),
+        "メディアファイル (*.mp4 *.mkv *.mov *.avi *.webm *.mp3 *.wav *.flac *.ogg *.opus)"
+        ";;すべてのファイル (*)");
     if (path.isEmpty()) return;
     loadFile(path);
 }
@@ -326,11 +327,11 @@ void MainWindow::startOrCancel(EncodeMode mode)
         return;
     }
     if (m_filePath.isEmpty()) {
-        QMessageBox::warning(this, "入力エラー", "動画ファイルを選択してください。");
+        QMessageBox::warning(this, "入力エラー", "メディアファイルを選択してください。");
         return;
     }
     if (m_info.duration <= 0.0) {
-        QMessageBox::warning(this, "入力エラー", "動画の長さを取得できませんでした。");
+        QMessageBox::warning(this, "入力エラー", "メディアの長さを取得できませんでした。");
         return;
     }
 
@@ -353,8 +354,8 @@ void MainWindow::startOrCancel(EncodeMode mode)
         return;
     }
 
-    if (mode == EncodeMode::Reencode) {
-        // NVENC AV1 対応確認
+    // 動画の再エンコードは NVENC を使うため対応確認を行う。音声のみは libopus のみで NVENC 不要
+    if (mode == EncodeMode::Reencode && !isAudioOnly()) {
         if (!Ffmpeg::checkAv1Nvenc(m_ffmpegPath)) {
             QMessageBox::critical(this, "GPU エラー",
                 "av1_nvenc エンコーダが利用できません。\n"
@@ -363,8 +364,16 @@ void MainWindow::startOrCancel(EncodeMode mode)
         }
     }
 
-    // 出力パスを生成
-    const QString outputPath = OutputNamer::generate(m_filePath);
+    // 出力拡張子を決定する：
+    //   変換 + 動画 → mp4、変換 + 音声 → opus、トリム → 入力拡張子を維持
+    QString outExt;
+    if (mode == EncodeMode::Reencode) {
+        outExt = isAudioOnly() ? "opus" : "mp4";
+    }
+    else {
+        outExt = QFileInfo(m_filePath).suffix().toLower();
+    }
+    const QString outputPath = OutputNamer::generate(m_filePath, outExt);
 
     EncodeParams params;
     params.mode         = mode;
@@ -373,6 +382,7 @@ void MainWindow::startOrCancel(EncodeMode mode)
     params.inSec        = effectiveIn;
     params.outSec       = effectiveOut;
     params.inputWidth   = m_info.width;
+    params.hasVideo     = !isAudioOnly();
 
     // 旧 Encoder を破棄してから新規生成する
     if (m_encoder) {
@@ -441,7 +451,7 @@ void MainWindow::loadFile(const QString& path)
     }
     if (!info.valid || info.duration <= 0.0) {
         m_videoView->clear();
-        QMessageBox::critical(this, "エラー", "有効な動画ファイルではありません。");
+        QMessageBox::critical(this, "エラー", "有効なメディアファイルではありません。");
         return;
     }
 
@@ -462,16 +472,20 @@ void MainWindow::loadFile(const QString& path)
     m_outputLabel->clear();
     m_posLabel->setText("  00:00:00 / " + formatSec(info.duration));
 
-    // 動画情報をステータスバー左端に表示する
-    // 形式：解像度  fps  映像コーデック ビットレート  音声コーデック ビットレート サンプリング ch
-    QString videoInfo = QString("  %1x%2").arg(info.width).arg(info.height);
-    if (info.frameRate > 0.0) {
-        videoInfo += "  " + QString::number(info.frameRate, 'g', 4) + "fps";
-    }
-    if (!info.codec.isEmpty()) {
-        videoInfo += "  " + info.codec;
-        if (info.videoBitrate > 0.0) {
-            videoInfo += " " + QString::number(info.videoBitrate / 1.0e6, 'f', 1) + "Mbps";
+    // メディア情報をステータスバー左端に表示する
+    // 動画形式：解像度  fps  映像コーデック ビットレート  音声コーデック ビットレート サンプリング ch
+    // 音声のみ：先頭の解像度・fps・映像コーデック表示は省略する
+    QString videoInfo;
+    if (!isAudioOnly()) {
+        videoInfo = QString("  %1x%2").arg(info.width).arg(info.height);
+        if (info.frameRate > 0.0) {
+            videoInfo += "  " + QString::number(info.frameRate, 'g', 4) + "fps";
+        }
+        if (!info.codec.isEmpty()) {
+            videoInfo += "  " + info.codec;
+            if (info.videoBitrate > 0.0) {
+                videoInfo += " " + QString::number(info.videoBitrate / 1.0e6, 'f', 1) + "Mbps";
+            }
         }
     }
     if (!info.audioCodec.isEmpty()) {
@@ -488,52 +502,79 @@ void MainWindow::loadFile(const QString& path)
     }
     m_videoInfoLabel->setText(videoInfo);
 
-    // 動画読込が完了したのでファイル依存ボタンをまとめて活性化する
+    // 読込完了に応じて動画プレビュー領域の表示／非表示を切り替える
+    // 音声のみ：プレビュー領域を完全に消し、下部 UI のみのコンパクト表示にする
+    // 動画あり：QVideoWidget の遅延表示は VideoView 内部のロジックに委ねる
+    if (isAudioOnly()) {
+        m_videoView->hide();
+    }
+    else {
+        m_videoView->show();
+    }
+
+    // 読込が完了したのでファイル依存ボタンをまとめて活性化する
     setUiEnabled(true);
 
     // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
     // 再生速度はインスタンス起動中ずっと保持するためファイル間でリセットしない
     m_videoView->setPlaybackRate(m_playbackRate);
 
-    // 動画のアスペクト比をウィンドウ連動の基準として更新する
-    m_videoAspect = static_cast<double>(info.width) / info.height;
-    updateMinimumWindowSize();
-
-    // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
-    // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.8）
+    // ウィンドウサイズを決定する：動画はアスペクト比連動、音声は下部 UI 高にあわせる
     const QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen();
     const QRect geom = sc->availableGeometry();
-    const double maxWindowW  = geom.width()  * m_initialScreenRatio;
-    const double maxWindowH  = geom.height() * m_initialScreenRatio;
-    const double maxPreviewH = maxWindowH - m_lowerUiH;
 
-    // 元動画サイズに対するスケール係数（1.0 を超えない範囲で最も小さい制約を採用）
-    double scale = 1.0;
-    if (info.width > maxWindowW) {
-        scale = std::min(scale, maxWindowW / info.width);
+    if (isAudioOnly()) {
+        updateMinimumWindowSize();
+
+        m_resizingProgrammatically = true;
+        resize(std::max(400, width()), m_lowerUiH);
+        QRect frame = frameGeometry();
+        frame.moveCenter(geom.center());
+        move(frame.topLeft());
+        m_resizingProgrammatically = false;
     }
-    if (maxPreviewH > 0 && info.height > maxPreviewH) {
-        scale = std::min(scale, maxPreviewH / info.height);
+    else {
+        // 動画のアスペクト比をウィンドウ連動の基準として更新する
+        m_videoAspect = static_cast<double>(info.width) / info.height;
+        updateMinimumWindowSize();
+
+        // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
+        // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.8）
+        const double maxWindowW  = geom.width()  * m_initialScreenRatio;
+        const double maxWindowH  = geom.height() * m_initialScreenRatio;
+        const double maxPreviewH = maxWindowH - m_lowerUiH;
+
+        // 元動画サイズに対するスケール係数（1.0 を超えない範囲で最も小さい制約を採用）
+        double scale = 1.0;
+        if (info.width > maxWindowW) {
+            scale = std::min(scale, maxWindowW / info.width);
+        }
+        if (maxPreviewH > 0 && info.height > maxPreviewH) {
+            scale = std::min(scale, maxPreviewH / info.height);
+        }
+
+        const int previewW = qRound(info.width  * scale);
+        const int previewH = qRound(info.height * scale);
+
+        m_resizingProgrammatically = true;
+        resize(std::max(400, previewW), previewH + m_lowerUiH);
+        // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
+        // frameGeometry は resize 直後も Windows では即時反映されるため安全
+        QRect frame = frameGeometry();
+        frame.moveCenter(geom.center());
+        move(frame.topLeft());
+        m_resizingProgrammatically = false;
     }
-
-    const int previewW = qRound(info.width  * scale);
-    const int previewH = qRound(info.height * scale);
-
-    m_resizingProgrammatically = true;
-    resize(std::max(400, previewW), previewH + m_lowerUiH);
-    // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
-    // frameGeometry は resize 直後も Windows では即時反映されるため安全
-    QRect frame = frameGeometry();
-    frame.moveCenter(geom.center());
-    move(frame.topLeft());
-    m_resizingProgrammatically = false;
 }
 
-bool MainWindow::isAcceptedVideo(const QString& path)
+bool MainWindow::isAcceptedMedia(const QString& path)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
-    return ext == "mp4" || ext == "mkv" || ext == "mov"
-        || ext == "avi" || ext == "webm";
+    if (ext == "mp4" || ext == "mkv" || ext == "mov"
+        || ext == "avi" || ext == "webm") return true;
+    if (ext == "mp3" || ext == "wav" || ext == "flac"
+        || ext == "ogg" || ext == "opus") return true;
+    return false;
 }
 
 void MainWindow::setUiEnabled(bool enabled)
@@ -585,15 +626,19 @@ void MainWindow::setRunning(Operation op)
 void MainWindow::updateMinimumWindowSize()
 {
     constexpr int kMinW = 400;
-    const int minH = qRound(kMinW / m_videoAspect) + m_lowerUiH;
+    // 音声のみ：プレビュー領域なしのため下部 UI 高のみで最小高さを決める
+    const int minH = (m_info.valid && isAudioOnly())
+        ? m_lowerUiH
+        : qRound(kMinW / m_videoAspect) + m_lowerUiH;
     setMinimumSize(kMinW, minH);
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
-    // 動画未読込時は m_videoAspect がデフォルト 16:9 のため矯正しない
     if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
+    // 音声のみはプレビュー領域がないためアスペクト矯正そのものが不要
+    if (isAudioOnly()) return;
     // 最大化・全画面・最小化中は OS にサイズ制御を任せ、アスペクト矯正を行わない
     // （矯正で resize すると画面領域を超えて下部 UI が画面外に押し出される）
     if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;

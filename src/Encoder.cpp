@@ -31,16 +31,20 @@ void Encoder::encode(const EncodeParams& params)
 
     // %TEMP% に一時出力ファイルパスを生成する
     // 完了後に本来の出力パスへ移動する設計
+    // 一時ファイルの拡張子は出力パスと一致させる（ffmpeg のコンテナ判定が拡張子依存のため）
+    const QString outExt = QFileInfo(params.outputPath).suffix().toLower();
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    m_tempPath = QString("%1/avply_%2.mp4")
+    m_tempPath = QString("%1/avply_%2.%3")
         .arg(tempDir)
-        .arg(QDateTime::currentMSecsSinceEpoch());
+        .arg(QDateTime::currentMSecsSinceEpoch())
+        .arg(outExt);
 
     QStringList args;
     args << "-y"
          << "-hide_banner";
 
-    if (params.mode == EncodeMode::Reencode) {
+    // 映像入力かつ再エンコード時のみ NVENC のための CUDA HW デコードを使う
+    if (params.mode == EncodeMode::Reencode && params.hasVideo) {
         args << "-hwaccel" << "cuda";
     }
 
@@ -49,19 +53,25 @@ void Encoder::encode(const EncodeParams& params)
          << "-t" << QString::number(m_totalDuration, 'f', 3);
 
     if (params.mode == EncodeMode::Reencode) {
-        // QWXGA（幅 2048px）超の場合はアスペクト比を維持してスケールダウン
-        if (params.inputWidth > 2048) {
-            args << "-vf" << "scale=2048:-2";
-        }
+        if (params.hasVideo) {
+            // QWXGA（幅 2048px）超の場合はアスペクト比を維持してスケールダウン
+            if (params.inputWidth > 2048) {
+                args << "-vf" << "scale=2048:-2";
+            }
 
-        args << "-c:v" << "av1_nvenc"
-             << "-rc" << "vbr"
-             << "-cq" << "28"
-             << "-preset" << "p6"
-             // スライド切替後の品質回復を最大 4 秒以内（30fps 想定）に抑える
-             << "-g" << "120"
-             // フラットな背景・テキストのビット配分を改善する
-             << "-spatial_aq" << "1";
+            args << "-c:v" << "av1_nvenc"
+                 << "-rc" << "vbr"
+                 << "-cq" << "28"
+                 << "-preset" << "p6"
+                 // スライド切替後の品質回復を最大 4 秒以内（30fps 想定）に抑える
+                 << "-g" << "120"
+                 // フラットな背景・テキストのビット配分を改善する
+                 << "-spatial_aq" << "1";
+        }
+        else {
+            // 音声のみ入力：映像ストリームを除外する（一部コンテナの非映像ストリーム混入も防ぐ）
+            args << "-vn";
+        }
 
         args << "-c:a" << "libopus"
              << "-b:a" << "96k";
@@ -71,11 +81,15 @@ void Encoder::encode(const EncodeParams& params)
         args << "-c" << "copy";
     }
 
-    args << "-movflags" << "+faststart"
-         << m_tempPath;
+    // +faststart は ISOBMFF 系コンテナ専用。それ以外（opus/ogg/mp3/wav 等）に付けると ffmpeg が警告を出す
+    if (outExt == "mp4" || outExt == "m4a" || outExt == "mov") {
+        args << "-movflags" << "+faststart";
+    }
+
+    args << m_tempPath;
 
     m_process = new QProcess(this);
-    // stderr と stdout をマージして進捗行を受け取る
+    // ffmpeg は進捗行（time=...）を stderr に出力するため、readyReadStandardOutput でまとめて受け取れるよう統合する
     m_process->setProcessChannelMode(QProcess::MergedChannels);
     connect(m_process, &QProcess::readyReadStandardOutput,
             this, &Encoder::onReadyReadOutput);

@@ -17,6 +17,7 @@ struct EncodeParams {
     double inSec = 0.0;        // カット開始位置（秒）
     double outSec = 0.0;       // カット終了位置（秒）
     int inputWidth = 0;        // 入力映像の幅（QWXGA 超判定に使用）
+    bool hasVideo = true;      // 入力に映像ストリームを含むか（false なら音声のみ）
 };
 
 // ffmpeg による動画変換を管理するクラス
