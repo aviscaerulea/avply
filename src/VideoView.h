@@ -4,12 +4,16 @@
 
 class QVideoWidget;
 class QMediaPlayer;
-class QAudioOutput;
+class QAudioBufferOutput;
+class QAudioSink;
+class QIODevice;
 class QDragEnterEvent;
 class QDropEvent;
 
-// QMediaPlayer + QVideoWidget + QAudioOutput を束ねた動画プレビュー
-// 音声付き再生・シーク・状態通知・D&D 受付を担う
+// QMediaPlayer + QVideoWidget + QAudioBufferOutput + QAudioSink を束ねた動画プレビュー
+// 音声付き再生・シーク・状態通知・D&D 受付を担う。
+// 100% 超のソフトウェア音量ブーストを実現するため、QAudioOutput ではなく
+// QAudioBufferOutput でサンプルを取得し、gain 適用後 QAudioSink に push する
 class VideoView : public QWidget {
     Q_OBJECT
 public:
@@ -30,6 +34,10 @@ public:
 
     // 再生速度を変更する（1.0 が等速）
     void setPlaybackRate(qreal rate);
+
+    // 音量ブースト倍率を設定する（1.0 = 100%、1.5 = 150%）
+    // QAudioBufferOutput 経由のサンプルに線形乗算し ±1.0 でハードクリップする
+    void setVolumeBoost(double gain);
 
     // 再生状態を切り替える（再生中なら停止、停止中なら再生）
     void togglePlay();
@@ -66,9 +74,14 @@ signals:
     void fileDropped(const QString& path);
 
 private:
-    QVideoWidget* m_videoWidget;
-    QMediaPlayer* m_player;
-    QAudioOutput* m_audio;
+    QVideoWidget*       m_videoWidget;
+    QMediaPlayer*       m_player;
+    QAudioBufferOutput* m_audioBuf;
+    QAudioSink*         m_sink;
+    QIODevice*          m_sinkDev = nullptr;
+
+    // 音量ブースト倍率（1.0 = 100%）
+    double m_gain = 1.0;
 
     // 読み込み完了後に 1 フレームだけ描画するためのフラグ
     bool m_primeFirstFrame = false;

@@ -12,6 +12,10 @@ struct AppConfig {
     // 動画読込時の初期再生速度（1.00 で等速）
     double playbackRate = 1.0;
 
+    // 再生音量（パーセント）
+    // 100 = 100%、150 = 150%（1.5 倍ブースト）。0〜400 にクランプ
+    int audioVolume = 100;
+
     // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.8）
     double initialScreenRatio = 0.8;
 };

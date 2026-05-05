@@ -136,6 +136,7 @@ private:
     QIcon m_iconPause;
     QLabel*       m_posLabel;
     QLabel*       m_speedLabel;
+    QLabel*       m_volumeLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;

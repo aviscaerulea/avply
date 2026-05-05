@@ -61,6 +61,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
     m_speedLabel = new QLabel("  x1.00");
 
+    // --- 音量ブースト倍率ラベル（再生速度の右に配置） ---
+    // 値は avply.toml から取得し、起動時に一度だけ設定する
+    m_volumeLabel = new QLabel("  x1.00");
+
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
     m_seekSlider->setRange(0, kSliderMax);
@@ -168,6 +172,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addWidget(m_outputLabel, 1);
     statusBar()->addPermanentWidget(m_posLabel);
     statusBar()->addPermanentWidget(m_speedLabel);
+    statusBar()->addPermanentWidget(m_volumeLabel);
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
     m_seekTimer.setSingleShot(true);
@@ -186,6 +191,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_seekRightMs          = cfg.seekRightMs;
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate = cfg.playbackRate;
+    m_videoView->setVolumeBoost(cfg.audioVolume / 100.0);
+    m_volumeLabel->setText(QString::asprintf("  x%.2f", cfg.audioVolume / 100.0));
     updateSpeedDisplay();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);

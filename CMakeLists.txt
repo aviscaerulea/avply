@@ -54,3 +54,12 @@ if(WIN32)
         COMMENT "Qt DLL を配置しています..."
     )
 endif()
+
+# avply.toml の出力ディレクトリへの配置
+# avply.local.toml は VCS 管理外の個人環境固有設定のためコピーしない
+add_custom_command(TARGET avply POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/avply.toml"
+            "$<TARGET_FILE_DIR:avply>/avply.toml"
+    COMMENT "avply.toml を配置中..."
+)

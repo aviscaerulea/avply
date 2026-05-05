@@ -3,7 +3,12 @@
 #include <QVBoxLayout>
 #include <QVideoWidget>
 #include <QMediaPlayer>
-#include <QAudioOutput>
+#include <QAudioBufferOutput>
+#include <QAudioBuffer>
+#include <QAudioSink>
+#include <QAudioFormat>
+#include <QIODevice>
+#include <QByteArray>
 #include <QEvent>
 #include <QMouseEvent>
 #include <QChildEvent>
@@ -14,11 +19,28 @@
 #include <QUrl>
 #include <QDebug>
 
+namespace {
+
+// QAudioBufferOutput / QAudioSink で共通使用する固定オーディオフォーマット
+// 48000Hz / ステレオ / Float サンプル
+// Float に固定することで gain 乗算とクリップ処理が単純化される
+QAudioFormat makeAudioFormat()
+{
+    QAudioFormat fmt;
+    fmt.setSampleRate(48000);
+    fmt.setChannelCount(2);
+    fmt.setSampleFormat(QAudioFormat::Float);
+    return fmt;
+}
+
+} // namespace
+
 VideoView::VideoView(QWidget* parent)
     : QWidget(parent)
     , m_videoWidget(new QVideoWidget(this))
     , m_player(new QMediaPlayer(this))
-    , m_audio(new QAudioOutput(this))
+    , m_audioBuf(new QAudioBufferOutput(makeAudioFormat(), this))
+    , m_sink(new QAudioSink(makeAudioFormat(), this))
 {
     // VideoView 本体の背景を即時に黒系に設定する。
     // QVideoWidget のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
@@ -37,14 +59,37 @@ VideoView::VideoView(QWidget* parent)
     layout->addWidget(m_videoWidget);
 
     m_player->setVideoOutput(m_videoWidget);
-    m_player->setAudioOutput(m_audio);
-    m_audio->setVolume(0.8);
+    // 100% 超のソフトウェア音量ブーストのため QAudioOutput は接続せず、
+    // QAudioBufferOutput でサンプルを取得して QAudioSink に push する
+    m_player->setAudioBufferOutput(m_audioBuf);
+    m_sinkDev = m_sink->start();
 
     // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
     // 利用可否を qDebug に出して実機検証時の判断材料とする
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
+
+    // 音声バッファ受信時に gain を適用して QAudioSink へ書き込む
+    // Float サンプルを線形乗算し ±1.0 でハードクリップする
+    connect(m_audioBuf, &QAudioBufferOutput::audioBufferReceived,
+            this, [this](const QAudioBuffer& buf) {
+        if (!m_sinkDev) return;
+        if (buf.format().sampleFormat() != QAudioFormat::Float) return;
+
+        const int n = buf.byteCount() / static_cast<int>(sizeof(float));
+        const float* src = buf.constData<float>();
+        QByteArray out(buf.byteCount(), Qt::Uninitialized);
+        float* dst = reinterpret_cast<float*>(out.data());
+        const float g = static_cast<float>(m_gain);
+        for (int i = 0; i < n; ++i) {
+            float v = src[i] * g;
+            if (v >  1.0f) v =  1.0f;
+            else if (v < -1.0f) v = -1.0f;
+            dst[i] = v;
+        }
+        m_sinkDev->write(out);
+    });
 
     // VideoView 本体および QVideoWidget の両方で D&D を受け付ける
     // QVideoWidget はレンダリング用のネイティブ子ウィジェットを内部に作るため、
@@ -94,6 +139,9 @@ void VideoView::clear()
     m_player->stop();
     m_player->setSource(QUrl());
     m_videoWidget->hide();
+    // ソース切替時にシンクへ積み残ったサンプルを破棄する
+    m_sink->reset();
+    m_sinkDev = m_sink->start();
 }
 
 qint64 VideoView::position() const
@@ -109,6 +157,11 @@ void VideoView::setPosition(qint64 ms)
 void VideoView::setPlaybackRate(qreal rate)
 {
     m_player->setPlaybackRate(rate);
+}
+
+void VideoView::setVolumeBoost(double gain)
+{
+    m_gain = gain;
 }
 
 void VideoView::togglePlay()

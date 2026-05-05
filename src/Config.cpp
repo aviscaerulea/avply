@@ -81,6 +81,7 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         };
         if (section == "playback" && key == "rate") assignDouble(cfg.playbackRate);
         if (section == "window"   && key == "initial_screen_ratio") assignDouble(cfg.initialScreenRatio);
+        if (section == "audio"    && key == "volume")               assignInt(cfg.audioVolume);
     }
 
     // 再生速度は MainWindow の上下キー操作と同じ範囲（0.05〜4.0）に丸める
@@ -89,6 +90,9 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
     // モニタ比率は 0.1〜1.0 にクランプする
     // 0 以下では初期サイズが破綻し、1.0 超ではタスクバーやマルチモニタ境界を侵す
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
+    // 音量は 0〜400% にクランプ
+    // 負値や極端値の流入を防ぐ
+    cfg.audioVolume = std::clamp(cfg.audioVolume, 0, 400);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す
