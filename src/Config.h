@@ -9,12 +9,17 @@ struct AppConfig {
     int seekLeftMs  = 5000;
     int seekRightMs = 5000;
 
-    // 動画読込時の初期再生速度（1.00 で等速）
-    double playbackRate = 1.0;
+    // マウスホイールシーク量（ミリ秒）
+    // 0 以下でそのホイール方向のシーク無効
+    int wheelForwardMs = 5000;
+    int wheelBackMs    = 5000;
 
-    // 再生音量（パーセント）
-    // 100 = 100%、150 = 150%（1.5 倍ブースト）。0〜400 にクランプ
-    int audioVolume = 100;
+    // 動画読込時の初期再生速度（1.00 で等速）
+    double playbackSpeed = 1.0;
+
+    // 再生音量（倍率）
+    // 1.00 = 等倍（100%）、1.50 = 1.5 倍ブースト。0.00〜3.00 にクランプ
+    double audioVolume = 1.0;
 
     // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.8）
     double initialScreenRatio = 0.8;

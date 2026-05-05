@@ -107,8 +107,10 @@ private:
 
     // 設定
     QString m_ffmpegPath;
-    int     m_seekLeftMs  = 5000;
-    int     m_seekRightMs = 5000;
+    int     m_seekLeftMs       = 5000;
+    int     m_seekRightMs      = 5000;
+    int     m_seekWheelForwardMs = 5000;
+    int     m_seekWheelBackMs    = 5000;
 
     // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（avply.toml の [window].initial_screen_ratio）
     double m_initialScreenRatio = 0.8;

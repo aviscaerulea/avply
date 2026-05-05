@@ -21,8 +21,13 @@ public:
     // 進捗オーバーレイをクリアする（区間ハイライトのみの表示に戻す）
     void clearProgress();
 
+signals:
+    // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
+    void wheelScrolled(bool forward);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private:
     bool   m_hasRange    = false;

@@ -70,8 +70,10 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
             const int v = value.toInt(&ok);
             if (ok) target = v;
         };
-        if (section == "seek" && key == "left_ms")  assignInt(cfg.seekLeftMs);
-        if (section == "seek" && key == "right_ms") assignInt(cfg.seekRightMs);
+        if (section == "seek" && key == "left_ms")         assignInt(cfg.seekLeftMs);
+        if (section == "seek" && key == "right_ms")        assignInt(cfg.seekRightMs);
+        if (section == "seek" && key == "wheel_forward_ms") assignInt(cfg.wheelForwardMs);
+        if (section == "seek" && key == "wheel_back_ms")    assignInt(cfg.wheelBackMs);
 
         // 浮動小数点値として解釈する。変換失敗時は既定値を保持する
         auto assignDouble = [&](double& target) {
@@ -79,20 +81,20 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
             const double v = value.toDouble(&ok);
             if (ok) target = v;
         };
-        if (section == "playback" && key == "rate") assignDouble(cfg.playbackRate);
+        if (section == "playback" && key == "speed") assignDouble(cfg.playbackSpeed);
         if (section == "window"   && key == "initial_screen_ratio") assignDouble(cfg.initialScreenRatio);
-        if (section == "audio"    && key == "volume")               assignInt(cfg.audioVolume);
+        if (section == "audio"    && key == "volume")               assignDouble(cfg.audioVolume);
     }
 
     // 再生速度は MainWindow の上下キー操作と同じ範囲（0.05〜4.0）に丸める
     // 0 以下や極端な値が直接 setPlaybackRate に渡らないようにする
-    cfg.playbackRate = std::clamp(cfg.playbackRate, 0.05, 4.0);
+    cfg.playbackSpeed = std::clamp(cfg.playbackSpeed, 0.05, 4.0);
     // モニタ比率は 0.1〜1.0 にクランプする
     // 0 以下では初期サイズが破綻し、1.0 超ではタスクバーやマルチモニタ境界を侵す
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
-    // 音量は 0〜400% にクランプ
+    // 音量は 0.0〜3.0 にクランプ
     // 負値や極端値の流入を防ぐ
-    cfg.audioVolume = std::clamp(cfg.audioVolume, 0, 400);
+    cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 3.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

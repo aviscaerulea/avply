@@ -9,6 +9,7 @@ class QAudioSink;
 class QIODevice;
 class QDragEnterEvent;
 class QDropEvent;
+class QWheelEvent;
 
 // QMediaPlayer + QVideoWidget + QAudioBufferOutput + QAudioSink を束ねた動画プレビュー
 // 音声付き再生・シーク・状態通知・D&D 受付を担う。
@@ -36,7 +37,7 @@ public:
     void setPlaybackRate(qreal rate);
 
     // 音量ブースト倍率を設定する（1.0 = 100%、1.5 = 150%）
-    // QAudioBufferOutput 経由のサンプルに線形乗算し ±1.0 でハードクリップする
+    // QAudioBufferOutput 経由のサンプルに線形乗算し tanhf でソフトクリップする
     void setVolumeBoost(double gain);
 
     // 再生状態を切り替える（再生中なら停止、停止中なら再生）
@@ -60,8 +61,9 @@ public:
     QSize minimumSizeHint() const override;
 
 protected:
-    // プレビュー領域の左クリックで再生/停止トグル、D&D イベントを捕捉する
+    // プレビュー領域の左クリックで再生/停止トグル、D&D・ホイールイベントを捕捉する
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 signals:
     // 再生位置が変化したとき発火する（ms 単位）
@@ -72,6 +74,9 @@ signals:
 
     // プレビュー領域にファイルがドロップされたとき発火する
     void fileDropped(const QString& path);
+
+    // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
+    void wheelScrolled(bool forward);
 
 private:
     QVideoWidget*       m_videoWidget;

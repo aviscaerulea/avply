@@ -2,6 +2,7 @@
 #include <QPainter>
 #include <QStyleOptionSlider>
 #include <QStylePainter>
+#include <QWheelEvent>
 #include <algorithm>
 
 RangeSlider::RangeSlider(Qt::Orientation orientation, QWidget* parent)
@@ -36,6 +37,14 @@ void RangeSlider::clearProgress()
     m_hasProgress = false;
     m_progressPct = 0;
     update();
+}
+
+void RangeSlider::wheelEvent(QWheelEvent* event)
+{
+    // QSlider デフォルトのホイール動作（値変更）を抑制してシーク信号に変換する
+    const int delta = event->angleDelta().y();
+    if (delta != 0) emit wheelScrolled(delta > 0);
+    event->accept();
 }
 
 void RangeSlider::paintEvent(QPaintEvent* /*event*/)

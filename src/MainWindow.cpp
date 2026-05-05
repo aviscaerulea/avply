@@ -53,6 +53,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, [this](const QString& path) {
         if (isAcceptedMedia(path)) loadFile(path);
     });
+    // プレビュー領域のホイール回転をシークに変換する（変換中・対象方向が無効値の場合は抑制）
+    connect(m_videoView, &VideoView::wheelScrolled, this, [this](bool forward) {
+        if (m_runningOp != Operation::None) return;
+        const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
+        if (ms > 0) seekRelative(forward ? ms : -ms);
+    });
 
     // --- 再生位置ラベル（ステータスバー右端に配置） ---
     // 先頭 2 半角スペースは項目間の区切りとして機能する
@@ -72,6 +78,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // valueChanged を使うことでクリックジャンプの位置も拾える
     connect(m_seekSlider, &QSlider::valueChanged,
             this, &MainWindow::onSeekSliderChanged);
+    // ホイール回転をシークに変換する（変換中・対象方向が無効値の場合は抑制）
+    connect(m_seekSlider, &RangeSlider::wheelScrolled, this, [this](bool forward) {
+        if (m_runningOp != Operation::None) return;
+        const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
+        if (ms > 0) seekRelative(forward ? ms : -ms);
+    });
 
     // アイコン式ボタン共通スタイル
     // 外枠と内側パディングを消し、ホバー時のみ薄いグレーで反応を示す
@@ -189,31 +201,28 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_ffmpegPath           = cfg.ffmpegPath;
     m_seekLeftMs           = cfg.seekLeftMs;
     m_seekRightMs          = cfg.seekRightMs;
+    m_seekWheelForwardMs   = cfg.wheelForwardMs;
+    m_seekWheelBackMs      = cfg.wheelBackMs;
     m_initialScreenRatio   = cfg.initialScreenRatio;
-    m_playbackRate = cfg.playbackRate;
-    m_videoView->setVolumeBoost(cfg.audioVolume / 100.0);
-    m_volumeLabel->setText(QString::asprintf("  x%.2f", cfg.audioVolume / 100.0));
+    m_playbackRate = cfg.playbackSpeed;
+    m_videoView->setVolumeBoost(cfg.audioVolume);
+    m_volumeLabel->setText(QString::asprintf("  x%.2f", cfg.audioVolume));
     updateSpeedDisplay();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
+    // show() 前にレイアウトを確定して下部 UI 高を保存する。
+    // 初期ファイルがある場合は loadFile もここで完了させることで、
+    // show() の時点から適切なサイズが表示されてチラツきを防ぐ
+    adjustSize();
+    m_lowerUiH = height() - m_videoView->height();
+    if (!initialPath.isEmpty() && isAcceptedMedia(initialPath) && QFile::exists(initialPath)) {
+        loadFile(initialPath);
+    }
+    else {
+        updateMinimumWindowSize();
+    }
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
-    // レイアウト確定後に下部UI高を保存し、最小ウィンドウサイズを連動式で設定する
-    QTimer::singleShot(0, this, [this]() {
-        adjustSize();
-        m_lowerUiH = height() - m_videoView->height();
-        updateMinimumWindowSize();
-    });
-
-    // コマンドラインで初期ファイルが指定されていれば起動完了後に読み込む
-    // 拡張子フィルタを通すことで非対応形式は静かに無視する
-    if (!initialPath.isEmpty()) {
-        QTimer::singleShot(0, this, [this, initialPath]() {
-            if (isAcceptedMedia(initialPath) && QFile::exists(initialPath)) {
-                loadFile(initialPath);
-            }
-        });
-    }
 }
 
 MainWindow::~MainWindow() = default;

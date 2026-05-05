@@ -1,4 +1,5 @@
 #include "VideoView.h"
+#include <cmath>
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QVideoWidget>
@@ -11,6 +12,7 @@
 #include <QByteArray>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QChildEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -71,7 +73,10 @@ VideoView::VideoView(QWidget* parent)
     m_player->setPitchCompensation(true);
 
     // 音声バッファ受信時に gain を適用して QAudioSink へ書き込む
-    // Float サンプルを線形乗算し ±1.0 でハードクリップする
+    // Float サンプルを線形乗算し tanhf で ±1.0 付近に滑らかに飽和させる（ソフトクリップ）。
+    // ハードクリップ（直角カット）は高調波歪み（ザリザリ音）を生むため避ける。
+    // 特に playbackRate 変更時の resampler は overshoot サンプル（±1.0 超）を生成するため
+    // gain 1.0 でもクリップ経路を通る場合に問題化する
     connect(m_audioBuf, &QAudioBufferOutput::audioBufferReceived,
             this, [this](const QAudioBuffer& buf) {
         if (!m_sinkDev) return;
@@ -83,10 +88,7 @@ VideoView::VideoView(QWidget* parent)
         float* dst = reinterpret_cast<float*>(out.data());
         const float g = static_cast<float>(m_gain);
         for (int i = 0; i < n; ++i) {
-            float v = src[i] * g;
-            if (v >  1.0f) v =  1.0f;
-            else if (v < -1.0f) v = -1.0f;
-            dst[i] = v;
+            dst[i] = std::tanh(src[i] * g);
         }
         m_sinkDev->write(out);
     });
@@ -199,6 +201,13 @@ QSize VideoView::minimumSizeHint() const
     return QSize(320, 180);
 }
 
+void VideoView::wheelEvent(QWheelEvent* event)
+{
+    const int delta = event->angleDelta().y();
+    if (delta != 0) emit wheelScrolled(delta > 0);
+    event->accept();
+}
+
 bool VideoView::eventFilter(QObject* watched, QEvent* event)
 {
     // 監視対象は m_videoWidget またはその子孫ウィジェットのみ
@@ -257,6 +266,13 @@ bool VideoView::eventFilter(QObject* watched, QEvent* event)
             }
         }
         break;
+    }
+    case QEvent::Wheel: {
+        auto* we = static_cast<QWheelEvent*>(event);
+        const int delta = we->angleDelta().y();
+        if (delta != 0) emit wheelScrolled(delta > 0);
+        we->accept();
+        return true;
     }
     default:
         break;
