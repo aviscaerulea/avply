@@ -1,5 +1,10 @@
 #pragma once
 #include <QString>
+#include <QSize>
+#include <functional>
+
+class QObject;
+class QProcess;
 
 // メディアファイル（動画・音声）の基本情報
 struct VideoInfo {
@@ -14,6 +19,10 @@ struct VideoInfo {
     int audioSampleRate = 0;   // 音声サンプリングレート（Hz）。取得できない場合は 0
     int audioChannels = 0;     // 音声チャンネル数。取得できない場合は 0
     bool valid = false;
+
+    // 音声ストリームの有無
+    // 「音声のみか（映像なしか）」とは別軸の判定。波形生成可否などに使う
+    bool hasAudio() const { return !audioCodec.isEmpty(); }
 };
 
 // ffprobe/ffmpeg 実行結果
@@ -32,4 +41,17 @@ namespace Ffmpeg {
 
     // ffmpeg パスから ffprobe パスを生成する（同一ディレクトリを想定）
     QString ffprobePath(const QString& ffmpegPath);
+
+    // 音声波形 PNG を非同期生成する
+    // showwavespic フィルタで全長分の波形を 1 枚の PNG に出力する。完了時に callback を呼び出す。
+    // 失敗時（無音動画・ffmpeg 不在など）は callback(false, "") で通知する。
+    // QProcess は parent の子オブジェクトとして生成され、finished 後に deleteLater される。
+    // 戻り値の QProcess* は途中キャンセル用（kill 呼び出し）として保持できる
+    QProcess* generateWaveform(
+        const QString& ffmpegPath,
+        const QString& inputPath,
+        const QString& outputPath,
+        const QSize& size,
+        QObject* parent,
+        std::function<void(bool ok, const QString& outputPath)> callback);
 } // namespace Ffmpeg

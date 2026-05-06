@@ -4,7 +4,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFileInfo>
+#include <QFile>
 #include <QDir>
+#include <QObject>
 
 namespace Ffmpeg {
 
@@ -99,6 +101,45 @@ QString ffprobePath(const QString& ffmpegPath)
     // ffmpeg.exe と同ディレクトリの ffprobe.exe を返す
     const QFileInfo fi(ffmpegPath);
     return fi.absoluteDir().filePath("ffprobe.exe");
+}
+
+QProcess* generateWaveform(
+    const QString& ffmpegPath,
+    const QString& inputPath,
+    const QString& outputPath,
+    const QSize& size,
+    QObject* parent,
+    std::function<void(bool ok, const QString& outputPath)> callback)
+{
+    // showwavespic フィルタで全長分の波形を PNG 出力する
+    // scale=cbrt で小音量サンプルをさらに強調（会議録の小声を浮き上がらせる）、
+    // draw=full でサンプルを横幅一杯に引き伸ばす
+    const QString filterStr = QString(
+        "[0:a]showwavespic=s=%1x%2:colors=#4080C0:scale=cbrt:draw=full")
+        .arg(size.width()).arg(size.height());
+    const QStringList args = {
+        "-y",
+        "-i", inputPath,
+        "-lavfi", filterStr,
+        "-frames:v", "1",
+        outputPath
+    };
+
+    auto* proc = new QProcess(parent);
+    proc->setProcessChannelMode(QProcess::MergedChannels);
+    QObject::connect(proc,
+        QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+        parent,
+        [proc, outputPath, callback](int code, QProcess::ExitStatus status) {
+        // 正常終了かつ出力 PNG 実体を確認できたときのみ ok=true で通知する
+        const bool ok = (status == QProcess::NormalExit
+                         && code == 0
+                         && QFile::exists(outputPath));
+        callback(ok, ok ? outputPath : QString());
+        proc->deleteLater();
+    });
+    proc->start(ffmpegPath, args);
+    return proc;
 }
 
 } // namespace Ffmpeg

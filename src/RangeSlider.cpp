@@ -1,13 +1,24 @@
 #include "RangeSlider.h"
 #include <QPainter>
-#include <QStyleOptionSlider>
-#include <QStylePainter>
+#include <QStyle>
+#include <QMouseEvent>
 #include <QWheelEvent>
 #include <algorithm>
 
 RangeSlider::RangeSlider(Qt::Orientation orientation, QWidget* parent)
     : QSlider(orientation, parent)
 {
+}
+
+QSize RangeSlider::sizeHint() const
+{
+    // 横幅は親レイアウトのストレッチに任せ、固定高のみ強制する
+    return QSize(1, kTotalH);
+}
+
+QSize RangeSlider::minimumSizeHint() const
+{
+    return QSize(1, kTotalH);
 }
 
 void RangeSlider::setRangeMarkers(double inRatio, double outRatio)
@@ -39,6 +50,27 @@ void RangeSlider::clearProgress()
     update();
 }
 
+void RangeSlider::setWaveform(const QPixmap& pix)
+{
+    m_waveform = pix;
+    m_drawBaseline = false;
+    update();
+}
+
+void RangeSlider::setBaseline(bool enabled)
+{
+    m_drawBaseline = enabled;
+    if (enabled) m_waveform = QPixmap();
+    update();
+}
+
+void RangeSlider::clearWaveform()
+{
+    m_waveform = QPixmap();
+    m_drawBaseline = false;
+    update();
+}
+
 void RangeSlider::wheelEvent(QWheelEvent* event)
 {
     // QSlider デフォルトのホイール動作（値変更）を抑制してシーク信号に変換する
@@ -47,40 +79,103 @@ void RangeSlider::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
+void RangeSlider::mousePressEvent(QMouseEvent* event)
+{
+    // MPC-HC 風：左クリック位置へ即時ジャンプ
+    // QStyle::sliderValueFromPosition で widget 全幅を span として値を逆算する。
+    // 初期化フレームで width()<=0 の場合に整数除算を踏まないようガードする
+    if (event->button() == Qt::LeftButton && width() > 0) {
+        const int x = static_cast<int>(event->position().x());
+        const int v = QStyle::sliderValueFromPosition(
+            minimum(), maximum(), x, width());
+        setSliderDown(true);
+        setValue(v);
+        event->accept();
+        return;
+    }
+    QSlider::mousePressEvent(event);
+}
+
+void RangeSlider::mouseMoveEvent(QMouseEvent* event)
+{
+    // ドラッグ中は連続的に位置追従させる
+    if ((event->buttons() & Qt::LeftButton) && width() > 0) {
+        const int x = static_cast<int>(event->position().x());
+        const int v = QStyle::sliderValueFromPosition(
+            minimum(), maximum(), x, width());
+        setValue(v);
+        event->accept();
+        return;
+    }
+    QSlider::mouseMoveEvent(event);
+}
+
+void RangeSlider::mouseReleaseEvent(QMouseEvent* event)
+{
+    // ドラッグ終端で sliderReleased を発火させる（既存 sliderDown 状態を解除）
+    if (event->button() == Qt::LeftButton && isSliderDown()) {
+        setSliderDown(false);
+        event->accept();
+        return;
+    }
+    QSlider::mouseReleaseEvent(event);
+}
+
 void RangeSlider::paintEvent(QPaintEvent* /*event*/)
 {
-    QStyleOptionSlider opt;
-    initStyleOption(&opt);
+    QPainter painter(this);
 
-    QStylePainter painter(this);
+    const QRect trackRect(0, 0, width(), kTrackH);
+    const QRect rangeRect(0, kTrackH, width(), kRangeBarH);
 
-    // groove だけ先に描画する
-    QStyleOptionSlider grooveOpt = opt;
-    grooveOpt.subControls = QStyle::SC_SliderGroove;
-    painter.drawComplexControl(QStyle::CC_Slider, grooveOpt);
+    // --- 上段：MPC-HC 風トラック ---
 
-    // 開始〜終了の区間を赤系でハイライト
+    // トラック背景（暗灰色）。アプリ背景より暗くして輪郭を出す
+    painter.fillRect(trackRect, QColor(0x1A, 0x1A, 0x1A));
+
+    // 波形 PNG をトラック全体にスケール描画。波形なし時は中央基線を 1px 描画
+    if (!m_waveform.isNull()) {
+        painter.drawPixmap(trackRect, m_waveform);
+    }
+    else if (m_drawBaseline) {
+        const int y = trackRect.center().y();
+        painter.fillRect(QRect(trackRect.left(), y, trackRect.width(), 1),
+                         QColor(180, 180, 180, 120));
+    }
+
+    // 現在位置の x 座標を slider 値から逆算する
+    const int handleX = QStyle::sliderPositionFromValue(
+        minimum(), maximum(), value(), width());
+
+    // 再生済み部分（左端〜現在位置）に半透明グレーを被せて視認性を上げる
+    if (handleX > 0) {
+        painter.fillRect(QRect(0, 0, handleX, kTrackH),
+                         QColor(140, 140, 140, 100));
+    }
+
+    // 現在位置インジケータ（幅 2px の青縦棒、トラック全高）
+    // 端で半切れにならないよう [1, width()-1] にクランプして 2px 全体が widget 内に収まるようにする
+    if (width() >= 2) {
+        const int indicatorX = std::clamp(handleX, 1, width() - 1);
+        painter.fillRect(QRect(indicatorX - 1, 0, 2, kTrackH),
+                         QColor(63, 169, 245));
+    }
+
+    // --- 下段：区間・進捗帯 ---
+
     if (m_hasRange && m_outRatio > m_inRatio) {
-        const QRect groove = style()->subControlRect(
-            QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, this);
-        const int x1 = groove.left() + static_cast<int>(groove.width() * m_inRatio);
-        const int x2 = groove.left() + static_cast<int>(groove.width() * m_outRatio);
-        const int y  = groove.center().y() - 3;
-        const QRect rangeRect(x1, y, x2 - x1, 7);
-        painter.fillRect(rangeRect, QColor(220, 60, 60, 220));
+        const int x1 = static_cast<int>(width() * m_inRatio);
+        const int x2 = static_cast<int>(width() * m_outRatio);
+        painter.fillRect(QRect(x1, rangeRect.y(), x2 - x1, kRangeBarH),
+                         QColor(220, 60, 60, 220));
 
-        // 進捗オーバーレイ（青）を区間に重ねる。100% で区間全体が青に見える
+        // 進捗オーバーレイ（青）を区間内に重ねる。100% で区間全体が青に見える
         if (m_hasProgress) {
             const int progressW = static_cast<int>((x2 - x1) * m_progressPct / 100.0);
             if (progressW > 0) {
-                const QRect progressRect(x1, y, progressW, 7);
-                painter.fillRect(progressRect, QColor(60, 130, 220, 220));
+                painter.fillRect(QRect(x1, rangeRect.y(), progressW, kRangeBarH),
+                                 QColor(60, 130, 220, 220));
             }
         }
     }
-
-    // ハンドルを最後に描いて区間ハイライトより前面に表示する
-    QStyleOptionSlider handleOpt = opt;
-    handleOpt.subControls = QStyle::SC_SliderHandle;
-    painter.drawComplexControl(QStyle::CC_Slider, handleOpt);
 }
