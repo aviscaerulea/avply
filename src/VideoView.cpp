@@ -2,7 +2,9 @@
 #include <cmath>
 #include <QPalette>
 #include <QVBoxLayout>
-#include <QVideoWidget>
+#include <QQuickView>
+#include <QQuickItem>
+#include <QVideoSink>
 #include <QMediaPlayer>
 #include <QAudioBufferOutput>
 #include <QAudioBuffer>
@@ -11,9 +13,7 @@
 #include <QIODevice>
 #include <QByteArray>
 #include <QEvent>
-#include <QMouseEvent>
 #include <QWheelEvent>
-#include <QChildEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
@@ -39,35 +39,62 @@ QAudioFormat makeAudioFormat()
 
 VideoView::VideoView(QWidget* parent)
     : QWidget(parent)
-    , m_videoWidget(new QVideoWidget(this))
+    , m_quickView(new QQuickView)
     , m_player(new QMediaPlayer(this))
     , m_audioBuf(new QAudioBufferOutput(makeAudioFormat(), this))
     , m_sink(new QAudioSink(makeAudioFormat(), this))
 {
     // VideoView 本体の背景を即時に黒系に設定する。
-    // QVideoWidget のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
+    // QQuickView のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
     QPalette pal = palette();
     pal.setColor(QPalette::Window, QColor(0x1a, 0x1a, 0x1a));
     setPalette(pal);
     setAutoFillBackground(true);
 
-    m_videoWidget->setStyleSheet("background: #1a1a1a;");
-    // 動画未ロード時は QVideoWidget を隠して VideoView 本体の暗色背景のみ見せる。
-    // ネイティブサーフェス確立前の白フラッシュを起動時に発生させないための処置
-    m_videoWidget->hide();
+    // QML をロードして VideoOutput のシンクを QMediaPlayer に接続する。
+    // threaded render loop が有効な場合、render thread が Win32 modal loop 中も
+    // IDXGISwapChain::Present を独立して呼べるため、ドラッグ中も再生が継続する
+    m_quickView->setColor(QColor(0x1a, 0x1a, 0x1a));
+    m_quickView->setResizeMode(QQuickView::SizeRootObjectToView);
+
+    // QML の Ready 時に VideoOutput の videoSink を QMediaPlayer に接続する。
+    // setSource() は同期的に statusChanged を emit するため、必ず setSource() より前に connect する
+    connect(m_quickView, &QQuickView::statusChanged,
+            this, [this](QQuickView::Status status) {
+        if (status != QQuickView::Ready) return;
+        QObject* root = m_quickView->rootObject();
+        if (!root) return;
+        auto* sink = root->property("videoSink").value<QVideoSink*>();
+        if (sink) {
+            m_player->setVideoSink(sink);
+        }
+        // QML シグナルを C++ スロットに接続する（SIGNAL/SLOT マクロ形式が QML シグナルに対応）
+        connect(root, SIGNAL(clicked()), this, SLOT(onQmlClicked()));
+        connect(root, SIGNAL(wheelScrolled(bool)), this, SLOT(onQmlWheelScrolled(bool)));
+        connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
+    });
+
+    m_quickView->setSource(QUrl("qrc:/VideoOutput.qml"));
+
+    // QQuickView を QWidget として埋め込む。createWindowContainer は D&D 非対応のため
+    // ドロップは VideoView 自体（このウィジェット）の dragEnterEvent/dropEvent で受け取る
+    m_videoContainer = QWidget::createWindowContainer(m_quickView, this);
+    m_videoContainer->setMinimumSize(1, 1);
+    m_videoContainer->hide();
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_videoWidget);
+    layout->addWidget(m_videoContainer);
 
-    m_player->setVideoOutput(m_videoWidget);
     // 100% 超のソフトウェア音量ブーストのため QAudioOutput は接続せず、
     // QAudioBufferOutput でサンプルを取得して QAudioSink に push する
     m_player->setAudioBufferOutput(m_audioBuf);
     m_sinkDev = m_sink->start();
+    if (!m_sinkDev) {
+        qWarning() << "QAudioSink::start() failed:" << m_sink->error();
+    }
 
     // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
-    // 利用可否を qDebug に出して実機検証時の判断材料とする
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
@@ -93,16 +120,8 @@ VideoView::VideoView(QWidget* parent)
         m_sinkDev->write(out);
     });
 
-    // VideoView 本体および QVideoWidget の両方で D&D を受け付ける
-    // QVideoWidget はレンダリング用のネイティブ子ウィジェットを内部に作るため、
-    // 後から増える子にも acceptDrops と eventFilter を再帰的に張る必要がある
+    // D&D は createWindowContainer では機能しないため VideoView 自体で受け付ける
     setAcceptDrops(true);
-    m_videoWidget->setAcceptDrops(true);
-    m_videoWidget->installEventFilter(this);
-    for (QWidget* w : m_videoWidget->findChildren<QWidget*>()) {
-        w->setAcceptDrops(true);
-        w->installEventFilter(this);
-    }
 
     // 末尾到達時に Qt が自動で StoppedState（位置 0 に戻る）へ遷移するのを抑止する。
     // 終端の数十 ms 手前で先取りで pause を呼び、ユーザがそこからシークバーで微調整
@@ -110,7 +129,6 @@ VideoView::VideoView(QWidget* parent)
     connect(m_player, &QMediaPlayer::positionChanged,
             this, [this](qint64 pos) {
         // 新ソース読み込み中は旧ソースの遅延 positionChanged を破棄する
-        // stop() の非同期完了前に届いた残存シグナルでフラグが誤って立つのを防ぐ
         if (m_primeFirstFrame) return;
         const qint64 dur = m_player->duration();
         if (!m_pausingAtEnd && dur > 0 && pos >= dur - 50 && isPlaying()) {
@@ -122,9 +140,7 @@ VideoView::VideoView(QWidget* parent)
 
     connect(m_player, &QMediaPlayer::playbackStateChanged,
             this, [this](QMediaPlayer::PlaybackState state) {
-        // 再生中以外（停止・一時停止）への遷移時に末尾自動 pause フラグを解除する
-        // 末尾停止後にユーザが再生再開した時点で末尾検出を再有効化する。
-        // pause() が万一 reject されてもフラグ固着しないよう StoppedState もリセット対象とする
+        // 再生中以外への遷移時に末尾自動 pause フラグを解除する
         if (state != QMediaPlayer::PausedState) m_pausingAtEnd = false;
         emit playbackStateChanged(state == QMediaPlayer::PlayingState);
     });
@@ -135,9 +151,7 @@ VideoView::VideoView(QWidget* parent)
         if (!m_primeFirstFrame) return;
         if (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia) {
             m_primeFirstFrame = false;
-            // ネイティブサーフェス確立とフレーム描画タイミングを近づけるため
-            // show() はメディアロード完了直前まで遅延させる
-            m_videoWidget->show();
+            m_videoContainer->show();
             m_player->play();
         }
     });
@@ -159,7 +173,7 @@ void VideoView::clear()
     m_pausingAtEnd = false;
     m_player->stop();
     m_player->setSource(QUrl());
-    m_videoWidget->hide();
+    m_videoContainer->hide();
     // ソース切替時にシンクへ積み残ったサンプルを破棄する
     m_sink->reset();
     m_sinkDev = m_sink->start();
@@ -173,7 +187,6 @@ qint64 VideoView::position() const
 void VideoView::setPosition(qint64 ms)
 {
     // 手動シークで末尾自動 pause フラグを解除する
-    // 末尾停止後にシークバーで巻き戻し操作したとき、再生再開せずとも末尾検出を再有効化する
     m_pausingAtEnd = false;
     m_player->setPosition(ms);
 }
@@ -213,11 +226,6 @@ bool VideoView::isPlaying() const
     return m_player->playbackState() == QMediaPlayer::PlayingState;
 }
 
-void VideoView::forceRepaint()
-{
-    m_videoWidget->repaint();
-}
-
 QSize VideoView::sizeHint() const
 {
     return QSize(800, 450);
@@ -235,75 +243,47 @@ void VideoView::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
-bool VideoView::eventFilter(QObject* watched, QEvent* event)
+void VideoView::dragEnterEvent(QDragEnterEvent* event)
 {
-    // 監視対象は m_videoWidget またはその子孫ウィジェットのみ
-    bool isVideoTree = false;
-    for (QObject* o = watched; o; o = o->parent()) {
-        if (o == m_videoWidget) { isVideoTree = true; break; }
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
     }
-    if (!isVideoTree) return QWidget::eventFilter(watched, event);
+}
 
-    switch (event->type()) {
-    case QEvent::ChildAdded: {
-        // QVideoWidget が遅延生成する子ウィジェットにもフィルタと acceptDrops を伝播する
-        auto* ce = static_cast<QChildEvent*>(event);
-        if (auto* w = qobject_cast<QWidget*>(ce->child())) {
-            w->setAcceptDrops(true);
-            w->installEventFilter(this);
-        }
-        break;
+void VideoView::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
     }
-    case QEvent::MouseButtonPress: {
-        const auto* me = static_cast<QMouseEvent*>(event);
-        if (m_interactive
-            && me->button() == Qt::LeftButton
-            && !m_player->source().isEmpty()) {
-            togglePlay();
-            return true;
-        }
-        break;
-    }
-    case QEvent::DragEnter: {
-        if (!acceptDrops()) break;
-        auto* de = static_cast<QDragEnterEvent*>(event);
-        if (de->mimeData()->hasUrls()) {
-            de->acceptProposedAction();
-            return true;
-        }
-        break;
-    }
-    case QEvent::DragMove: {
-        if (!acceptDrops()) break;
-        auto* de = static_cast<QDragMoveEvent*>(event);
-        if (de->mimeData()->hasUrls()) {
-            de->acceptProposedAction();
-            return true;
-        }
-        break;
-    }
-    case QEvent::Drop: {
-        if (!acceptDrops()) break;
-        auto* de = static_cast<QDropEvent*>(event);
-        for (const QUrl& url : de->mimeData()->urls()) {
-            if (url.isLocalFile()) {
-                emit fileDropped(url.toLocalFile());
-                de->acceptProposedAction();
-                return true;
-            }
-        }
-        break;
-    }
-    case QEvent::Wheel: {
-        auto* we = static_cast<QWheelEvent*>(event);
-        const int delta = we->angleDelta().y();
-        if (delta != 0) emit wheelScrolled(delta > 0);
-        we->accept();
-        return true;
-    }
-    default:
-        break;
-    }
+}
 
-    return QWidget::eventFilter(watched, event);
+void VideoView::dropEvent(QDropEvent* event)
+{
+    for (const QUrl& url : event->mimeData()->urls()) {
+        if (url.isLocalFile()) {
+            emit fileDropped(url.toLocalFile());
+            event->acceptProposedAction();
+            return;
+        }
+    }
+}
+
+void VideoView::onQmlClicked()
+{
+    if (m_interactive && !m_player->source().isEmpty()) {
+        togglePlay();
+    }
+}
+
+void VideoView::onQmlWheelScrolled(bool forward)
+{
+    emit wheelScrolled(forward);
+}
+
+void VideoView::onQmlFileDropped(const QString& url)
+{
+    const QUrl parsed(url);
+    if (parsed.isLocalFile()) {
+        emit fileDropped(parsed.toLocalFile());
+    }
 }

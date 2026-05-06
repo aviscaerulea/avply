@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets Network Quick)
 
 qt_add_executable(avply WIN32
     src/main.cpp
@@ -49,12 +49,14 @@ target_link_libraries(avply PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
     Qt6::Network
+    Qt6::Quick
 )
 
 # Qt DLL を実行ファイルと同じディレクトリに配置する
 if(WIN32)
     add_custom_command(TARGET avply POST_BUILD
         COMMAND "${Qt6_DIR}/../../../bin/windeployqt.exe"
+                --qmldir "${CMAKE_SOURCE_DIR}/src"
                 "$<TARGET_FILE:avply>"
         COMMENT "Qt DLL を配置しています..."
     )

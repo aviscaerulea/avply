@@ -5,7 +5,6 @@
 
 #include <QApplication>
 #include <QByteArray>
-#include <QDebug>
 #include <QIcon>
 #include <QStringList>
 #include <QTimer>

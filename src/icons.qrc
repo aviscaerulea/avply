@@ -6,4 +6,7 @@
         <file>stop.png</file>
         <file>app.ico</file>
     </qresource>
+    <qresource prefix="/">
+        <file>VideoOutput.qml</file>
+    </qresource>
 </RCC>

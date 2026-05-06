@@ -2,17 +2,19 @@
 #include <QWidget>
 #include <QString>
 
-class QVideoWidget;
+class QQuickView;
 class QMediaPlayer;
 class QAudioBufferOutput;
 class QAudioSink;
 class QIODevice;
 class QDragEnterEvent;
+class QDragMoveEvent;
 class QDropEvent;
 class QWheelEvent;
 
-// QMediaPlayer + QVideoWidget + QAudioBufferOutput + QAudioSink を束ねた動画プレビュー
+// QMediaPlayer + QQuickView (VideoOutput) + QAudioBufferOutput + QAudioSink を束ねた動画プレビュー
 // 音声付き再生・シーク・状態通知・D&D 受付を担う。
+// QQuickView の threaded render loop により Win32 modal size/move loop 中も描画が継続する。
 // 100% 超のソフトウェア音量ブーストを実現するため、QAudioOutput ではなく
 // QAudioBufferOutput でサンプルを取得し、gain 適用後 QAudioSink に push する
 class VideoView : public QWidget {
@@ -48,10 +50,6 @@ public:
 
     bool isPlaying() const;
 
-    // 内部 QVideoWidget を即時再描画する
-    // modal size/move ループ中は WM_PAINT 配送が滞るため、外部から強制 flush するための窓口
-    void forceRepaint();
-
     // プレビュー領域へのマウスクリックでの再生トグルを許可するか設定する
     // 変換中などに UI 操作を抑止する用途。デフォルトは true（許可）
     void setInteractive(bool enabled);
@@ -65,9 +63,10 @@ public:
     QSize minimumSizeHint() const override;
 
 protected:
-    // プレビュー領域の左クリックで再生/停止トグル、D&D・ホイールイベントを捕捉する
-    bool eventFilter(QObject* watched, QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 signals:
     // 再生位置が変化したとき発火する（ms 単位）
@@ -82,8 +81,19 @@ signals:
     // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
     void wheelScrolled(bool forward);
 
+private slots:
+    // QML VideoOutput.qml の clicked シグナルを受け取り再生トグルに変換する
+    void onQmlClicked();
+
+    // QML の wheelScrolled シグナルをブリッジする
+    void onQmlWheelScrolled(bool forward);
+
+    // QML DropArea からドロップされた URL 文字列をローカルパスに変換して emit する
+    void onQmlFileDropped(const QString& url);
+
 private:
-    QVideoWidget*       m_videoWidget;
+    QQuickView*         m_quickView;
+    QWidget*            m_videoContainer = nullptr;
     QMediaPlayer*       m_player;
     QAudioBufferOutput* m_audioBuf;
     QAudioSink*         m_sink;

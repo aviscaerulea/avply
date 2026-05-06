@@ -802,13 +802,9 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
         return QMainWindow::nativeEvent(eventType, message, result);
     }
     if (msg->message == WM_TIMER && msg->wParam == static_cast<WPARAM>(kSizeMoveTimerId)) {
-        // QVideoSink から update() で投函される UpdateRequest 等を確実に dispatch する
+        // QQuickView render thread との sync ステップを GUI スレッド側で処理する
         QCoreApplication::sendPostedEvents();
-        // 残りのキューイベントも一括 drain する（時間上限なし）
         QCoreApplication::processEvents(QEventLoop::AllEvents);
-        // QVideoWidget の WM_PAINT は modal loop 中 GetMessage で滞りやすいため
-        // 同期 repaint で最新フレームを直接描画して可視化する
-        m_videoView->forceRepaint();
         return QMainWindow::nativeEvent(eventType, message, result);
     }
 
