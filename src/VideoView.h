@@ -48,6 +48,10 @@ public:
 
     bool isPlaying() const;
 
+    // 内部 QVideoWidget を即時再描画する
+    // modal size/move ループ中は WM_PAINT 配送が滞るため、外部から強制 flush するための窓口
+    void forceRepaint();
+
     // プレビュー領域へのマウスクリックでの再生トグルを許可するか設定する
     // 変換中などに UI 操作を抑止する用途。デフォルトは true（許可）
     void setInteractive(bool enabled);

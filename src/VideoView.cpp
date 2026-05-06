@@ -213,6 +213,11 @@ bool VideoView::isPlaying() const
     return m_player->playbackState() == QMediaPlayer::PlayingState;
 }
 
+void VideoView::forceRepaint()
+{
+    m_videoWidget->repaint();
+}
+
 QSize VideoView::sizeHint() const
 {
     return QSize(800, 450);

@@ -786,8 +786,8 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
     // 発火するため、これをフックして processEvents() でキューを drain する
     // Qt 内部の USER タイマ（1 付近から昇順割り当て）との衝突を避けた任意の固定 ID
     static constexpr UINT kSizeMoveTimerId = 0xAB1E;
-    // 8ms ≒ 120fps 相当の drain 間隔。WM_TIMER の最小解像度（約 10ms）に丸まる
-    static constexpr UINT kSizeMoveTimerInterval = 8;
+    // 最小値指定で WM_TIMER の最小解像度（USER_TIMER_MINIMUM = 10ms 程度）に丸まる
+    static constexpr UINT kSizeMoveTimerInterval = 1;
     if (msg->message == WM_ENTERSIZEMOVE) {
         if (SetTimer(msg->hwnd, kSizeMoveTimerId, kSizeMoveTimerInterval, nullptr)) {
             m_sizeMoveTimerActive = true;
@@ -802,9 +802,13 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
         return QMainWindow::nativeEvent(eventType, message, result);
     }
     if (msg->message == WM_TIMER && msg->wParam == static_cast<WPARAM>(kSizeMoveTimerId)) {
-        // 4ms 上限で短時間 drain する。長すぎるとドラッグ操作の応答が鈍り、
-        // 短すぎると 1 フレーム分のキューイベントが処理しきれず再生がカクつく
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 4);
+        // QVideoSink から update() で投函される UpdateRequest 等を確実に dispatch する
+        QCoreApplication::sendPostedEvents();
+        // 残りのキューイベントも一括 drain する（時間上限なし）
+        QCoreApplication::processEvents(QEventLoop::AllEvents);
+        // QVideoWidget の WM_PAINT は modal loop 中 GetMessage で滞りやすいため
+        // 同期 repaint で最新フレームを直接描画して可視化する
+        m_videoView->forceRepaint();
         return QMainWindow::nativeEvent(eventType, message, result);
     }
 
