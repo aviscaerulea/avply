@@ -89,6 +89,13 @@ VideoView::VideoView(QWidget* parent)
     // 100% 超のソフトウェア音量ブーストのため QAudioOutput は接続せず、
     // QAudioBufferOutput でサンプルを取得して QAudioSink に push する
     m_player->setAudioBufferOutput(m_audioBuf);
+
+    // ウィンドウドラッグ中の音声途切れ対策で QAudioSink バッファを 500ms に拡張する。
+    // modal size/move loop 中は WM_TIMER 経由（≈70ms 間隔）でしか audioBufferReceived を
+    // drain できないため、WASAPI 既定（10〜30ms）のままだと空白期間にアンダーランして
+    // 無音化する。500ms 確保しておけば WM_TIMER 数周期分の遅延も吸収できる
+    constexpr int kAudioBufferBytes = 48000 * 2 * sizeof(float) * 500 / 1000;
+    m_sink->setBufferSize(kAudioBufferBytes);
     m_sinkDev = m_sink->start();
     if (!m_sinkDev) {
         qWarning() << "QAudioSink::start() failed:" << m_sink->error();
