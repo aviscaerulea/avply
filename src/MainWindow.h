@@ -12,6 +12,8 @@
 class QDragEnterEvent;
 class QDropEvent;
 class QProcess;
+class QAction;
+class QContextMenuEvent;
 
 // アプリケーションのメインウィンドウ
 // ファイル選択・シーク・開始/終了設定・変換実行を担う
@@ -23,9 +25,16 @@ public:
     explicit MainWindow(const QString& initialPath = QString(), QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // IPC で他インスタンスから受信したファイルパスを取り込む
+    // 受信時はウィンドウを前面化して可視性を確保する。空文字なら前面化のみ
+    void loadFileFromIpc(const QString& path);
+
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
+
+    // 右クリックでコンテキストメニューを表示する
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
     // Windows ネイティブメッセージを処理する
     // WM_SIZING でウィンドウドラッグ中の RECT を直接書き換え、リアルタイムにアスペクト比を維持する
@@ -113,6 +122,18 @@ private:
     // アプリケーション全体のキー入力を捕捉してシーク・再生制御に変換する
     bool eventFilter(QObject* watched, QEvent* event) override;
 
+    // メニューから操作する設定の即時反映用ハンドラ
+    void onToggleTopmost(bool checked);
+    void onToggleSingleInstance(bool checked);
+    void onTogglePriority(bool checked);
+
+    // 再生状態に応じてウィンドウの最前面表示を切り替える
+    // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
+    void applyTopmostState();
+
+    // メニューアクションの enabled 状態を現在の文脈に合わせて更新する
+    void updateMenuActionEnabled();
+
     // 動画情報
     QString   m_filePath;
     VideoInfo m_info;
@@ -142,7 +163,6 @@ private:
 
     // ウィジェット
     QLabel*       m_filePathLabel;
-    QPushButton*  m_openBtn;
     VideoView*    m_videoView;
     QPushButton*  m_playPauseBtn;
     QPushButton*  m_stopBtn;
@@ -156,10 +176,21 @@ private:
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;
-    QPushButton*  m_convertBtn;
     QPushButton*  m_trimBtn;
     QLabel*       m_videoInfoLabel;
     QLabel*       m_outputLabel;
+
+    // コンテキストメニュー（右クリック）の各項目
+    // 「変換」は実行中に「中止」表記へ切り替え、「トリム」はメインの m_trimBtn と同期する
+    QAction*      m_actOpen          = nullptr;
+    QAction*      m_actConvert       = nullptr;
+    QAction*      m_actTrim          = nullptr;
+    QAction*      m_actTopmost       = nullptr;
+    QAction*      m_actSingleInst    = nullptr;
+    QAction*      m_actPriority      = nullptr;
+
+    // 現在の再生状態（applyTopmostState で参照）
+    bool m_isPlaying = false;
 
     Encoder* m_encoder = nullptr;
 

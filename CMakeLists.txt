@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets Network)
 
 qt_add_executable(avply WIN32
     src/main.cpp
@@ -25,6 +25,10 @@ qt_add_executable(avply WIN32
     src/OutputNamer.cpp
     src/Config.h
     src/Config.cpp
+    src/Settings.h
+    src/Settings.cpp
+    src/SingleInstance.h
+    src/SingleInstance.cpp
     src/icons.qrc
     src/app.rc
 )
@@ -44,6 +48,7 @@ target_link_libraries(avply PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::MultimediaWidgets
+    Qt6::Network
 )
 
 # Qt DLL を実行ファイルと同じディレクトリに配置する

@@ -1,3 +1,8 @@
+// std::min / std::max と windows.h の min / max マクロが衝突しないよう
+// 全 include より前に定義する
+#define NOMINMAX
+#include <windows.h>
+
 #include <QApplication>
 #include <QByteArray>
 #include <QDebug>
@@ -5,12 +10,29 @@
 #include <QStringList>
 #include <QTimer>
 #include "MainWindow.h"
+#include "Settings.h"
+#include "SingleInstance.h"
 
 int main(int argc, char* argv[])
 {
     // 再生速度変更時に pitchCompensation を有効化するため
     // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+
+    // 単一インスタンス強制が ON のとき、自身が 2 個目以降なら引数を既存へ転送して即時終了する
+    // QApplication 構築前に判定することで、不要な GUI 初期化を避ける
+    const bool singleInstanceEnabled = Settings::instance().singleInstance();
+    QString preliminaryArg;
+    if (argc > 1) preliminaryArg = QString::fromLocal8Bit(argv[1]);
+
+    if (singleInstanceEnabled) {
+        if (SingleInstance::tryForwardAndExit(preliminaryArg)) return 0;
+    }
+
+    // プロセス優先度設定（レジストリ値が ON のときのみ ABOVE_NORMAL）
+    if (Settings::instance().aboveNormalPriority()) {
+        SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+    }
 
     QApplication app(argc, argv);
 
@@ -44,6 +66,12 @@ int main(int argc, char* argv[])
     QTimer::singleShot(0, &win, [&win]() {
         win.setWindowOpacity(1.0);
     });
+
+    // 単一インスタンスが ON のときは primary として IPC サーバを起動し、
+    // 後続の起動から送られてくるファイルパスを受信する
+    if (singleInstanceEnabled) {
+        SingleInstance::startServer(&win, &win);
+    }
 
     return app.exec();
 }

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "Config.h"
 #include "OutputNamer.h"
+#include "Settings.h"
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -27,6 +28,10 @@
 #include <QStandardPaths>
 #include <QDateTime>
 #include <QCryptographicHash>
+#include <QAction>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QWindow>
 #include <algorithm>
 #include <cmath>
 
@@ -60,15 +65,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 描画追従ラグによる隙間が見えにくくなる
     setAutoFillBackground(true);
 
-    // --- ファイル選択行 ---
+    // --- ファイル名表示ラベル（旧「開く...」ボタンはコンテキストメニューに移行済み） ---
     m_filePathLabel = new QLabel("メディアファイルを選択するか、ウィンドウへドロップしてください");
     m_filePathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_openBtn = new QPushButton("開く...");
-    connect(m_openBtn, &QPushButton::clicked, this, &MainWindow::onOpenFile);
-
-    auto* fileRow = new QHBoxLayout;
-    fileRow->addWidget(m_filePathLabel, 1);
-    fileRow->addWidget(m_openBtn);
 
     // --- 動画プレビュー（クリックで再生/停止トグル、D&D でファイル読み込み） ---
     m_videoView = new VideoView;
@@ -135,6 +134,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     connect(m_videoView, &VideoView::playbackStateChanged,
             this, [this](bool playing) {
         m_playPauseBtn->setIcon(playing ? m_iconPause : m_iconPlay);
+        m_isPlaying = playing;
+        applyTopmostState();
     });
 
     // --- 停止ボタン（シーク位置を 0 に戻し、開始/終了マーカーをクリアする） ---
@@ -159,12 +160,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         b->setEnabled(false);
     }
 
-    // --- 変換ボタン・トリムボタン（シークバー行の右側に配置する） ---
-    m_convertBtn = new QPushButton("変換");
-    m_convertBtn->setFixedWidth(64);
-    m_convertBtn->setEnabled(false);
-    connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
-
+    // --- トリムボタン（シークバー行の右側に配置する。「変換」はコンテキストメニュー側に移行済み） ---
     m_trimBtn = new QPushButton("トリム");
     m_trimBtn->setFixedWidth(64);
     m_trimBtn->setEnabled(false);
@@ -188,7 +184,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     seekRow->setAlignment(leftIconRow, Qt::AlignVCenter);
     seekRow->addWidget(m_seekSlider, 1, Qt::AlignVCenter);
     seekRow->addWidget(m_setOutBtn,  0, Qt::AlignVCenter);
-    seekRow->addWidget(m_convertBtn, 0, Qt::AlignVCenter);
     seekRow->addWidget(m_trimBtn,    0, Qt::AlignVCenter);
 
     // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
@@ -205,7 +200,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     main->setSpacing(8);
     // bottom はわずかな余白だけ残して開始/終了行とステータスバーの間隔を詰める
     main->setContentsMargins(12, 12, 12, 4);
-    main->addLayout(fileRow);
+    main->addWidget(m_filePathLabel);
     // 余剰スペースを全てプレビューに割り当ててウィンドウリサイズに追従させる
     main->addWidget(m_videoView, 1);
     main->addLayout(seekRow);
@@ -243,6 +238,35 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_videoView->setVolumeBoost(cfg.audioVolume);
     m_volumeLabel->setText(QString::asprintf("  x%.2f", cfg.audioVolume));
     updateSpeedDisplay();
+
+    // --- コンテキストメニュー用アクションを構築する ---
+    // contextMenuEvent ごとにメニューを組み立てる際に使い回せるようメンバとして保持する
+    m_actOpen = new QAction("ファイルを開く", this);
+    connect(m_actOpen, &QAction::triggered, this, &MainWindow::onOpenFile);
+
+    m_actConvert = new QAction("ファイルを変換する", this);
+    connect(m_actConvert, &QAction::triggered, this, &MainWindow::onConvertOrCancel);
+
+    m_actTrim = new QAction("ファイルをトリムする", this);
+    connect(m_actTrim, &QAction::triggered, this, &MainWindow::onTrimOrCancel);
+
+    m_actTopmost = new QAction("再生中は常に最前面に表示する", this);
+    m_actTopmost->setCheckable(true);
+    m_actTopmost->setChecked(Settings::instance().topmostWhilePlaying());
+    connect(m_actTopmost, &QAction::toggled, this, &MainWindow::onToggleTopmost);
+
+    m_actSingleInst = new QAction("常にひとつのプレイヤーで再生する", this);
+    m_actSingleInst->setCheckable(true);
+    m_actSingleInst->setChecked(Settings::instance().singleInstance());
+    m_actSingleInst->setToolTip("変更は次回起動から有効");
+    connect(m_actSingleInst, &QAction::toggled, this, &MainWindow::onToggleSingleInstance);
+
+    m_actPriority = new QAction("プロセス優先度を通常以上にする", this);
+    m_actPriority->setCheckable(true);
+    m_actPriority->setChecked(Settings::instance().aboveNormalPriority());
+    connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
+
+    updateMenuActionEnabled();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
 
@@ -677,14 +701,33 @@ void MainWindow::setUiEnabled(bool enabled)
     // ファイル依存ボタンは「enabled かつ動画読込済」のときのみ活性化する
     const bool fileLoaded = enabled && m_info.valid;
     const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
-    m_openBtn->setEnabled(enabled);
     m_seekSlider->setEnabled(fileLoaded);
     m_playPauseBtn->setEnabled(fileLoaded);
     m_stopBtn->setEnabled(fileLoaded);
     m_setInBtn->setEnabled(fileLoaded);
     m_setOutBtn->setEnabled(fileLoaded);
-    m_convertBtn->setEnabled(fileLoaded && ffmpegOk);
     m_trimBtn   ->setEnabled(fileLoaded && ffmpegOk && isTrimMeaningful());
+    updateMenuActionEnabled();
+}
+
+void MainWindow::updateMenuActionEnabled()
+{
+    // 「開く」は実行中以外（m_runningOp==None）なら常に許可
+    // 「変換」「トリム」はファイル読込済 + ffmpeg 存在を要求し、トリムはさらに範囲が有効である必要がある
+    const bool idle      = (m_runningOp == Operation::None);
+    const bool ffmpegOk  = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
+    const bool fileReady = m_info.valid;
+
+    if (m_actOpen)    m_actOpen->setEnabled(idle);
+    if (m_actConvert) {
+        // 実行中（変換のみ）は中止操作のため有効のまま
+        const bool running = (m_runningOp == Operation::Convert);
+        m_actConvert->setEnabled(running || (idle && fileReady && ffmpegOk));
+    }
+    if (m_actTrim) {
+        const bool running = (m_runningOp == Operation::Trim);
+        m_actTrim->setEnabled(running || (idle && fileReady && ffmpegOk && isTrimMeaningful()));
+    }
 }
 
 bool MainWindow::isTrimMeaningful() const
@@ -711,11 +754,18 @@ void MainWindow::setRunning(Operation op)
     // 実行中はプレビュー領域のマウスクリックでの再生トグルも封じる
     m_videoView->setInteractive(!running);
 
-    // クリックされた側のボタンを「中止」に切り替え、もう一方は非活性に保つ
-    m_convertBtn->setText(op == Operation::Convert ? "中止" : "変換");
-    m_trimBtn   ->setText(op == Operation::Trim    ? "中止" : "トリム");
-    if (op == Operation::Convert) m_convertBtn->setEnabled(true);
-    if (op == Operation::Trim)    m_trimBtn   ->setEnabled(true);
+    // 操作中のラベル切替
+    // 変換はメニュー項目のテキストを、トリムはメインボタンとメニュー項目の双方を切り替える
+    if (m_actConvert) {
+        m_actConvert->setText(op == Operation::Convert ? "変換を中止する" : "ファイルを変換する");
+    }
+    if (m_actTrim) {
+        m_actTrim->setText(op == Operation::Trim ? "トリムを中止する" : "ファイルをトリムする");
+    }
+    m_trimBtn->setText(op == Operation::Trim ? "中止" : "トリム");
+    if (op == Operation::Trim) m_trimBtn->setEnabled(true);
+
+    updateMenuActionEnabled();
 }
 
 bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
@@ -841,6 +891,9 @@ void MainWindow::updateRangeMarkers()
     // 実行中はこの直後に setRunning() → setUiEnabled(false) で再度無効化される
     const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
     m_trimBtn->setEnabled(m_info.valid && ffmpegOk && isTrimMeaningful());
+
+    // 区間更新でメニュー側の「トリム」項目の活性条件も変わる
+    updateMenuActionEnabled();
 
     if ((!m_inSet && !m_outSet) || m_info.duration <= 0.0) {
         m_seekSlider->clearRangeMarkers();
@@ -1016,6 +1069,86 @@ void MainWindow::startWaveformGeneration(const QString& inputPath)
         }
         m_seekSlider->setWaveform(pix);
     });
+}
+
+void MainWindow::contextMenuEvent(QContextMenuEvent* event)
+{
+    QMenu menu(this);
+
+    menu.addAction(m_actOpen);
+    menu.addSeparator();
+    menu.addAction(m_actConvert);
+    menu.addAction(m_actTrim);
+    menu.addSeparator();
+
+    QMenu* settings = menu.addMenu("設定");
+    settings->addAction(m_actTopmost);
+    settings->addAction(m_actSingleInst);
+    settings->addAction(m_actPriority);
+
+    // tooltip をメニュー項目に表示するため明示有効化する
+    settings->setToolTipsVisible(true);
+
+    menu.exec(event->globalPos());
+}
+
+void MainWindow::onToggleTopmost(bool checked)
+{
+    Settings::instance().setTopmostWhilePlaying(checked);
+    applyTopmostState();
+}
+
+void MainWindow::onToggleSingleInstance(bool checked)
+{
+    // 単一インスタンス強制：トグル時の即時反映はせず、レジストリ保存のみ
+    // 既存ウィンドウの IPC サーバ起動状態を変えると状態遷移が複雑化するため、次回起動から有効とする
+    Settings::instance().setSingleInstance(checked);
+}
+
+void MainWindow::onTogglePriority(bool checked)
+{
+    // プロセス優先度はトグルと同時に即時反映する
+    Settings::instance().setAboveNormalPriority(checked);
+    SetPriorityClass(GetCurrentProcess(),
+                     checked ? ABOVE_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+}
+
+void MainWindow::applyTopmostState()
+{
+    // ウィンドウの最前面フラグの切り替え
+    // QWindow::setFlag は Qt の windowFlags 状態と Win32 の WS_EX_TOPMOST を同時に更新し、
+    // QWidget::setWindowFlag のような再 show を伴わない。Qt の内部状態と Win32 拡張スタイル
+    // の不一致を防ぐため SetWindowPos を直接呼ぶより安定する
+    const bool wantTopmost = Settings::instance().topmostWhilePlaying() && m_isPlaying;
+
+    QWindow* w = windowHandle();
+    if (w) {
+        w->setFlag(Qt::WindowStaysOnTopHint, wantTopmost);
+    }
+
+    // フラグ更新後に Z オーダーを即時反映する
+    // setFlag() は WS_EX_TOPMOST の付与・解除のみで、HWND_TOPMOST 順序へのソート
+    // （他アプリより上に持ち上げる）は SetWindowPos を併用する必要がある
+    HWND hwnd = reinterpret_cast<HWND>(winId());
+    SetWindowPos(hwnd,
+                 wantTopmost ? HWND_TOPMOST : HWND_NOTOPMOST,
+                 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void MainWindow::loadFileFromIpc(const QString& path)
+{
+    // 別インスタンスから引数を受け取った時の取り込み口
+    // 現在処理中（変換／トリム）なら割り込まずに前面化のみ行う
+    if (!path.isEmpty() && m_runningOp == Operation::None && isAcceptedMedia(path) && QFile::exists(path)) {
+        loadFile(path);
+    }
+
+    // ウィンドウを最前面に持ち上げてユーザに通知する
+    // 最小化されている場合は復元してから activate
+    if (isMinimized()) showNormal();
+    raise();
+    activateWindow();
 }
 
 void MainWindow::stopWaveformProcess(bool synchronous)
