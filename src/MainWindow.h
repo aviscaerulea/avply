@@ -161,10 +161,11 @@ private:
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
 
-    // WM_ENTERSIZEMOVE 突入時に再生中だったかを保持し、WM_EXITSIZEMOVE で再開判定する
-    // Win32 の modal size/move ループ中は Qt のキューシグナル配送が止まり、
-    // QMediaPlayer のフレーム滞留で再生が飛び飛びになる。ドラッグ中だけ pause して回避する
-    bool m_resumeOnExitSizeMove = false;
+    // ドラッグ中イベントループ pump 用タイマ設定済みフラグ
+    // modal size/move ループ中は Qt のキューシグナル配送が止まるため QMediaPlayer の
+    // フレームが滞留する。WM_ENTERSIZEMOVE で Win32 タイマを仕込み、
+    // 発火する WM_TIMER 内で processEvents() を呼んで再生を継続させる
+    bool m_sizeMoveTimerActive = false;
 
     // ウィジェット
     QLabel*       m_filePathLabel;

@@ -3,6 +3,7 @@
 #include "OutputNamer.h"
 #include "Settings.h"
 #include <QApplication>
+#include <QEventLoop>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -779,22 +780,31 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
 
     MSG* msg = static_cast<MSG*>(message);
 
-    // ドラッグ開始/終了でメディア再生を一時停止/再開する
-    // Win32 の modal size/move ループ中は Qt のメッセージポンプが止まり、
-    // QMediaPlayer のキューシグナル経由のフレーム配送が滞留する。
-    // 一時停止しないとドラッグ終了後にフレームが一気に押し戻されカクつく
+    // ドラッグ中も Qt のイベントループを駆動させて再生を継続させる
+    // modal size/move ループ中は通常の Qt ディスパッチが止まるため QMediaPlayer の
+    // キューシグナル経由のフレームが滞留する。Win32 タイマは modal loop 内でも
+    // 発火するため、これをフックして processEvents() でキューを drain する
+    // Qt 内部の USER タイマ（1 付近から昇順割り当て）との衝突を避けた任意の固定 ID
+    static constexpr UINT kSizeMoveTimerId = 0xAB1E;
+    // 8ms ≒ 120fps 相当の drain 間隔。WM_TIMER の最小解像度（約 10ms）に丸まる
+    static constexpr UINT kSizeMoveTimerInterval = 8;
     if (msg->message == WM_ENTERSIZEMOVE) {
-        if (m_videoView->isPlaying()) {
-            m_videoView->pause();
-            m_resumeOnExitSizeMove = true;
+        if (SetTimer(msg->hwnd, kSizeMoveTimerId, kSizeMoveTimerInterval, nullptr)) {
+            m_sizeMoveTimerActive = true;
         }
         return QMainWindow::nativeEvent(eventType, message, result);
     }
     if (msg->message == WM_EXITSIZEMOVE) {
-        if (m_resumeOnExitSizeMove) {
-            m_resumeOnExitSizeMove = false;
-            m_videoView->togglePlay();
+        if (m_sizeMoveTimerActive) {
+            KillTimer(msg->hwnd, kSizeMoveTimerId);
+            m_sizeMoveTimerActive = false;
         }
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+    if (msg->message == WM_TIMER && msg->wParam == static_cast<WPARAM>(kSizeMoveTimerId)) {
+        // 4ms 上限で短時間 drain する。長すぎるとドラッグ操作の応答が鈍り、
+        // 短すぎると 1 フレーム分のキューイベントが処理しきれず再生がカクつく
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 4);
         return QMainWindow::nativeEvent(eventType, message, result);
     }
 
