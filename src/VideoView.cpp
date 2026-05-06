@@ -104,11 +104,28 @@ VideoView::VideoView(QWidget* parent)
         w->installEventFilter(this);
     }
 
+    // 末尾到達時に Qt が自動で StoppedState（位置 0 に戻る）へ遷移するのを抑止する。
+    // 終端の数十 ms 手前で先取りで pause を呼び、ユーザがそこからシークバーで微調整
+    // できるようにする。pause() は非同期完了のため、再入防止フラグで一度だけ発火させる
     connect(m_player, &QMediaPlayer::positionChanged,
-            this, &VideoView::positionChanged);
+            this, [this](qint64 pos) {
+        // 新ソース読み込み中は旧ソースの遅延 positionChanged を破棄する
+        // stop() の非同期完了前に届いた残存シグナルでフラグが誤って立つのを防ぐ
+        if (m_primeFirstFrame) return;
+        const qint64 dur = m_player->duration();
+        if (!m_pausingAtEnd && dur > 0 && pos >= dur - 50 && isPlaying()) {
+            m_pausingAtEnd = true;
+            m_player->pause();
+        }
+        emit positionChanged(pos);
+    });
 
     connect(m_player, &QMediaPlayer::playbackStateChanged,
             this, [this](QMediaPlayer::PlaybackState state) {
+        // 再生中以外（停止・一時停止）への遷移時に末尾自動 pause フラグを解除する
+        // 末尾停止後にユーザが再生再開した時点で末尾検出を再有効化する。
+        // pause() が万一 reject されてもフラグ固着しないよう StoppedState もリセット対象とする
+        if (state != QMediaPlayer::PausedState) m_pausingAtEnd = false;
         emit playbackStateChanged(state == QMediaPlayer::PlayingState);
     });
 
@@ -132,12 +149,14 @@ void VideoView::setSource(const QString& filePath)
 {
     m_player->stop();
     m_primeFirstFrame = true;
+    m_pausingAtEnd = false;
     m_player->setSource(QUrl::fromLocalFile(filePath));
 }
 
 void VideoView::clear()
 {
     m_primeFirstFrame = false;
+    m_pausingAtEnd = false;
     m_player->stop();
     m_player->setSource(QUrl());
     m_videoWidget->hide();
@@ -153,6 +172,9 @@ qint64 VideoView::position() const
 
 void VideoView::setPosition(qint64 ms)
 {
+    // 手動シークで末尾自動 pause フラグを解除する
+    // 末尾停止後にシークバーで巻き戻し操作したとき、再生再開せずとも末尾検出を再有効化する
+    m_pausingAtEnd = false;
     m_player->setPosition(ms);
 }
 

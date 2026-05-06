@@ -93,4 +93,9 @@ private:
 
     // マウスクリックでの再生トグル許可フラグ
     bool m_interactive = true;
+
+    // 末尾到達時の自動 pause 再入防止フラグ
+    // pause() は非同期完了のため、直後の positionChanged で isPlaying() がまだ true を
+    // 返す場合がある。フラグで一度だけ pause を発火させ、ソース切替時にリセットする
+    bool m_pausingAtEnd = false;
 };

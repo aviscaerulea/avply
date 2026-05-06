@@ -106,7 +106,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         "QPushButton { border: none; padding: 0; }"
         "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }";
     // アイコン式ボタンの統一サイズ（再生・停止・【・】 すべて同じ矩形でホバーする）
-    const QSize iconBtnSize(36, 32);
+    // 【】テキストの見た目に揃うようコンパクトにし、アイコンも一回り小さくする
+    const QSize iconBtnSize(28, 28);
+    const QSize iconImgSize(18, 18);
 
     // --- 再生/一時停止ボタン（シークバー左、再生状態の視認も兼ねる） ---
     // PNG アイコンを使用する
@@ -114,7 +116,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_iconPause = QIcon(":/icons/pause.png");
     m_playPauseBtn = new QPushButton;
     m_playPauseBtn->setIcon(m_iconPlay);
-    m_playPauseBtn->setIconSize(QSize(24, 24));
+    m_playPauseBtn->setIconSize(iconImgSize);
     connect(m_playPauseBtn, &QPushButton::clicked, this, [this]() {
         if (m_info.valid) m_videoView->togglePlay();
     });
@@ -126,12 +128,15 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // --- 停止ボタン（シーク位置を 0 に戻し、開始/終了マーカーをクリアする） ---
     m_stopBtn = new QPushButton;
     m_stopBtn->setIcon(QIcon(":/icons/stop.png"));
-    m_stopBtn->setIconSize(QSize(24, 24));
+    m_stopBtn->setIconSize(iconImgSize);
     connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStop);
 
     // --- 開始/終了 設定ボタン（再生/停止と同じアイコン式スタイルに揃える） ---
+    // [ / ] キーでも操作できるようキーボードショートカットを割り当てる
     m_setInBtn  = new QPushButton("【");
     m_setOutBtn = new QPushButton("】");
+    m_setInBtn ->setShortcut(QKeySequence(Qt::Key_BracketLeft));
+    m_setOutBtn->setShortcut(QKeySequence(Qt::Key_BracketRight));
     connect(m_setInBtn,  &QPushButton::clicked, this, &MainWindow::onSetIn);
     connect(m_setOutBtn, &QPushButton::clicked, this, &MainWindow::onSetOut);
 
@@ -161,13 +166,18 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     leftIconRow->addWidget(m_stopBtn);
     leftIconRow->addWidget(m_setInBtn);
 
+    // 行内すべての要素を縦中央で揃える
+    // ボタン高（28px）とスライダーの sizeHint 高に差があるためウィジェット間で
+    // 中心位置がズレやすい。AlignVCenter を明示することでウィンドウリサイズ時も
+    // シークバーが各ボタンの中心と一致した状態を保つ
     auto* seekRow = new QHBoxLayout;
-    seekRow->setSpacing(4);
+    seekRow->setSpacing(2);
     seekRow->addLayout(leftIconRow);
-    seekRow->addWidget(m_seekSlider, 1);
-    seekRow->addWidget(m_setOutBtn);
-    seekRow->addWidget(m_convertBtn);
-    seekRow->addWidget(m_trimBtn);
+    seekRow->setAlignment(leftIconRow, Qt::AlignVCenter);
+    seekRow->addWidget(m_seekSlider, 1, Qt::AlignVCenter);
+    seekRow->addWidget(m_setOutBtn,  0, Qt::AlignVCenter);
+    seekRow->addWidget(m_convertBtn, 0, Qt::AlignVCenter);
+    seekRow->addWidget(m_trimBtn,    0, Qt::AlignVCenter);
 
     // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
     m_videoInfoLabel = new QLabel;
