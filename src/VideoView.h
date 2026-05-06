@@ -4,6 +4,7 @@
 
 class QQuickView;
 class QMediaPlayer;
+class QAudioOutput;
 class QAudioBufferOutput;
 class QThread;
 class AudioWorker;
@@ -100,16 +101,30 @@ private slots:
     void onQmlWheelScrolled(bool forward);
 
 private:
+    // 音声経路を初回 setVolumeBoost() 時に確定する。
+    // gain ≤ 1.0：Qt 標準の QAudioOutput 経路。gain > 1.0：QAudioBufferOutput+AudioWorker のブースト経路。
+    // ランタイムでの経路切替はサポートしない（YAGNI）
+    void setupStandardAudioPath(double volume);
+    void setupBoostAudioPath(double gain);
+
     QQuickView*         m_quickView;
     QWidget*            m_videoContainer = nullptr;
     QMediaPlayer*       m_player;
-    QAudioBufferOutput* m_audioBuf;
+
+    // 標準経路（gain ≤ 1.0 用）。setupStandardAudioPath で生成
+    QAudioOutput*       m_audioOutput = nullptr;
+
+    // ブースト経路（gain > 1.0 用）。setupBoostAudioPath で生成
+    QAudioBufferOutput* m_audioBuf    = nullptr;
 
     // QAudioSink を所有する専用スレッドとワーカ
     // decoder thread の audioBufferReceived から AudioWorker::onAudioBuffer に
     // QueuedConnection で配送し、GUI thread のブロックから音声経路を独立させる
     QThread*     m_audioThread = nullptr;
     AudioWorker* m_audioWorker = nullptr;
+
+    // 音声経路の初期化済みフラグ（初回 setVolumeBoost で立てる）
+    bool m_audioPathInitialized = false;
 
     // 読み込み完了後に 1 フレームだけ描画するためのフラグ
     bool m_primeFirstFrame = false;
