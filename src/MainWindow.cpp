@@ -11,7 +11,6 @@
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
-#include <QResizeEvent>
 #include <QMimeData>
 #include <QUrl>
 #include <QSignalBlocker>
@@ -23,18 +22,31 @@
 #include <QScreen>
 #include <QStyle>
 #include <QIcon>
+#include <QPixmap>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QDateTime>
+#include <QCryptographicHash>
 #include <algorithm>
 #include <cmath>
 
-static constexpr int kSliderMax = 10000;
+// WM_SIZING / WMSZ_* 定数のため Windows API ヘッダを取り込む
+// NOMINMAX を先に定義しないと windows.h の min / max マクロが std::min / std::max と衝突する
+#define NOMINMAX
+#include <windows.h>
 
-// 手動リサイズ完了から高さ矯正発火までの遅延（ドラッグ静止判定）
-static constexpr int kAspectFixDebounceMs = 80;
+static constexpr int kSliderMax = 10000;
 
 // 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
 // 動画ロード後に動画サイズへリサイズするまでの暫定表示用
 static constexpr int kInitialWindowW = 500;
 static constexpr int kInitialWindowH = 375;
+
+// 音声波形 PNG の生成サイズ
+// シークバー幅は最大でも数百 px だが、QPainter 側のスケール描画品質を保つため幅 2048px の余裕を持たせる。
+// 高さ 48px はトラック高 28px への縮小描画でも詳細が潰れない解像度
+static constexpr int kWaveformW = 2048;
+static constexpr int kWaveformH = 48;
 
 MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
@@ -149,12 +161,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // --- 変換ボタン・トリムボタン（シークバー行の右側に配置する） ---
     m_convertBtn = new QPushButton("変換");
-    m_convertBtn->setFixedWidth(80);
+    m_convertBtn->setFixedWidth(64);
     m_convertBtn->setEnabled(false);
     connect(m_convertBtn, &QPushButton::clicked, this, &MainWindow::onConvertOrCancel);
 
     m_trimBtn = new QPushButton("トリム");
-    m_trimBtn->setFixedWidth(80);
+    m_trimBtn->setFixedWidth(64);
     m_trimBtn->setEnabled(false);
     connect(m_trimBtn, &QPushButton::clicked, this, &MainWindow::onTrimOrCancel);
 
@@ -234,15 +246,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
 
-    // 手動リサイズ時のアスペクト矯正をデバウンスする。
-    // ドラッグ中は resizeEvent が連続発火するため即時 resize を呼ぶと
-    // 「ユーザの resize → 矯正の resize」が毎フレーム繰り返され、
-    // 外枠と内部描画の同期ズレ（外枠だけ新サイズ）が顕在化する。
-    // ドラッグ静止 80ms 後にだけ 1 回矯正することで二段階リサイズを排除する。
-    m_aspectFixTimer.setSingleShot(true);
-    m_aspectFixTimer.setInterval(kAspectFixDebounceMs);
-    connect(&m_aspectFixTimer, &QTimer::timeout, this, &MainWindow::applyAspectFix);
-
     // show() 前にレイアウトを確定して下部 UI 高（プレビューを除いた UI 部の高さ）を保存する
     adjustSize();
     m_lowerUiH = height() - m_videoView->height();
@@ -273,7 +276,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // デストラクタ実行中にコールバックが発火すると this が破棄済みとなり未定義動作になるため、
+    // synchronous=true で waitForFinished を挟んで確実に終わらせる
+    stopWaveformProcess(true);
+}
 
 // ---- ドラッグ＆ドロップ ----
 
@@ -488,9 +496,10 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     // 中止・失敗時は進捗オーバーレイを除去して区間表示を元に戻す
     m_seekSlider->clearProgress();
 
-    // ユーザ中止：err 空文字 → ダイアログ抑制
+    // ユーザ中止：err 空文字 → ダイアログ抑制、ステータス表示もクリアのみ
+    // 進捗オーバーレイの消失で中止は十分認識可能
     if (err.isEmpty()) {
-        m_outputLabel->setText("  中止しました");
+        m_outputLabel->clear();
         return;
     }
 
@@ -579,6 +588,15 @@ void MainWindow::loadFile(const QString& path)
     // 読込が完了したのでファイル依存ボタンをまとめて活性化する
     setUiEnabled(true);
 
+    // 音声波形を非同期生成する。音声ストリームが無いファイルは中央基線で代替する
+    m_seekSlider->clearWaveform();
+    if (!info.hasAudio()) {
+        m_seekSlider->setBaseline(true);
+    }
+    else {
+        startWaveformGeneration(path);
+    }
+
     // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
     // 再生速度はインスタンス起動中ずっと保持するためファイル間でリセットしない
     m_videoView->setPlaybackRate(m_playbackRate);
@@ -588,19 +606,26 @@ void MainWindow::loadFile(const QString& path)
     const QRect geom = sc->availableGeometry();
 
     if (isAudioOnly()) {
-        // 音声専用：プレビュー領域をなくした高さへ縮小できるよう最小高を更新する
-        setMinimumSize(kInitialWindowW, m_lowerUiH);
+        // 音声専用：プレビュー領域がないため縦サイズを下部 UI 高に固定する
+        // setFixedHeight は最小・最大の双方を同値に設定するため、Qt が WM_GETMINMAXINFO 経由で
+        // OS にこの制約を伝え、Windows 自身がウィンドウの縦ドラッグを禁止する
+        setMinimumWidth(kInitialWindowW);
+        setMaximumWidth(QWIDGETSIZE_MAX);
+        setFixedHeight(m_lowerUiH);
 
-        m_resizingProgrammatically = true;
         resize(std::max(kInitialWindowW, width()), m_lowerUiH);
         QRect frame = frameGeometry();
         frame.moveCenter(geom.center());
         move(frame.topLeft());
-        m_resizingProgrammatically = false;
     }
     else {
         // 動画のアスペクト比をウィンドウ連動の基準として更新する
         m_videoAspect = static_cast<double>(info.width) / info.height;
+
+        // 音声モードからの切替で残った setFixedHeight を解除する
+        // setMinimumSize だけでは setFixedHeight が設定した最大高さが残るため、
+        // 明示的に setMaximumHeight を呼んで縦伸縮を解放する必要がある
+        setMaximumHeight(QWIDGETSIZE_MAX);
         setMinimumSize(kInitialWindowW, kInitialWindowH);
 
         // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
@@ -621,14 +646,12 @@ void MainWindow::loadFile(const QString& path)
         const int previewW = qRound(info.width  * scale);
         const int previewH = qRound(info.height * scale);
 
-        m_resizingProgrammatically = true;
         resize(std::max(kInitialWindowW, previewW), previewH + m_lowerUiH);
         // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
         // frameGeometry は resize 直後も Windows では即時反映されるため安全
         QRect frame = frameGeometry();
         frame.moveCenter(geom.center());
         move(frame.topLeft());
-        m_resizingProgrammatically = false;
     }
 }
 
@@ -695,33 +718,118 @@ void MainWindow::setRunning(Operation op)
     if (op == Operation::Trim)    m_trimBtn   ->setEnabled(true);
 }
 
-void MainWindow::resizeEvent(QResizeEvent* event)
+bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
 {
-    QMainWindow::resizeEvent(event);
-    if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
-    // 音声のみはプレビュー領域がないためアスペクト矯正そのものが不要
-    if (isAudioOnly()) return;
-    // 最大化・全画面・最小化中は OS にサイズ制御を任せ、アスペクト矯正を行わない
-    // （矯正で resize すると画面領域を超えて下部 UI が画面外に押し出される）
-    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
-
-    // 即時の矯正 resize はドラッグ中の二段階リサイズを生むためデバウンスする
-    m_aspectFixTimer.start();
-}
-
-void MainWindow::applyAspectFix()
-{
-    if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
-    if (isAudioOnly()) return;
-    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
-
-    // 幅基準で「正しい高さ」を逆算してウィンドウのアスペクト比を矯正する
-    const int targetH = qRound(width() / m_videoAspect) + m_lowerUiH;
-    if (targetH != height()) {
-        m_resizingProgrammatically = true;
-        resize(width(), targetH);
-        m_resizingProgrammatically = false;
+    // WM_SIZING を捕まえて RECT を直接書き換え、ドラッグ中もアスペクト比を維持する
+    // 事後補正方式と異なりマウスドラッグの毎フレームに反映されるため、
+    // リリース時のスナップバック（ドラッグ中サイズと最終サイズの食い違い）が起きない
+    if (eventType != "windows_generic_MSG") {
+        return QMainWindow::nativeEvent(eventType, message, result);
     }
+
+    MSG* msg = static_cast<MSG*>(message);
+    if (msg->message != WM_SIZING) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
+    // 動画モード以外（音声・未読込）はアスペクト維持の対象外
+    // 音声モードは setFixedHeight により Qt 側で縦が固定されているため別途介在不要
+    // ガード節は QMainWindow::nativeEvent への委譲で統一し、*result の伝搬経路を一本化する
+    if (isAudioOnly() || !m_info.valid || m_lowerUiH <= 0) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+    if (m_videoAspect <= 0.0) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
+    RECT* r = reinterpret_cast<RECT*>(msg->lParam);
+    const WPARAM edge = msg->wParam;
+
+    // ウィンドウフレーム余白を frameGeometry() と geometry() の差から取得する
+    // RECT はフレーム外周の矩形のため、クライアント領域に変換するためにフレームを差し引く
+    const QRect fg = frameGeometry();
+    const QRect cg = geometry();
+    const int frameLeft   = cg.left()   - fg.left();
+    const int frameTop    = cg.top()    - fg.top();
+    const int frameRight  = fg.right()  - cg.right();
+    const int frameBottom = fg.bottom() - cg.bottom();
+
+    int clientW = (r->right - r->left) - frameLeft - frameRight;
+    int clientH = (r->bottom - r->top) - frameTop - frameBottom;
+
+    // 上下辺ドラッグは高さマスター、それ以外（左右辺・角）は幅マスターとして扱う
+    const bool heightMaster = (edge == WMSZ_TOP || edge == WMSZ_BOTTOM);
+
+    if (heightMaster) {
+        const int previewH = clientH - m_lowerUiH;
+        if (previewH <= 0) return QMainWindow::nativeEvent(eventType, message, result);
+        clientW = qRound(previewH * m_videoAspect);
+    }
+    else {
+        const int previewH = qRound(clientW / m_videoAspect);
+        clientH = previewH + m_lowerUiH;
+    }
+
+    // 最小サイズへのクランプ
+    // WM_GETMINMAXINFO 経由の Qt 最小サイズ制約は WM_SIZING の RECT 書き換え後にも適用されるが、
+    // クランプによりアスペクト比が崩れるためこちら側で先に整合させる
+    if (clientW < kInitialWindowW) {
+        clientW = kInitialWindowW;
+        clientH = qRound(clientW / m_videoAspect) + m_lowerUiH;
+    }
+    if (clientH < kInitialWindowH) {
+        clientH = kInitialWindowH;
+        const int previewH = clientH - m_lowerUiH;
+        if (previewH > 0) clientW = qRound(previewH * m_videoAspect);
+    }
+
+    const int newW = clientW + frameLeft + frameRight;
+    const int newH = clientH + frameTop + frameBottom;
+
+    // 辺・角ごとに RECT のどの座標を動かすか決定する
+    // ドラッグした辺の対辺をアンカーすることで OS のドラッグ感覚と一致させる
+    switch (edge) {
+    case WMSZ_LEFT:
+        r->left   = r->right  - newW;
+        r->bottom = r->top    + newH;
+        break;
+    case WMSZ_RIGHT:
+        r->right  = r->left   + newW;
+        r->bottom = r->top    + newH;
+        break;
+    case WMSZ_TOP:
+        r->top    = r->bottom - newH;
+        r->right  = r->left   + newW;
+        break;
+    case WMSZ_BOTTOM:
+        r->bottom = r->top    + newH;
+        r->right  = r->left   + newW;
+        break;
+    case WMSZ_TOPLEFT:
+        r->top    = r->bottom - newH;
+        r->left   = r->right  - newW;
+        break;
+    case WMSZ_TOPRIGHT:
+        r->top    = r->bottom - newH;
+        r->right  = r->left   + newW;
+        break;
+    case WMSZ_BOTTOMLEFT:
+        r->bottom = r->top    + newH;
+        r->left   = r->right  - newW;
+        break;
+    case WMSZ_BOTTOMRIGHT:
+        r->bottom = r->top    + newH;
+        r->right  = r->left   + newW;
+        break;
+    default:
+        return false;
+    }
+
+    *result = TRUE;
+    return true;
 }
 
 void MainWindow::updateRangeMarkers()
@@ -789,6 +897,17 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         case Qt::Key_Down:
             changePlaybackRate(-0.05);
             return true;
+        case Qt::Key_R:
+            // 区間マーカーのみクリア（再生位置・再生状態は維持する）
+            // onStop は再生位置を 0 に戻すため別実装
+            if (m_info.valid) {
+                m_inSet  = false;
+                m_outSet = false;
+                m_inSec  = 0.0;
+                m_outSec = m_info.duration;
+                updateRangeMarkers();
+            }
+            return true;
         default:
             break;
         }
@@ -838,4 +957,89 @@ void MainWindow::validateFfmpegPath()
         "  [ffmpeg]\n"
         "  path = \"<ffmpeg.exe へのパス>\"\n"
         "を設定してから起動し直してください。");
+}
+
+QString MainWindow::waveformCachePath(const QString& inputPath) const
+{
+    // 入力パスと mtime を組み合わせてハッシュ化する
+    // 同一パスでもファイル更新を検出して再生成する仕組み
+    const QFileInfo fi(inputPath);
+    // フィルタ識別子（"|cbrt"）を含めることでフィルタ仕様変更時に自動的に新キャッシュへ移行する
+    // 旧キャッシュは別ハッシュ名のまま %TEMP% に残存、OS の一時掃除に委ねる
+    const QString key = fi.absoluteFilePath()
+        + "@" + QString::number(fi.lastModified().toMSecsSinceEpoch())
+        + "|cbrt";
+    const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    // QCryptographicHash で決定論的なハッシュ値を得る
+    // qHash はプロセスごとにシードがランダム化されるため、再起動で衝突せずキャッシュが機能しなくなる
+    const QByteArray digest = QCryptographicHash::hash(
+        key.toUtf8(), QCryptographicHash::Md5).toHex();
+    return tmpDir + "/avply_wave_" + QString::fromLatin1(digest) + ".png";
+}
+
+void MainWindow::startWaveformGeneration(const QString& inputPath)
+{
+    // 短時間でファイルを切り替えた際に古いプロセスのコールバックが新ファイルへ
+    // 誤反映するのを防ぐため、新規生成前に旧プロセスを停止する
+    stopWaveformProcess(false);
+
+    // ffmpeg パスが無効なら波形生成は諦める。シークバーは波形なしのまま
+    if (m_ffmpegPath.isEmpty() || !QFile::exists(m_ffmpegPath)) return;
+
+    const QString cachePath = waveformCachePath(inputPath);
+
+    // キャッシュヒット時は ffmpeg を起動せず即時反映する
+    if (QFile::exists(cachePath)) {
+        const QPixmap pix(cachePath);
+        if (!pix.isNull()) {
+            m_seekSlider->setWaveform(pix);
+            return;
+        }
+    }
+
+    m_waveformProcOutPath = cachePath;
+    m_waveformProc = Ffmpeg::generateWaveform(
+        m_ffmpegPath, inputPath, cachePath,
+        QSize(kWaveformW, kWaveformH), this,
+        [this, cachePath](bool ok, const QString& /*outputPath*/) {
+        m_waveformProc = nullptr;
+        m_waveformProcOutPath.clear();
+        if (!ok) {
+            // 生成失敗は無音動画やデコードエラー等。中央基線にフォールバックする
+            m_seekSlider->setBaseline(true);
+            return;
+        }
+        const QPixmap pix(cachePath);
+        if (pix.isNull()) {
+            m_seekSlider->setBaseline(true);
+            return;
+        }
+        m_seekSlider->setWaveform(pix);
+    });
+}
+
+void MainWindow::stopWaveformProcess(bool synchronous)
+{
+    if (!m_waveformProc) return;
+
+    // disconnect でコールバック経路を切ってから kill する
+    // 同スレッド DirectConnection 想定だが、disconnect により受信側に二度と届かないことを保証する
+    disconnect(m_waveformProc, nullptr, this, nullptr);
+    m_waveformProc->kill();
+
+    if (synchronous) {
+        m_waveformProc->waitForFinished(3000);
+        delete m_waveformProc;
+    }
+    else {
+        m_waveformProc->deleteLater();
+    }
+    m_waveformProc = nullptr;
+
+    // 中途まで書かれた可能性のある PNG を削除する
+    // 次回起動時に QFile::exists ヒット → QPixmap が破損ファイルを読み込む事故を防ぐ
+    if (!m_waveformProcOutPath.isEmpty()) {
+        QFile::remove(m_waveformProcOutPath);
+        m_waveformProcOutPath.clear();
+    }
 }

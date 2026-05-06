@@ -11,6 +11,7 @@
 
 class QDragEnterEvent;
 class QDropEvent;
+class QProcess;
 
 // アプリケーションのメインウィンドウ
 // ファイル選択・シーク・開始/終了設定・変換実行を担う
@@ -26,8 +27,9 @@ protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
-    // ウィンドウリサイズ時に動画アスペクト比に合わせて高さを矯正する
-    void resizeEvent(QResizeEvent* event) override;
+    // Windows ネイティブメッセージを処理する
+    // WM_SIZING でウィンドウドラッグ中の RECT を直接書き換え、リアルタイムにアスペクト比を維持する
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 
 private slots:
     void onOpenFile();
@@ -82,6 +84,19 @@ private:
     // ffmpeg パスの妥当性を検査し、不正なら警告ダイアログを 1 回出す
     void validateFfmpegPath();
 
+    // 音声波形 PNG の生成を非同期で起動する
+    // キャッシュヒット時は ffmpeg を起動せず即時シークバーへ反映する
+    void startWaveformGeneration(const QString& inputPath);
+
+    // 入力ファイルパス + mtime をキーにした波形 PNG キャッシュパスを返す
+    QString waveformCachePath(const QString& inputPath) const;
+
+    // 実行中の波形生成プロセスを停止し m_waveformProc を解放する
+    // synchronous=true で waitForFinished + delete（デストラクタ向け）、
+    // false で deleteLater（ファイル切替時向け）。kill した中途生成 PNG は QFile::remove で削除し
+    // 次回起動時に破損キャッシュをヒットさせない
+    void stopWaveformProcess(bool synchronous);
+
     // カーソルキーによる相対シーク（delta > 0 で早送り、< 0 で巻き戻し）
     void seekRelative(int deltaMs);
 
@@ -97,10 +112,6 @@ private:
 
     // アプリケーション全体のキー入力を捕捉してシーク・再生制御に変換する
     bool eventFilter(QObject* watched, QEvent* event) override;
-
-    // 現在の幅と動画アスペクト比から正しい高さを逆算してウィンドウを矯正する
-    // 手動リサイズ完了後の遅延発火と resizeEvent 経路の両方で使う
-    void applyAspectFix();
 
     // 動画情報
     QString   m_filePath;
@@ -124,12 +135,10 @@ private:
     qreal m_playbackRate = 1.0;
 
     // ウィンドウのアスペクト比連動用状態
-    // m_videoAspect は現在の基準比率（動画未読込時は 16:9 = 800/450）
+    // m_videoAspect は WM_SIZING 中に参照する動画の基準比率（動画未読込時は 16:9）
     // m_lowerUiH はレイアウト確定後の下部 UI 合計高さ（一度だけ取得）
-    // m_resizingProgrammatically は resizeEvent 内 resize の再帰防止フラグ
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
-    bool   m_resizingProgrammatically = false;
 
     // ウィジェット
     QLabel*       m_filePathLabel;
@@ -154,13 +163,16 @@ private:
 
     Encoder* m_encoder = nullptr;
 
+    // 実行中の波形生成プロセス。新規ファイル読込時に kill して入れ替える
+    QProcess* m_waveformProc = nullptr;
+
+    // 現在生成中プロセスの出力先 PNG パス。kill 時に部分書き込みファイルを削除するため保持する
+    QString m_waveformProcOutPath;
+
     // 実行中の操作種別。None ならアイドル
     Operation m_runningOp = Operation::None;
 
     // シーク要求のスロットル（連続 valueChanged を間引く）
     QTimer  m_seekTimer;
     qint64  m_pendingSeekMs = -1;
-
-    // 手動リサイズ完了後のアスペクト矯正用デバウンスタイマー
-    QTimer m_aspectFixTimer;
 };
