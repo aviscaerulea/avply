@@ -93,13 +93,13 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_posLabel = new QLabel("  --:--:-- / --:--:--");
 
     // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
-    // 先頭の 🎬（カチンコ）は音量ラベル（同じ "x◯.◯◯" 表記）との視覚的区別のため付与する
+    // 先頭の 🎬（カチンコ）はラベル種別の視覚的区別のため付与する
     m_speedLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x8e\xac x1.00"));
 
-    // --- 音量ブースト倍率ラベル（再生速度の右に配置） ---
-    // 値は avply.toml から取得し、起動時に一度だけ設定する
-    // 先頭の 🔊 は再生速度ラベル（同じ "x◯.◯◯" 表記）との視覚的区別のため付与する
-    m_volumeLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x94\x8a x1.00"));
+    // --- 音量ラベル（再生速度の右に配置） ---
+    // 初期値は avply.toml の [audio].volume から取得し、Shift+カーソルキーで動的に変更する
+    // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
+    m_volumeLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x94\x8a 100%"));
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -953,15 +953,15 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             if (m_info.duration > 0.0) m_videoView->togglePlay();
             return true;
         case Qt::Key_Up:
-            // Shift 修飾子併用時は音量、それ以外は再生速度を ±0.05 単位で変更する
-            if (ke->modifiers() & Qt::ShiftModifier) changeVolume(0.05);
-            else                                     changePlaybackRate(0.05);
+        case Qt::Key_Down: {
+            // Shift 単独併用時は音量、修飾子なしのときは再生速度を ±0.05 単位で増減する。
+            // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する
+            const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+            const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
+            if      (mods == Qt::ShiftModifier) changeVolume(sign);
+            else if (mods == Qt::NoModifier)    changePlaybackRate(sign);
             return true;
-        case Qt::Key_Down:
-            // Shift 修飾子併用時は音量、それ以外は再生速度を ±0.05 単位で変更する
-            if (ke->modifiers() & Qt::ShiftModifier) changeVolume(-0.05);
-            else                                     changePlaybackRate(-0.05);
-            return true;
+        }
         case Qt::Key_R:
             // 区間マーカーのみクリア（再生位置・再生状態は維持する）
             // onStop は再生位置を 0 に戻すため別実装
@@ -1014,7 +1014,7 @@ void MainWindow::changeVolume(qreal delta)
 
 void MainWindow::updateVolumeDisplay()
 {
-    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("x%.2f", m_volume));
+    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("%.0f%%", m_volume * 100.0));
 }
 
 QString MainWindow::openDialogStartDir() const

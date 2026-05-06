@@ -92,8 +92,7 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
     // モニタ比率は 0.1〜1.0 にクランプする
     // 0 以下では初期サイズが破綻し、1.0 超ではタスクバーやマルチモニタ境界を侵す
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
-    // 音量は 0.0〜1.0 にクランプ
-    // QAudioOutput::setVolume の有効範囲に合わせる（100% 超のソフトウェアブーストは行わない）
+    // 音量は QAudioOutput::setVolume の有効範囲（0.0〜1.0）にクランプ
     cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 1.0);
 }
 

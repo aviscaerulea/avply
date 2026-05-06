@@ -65,8 +65,6 @@ VideoView::VideoView(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_videoContainer);
 
-    // Qt 標準の音声出力を player に接続する。
-    // QAudioOutput::setVolume は 0.0〜1.0 のためソフトウェアブーストは行わない
     m_player->setAudioOutput(m_audioOutput);
 
     // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
