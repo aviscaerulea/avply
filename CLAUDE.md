@@ -33,7 +33,9 @@ src/
   main.cpp            エントリポイント
   MainWindow.h/cpp    UI・イベント処理（D&D 含む）
   FfmpegRunner.h/cpp  ffprobe/ffmpeg 実行ユーティリティ
-  VideoView.h/cpp     QMediaPlayer + QVideoWidget による音声付きプレビュー
+  VideoView.h/cpp     QMediaPlayer + QQuickView (VideoOutput) + QAudioBufferOutput + AudioWorker による音声付きプレビュー
+  AudioWorker.h/cpp   QAudioSink を専用スレッドで保持して音量ブースト＋ソフトクリップ書き込み
+  VideoOutput.qml     プレビュー領域の QML（クリック・右クリック・ホイール受付）
   RangeSlider.h/cpp   開始〜終了区間を赤系でハイライト表示するスライダー
   Encoder.h/cpp       変換実行・進捗通知
   OutputNamer.h/cpp   出力ファイル名生成（{base}_clip.mp4 形式）

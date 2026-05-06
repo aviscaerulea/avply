@@ -165,12 +165,6 @@ private:
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
 
-    // ドラッグ中イベントループ pump 用タイマ設定済みフラグ
-    // modal size/move ループ中は Qt のキューシグナル配送が止まるため QMediaPlayer の
-    // フレームが滞留する。WM_ENTERSIZEMOVE で Win32 タイマを仕込み、
-    // 発火する WM_TIMER 内で processEvents() を呼んで再生を継続させる
-    bool m_sizeMoveTimerActive = false;
-
     // ウィジェット
     QLabel*       m_filePathLabel;
     VideoView*    m_videoView;

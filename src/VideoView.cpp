@@ -19,6 +19,7 @@
 #include <QMetaObject>
 #include <QUrl>
 #include <QDebug>
+#include <algorithm>
 
 namespace {
 
@@ -71,7 +72,6 @@ VideoView::VideoView(QWidget* parent)
         connect(root, SIGNAL(contextMenuRequested(qreal,qreal)),
                 this, SLOT(onQmlContextMenuRequested(qreal,qreal)));
         connect(root, SIGNAL(wheelScrolled(bool)), this, SLOT(onQmlWheelScrolled(bool)));
-        connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
     });
 
     m_quickView->setSource(QUrl("qrc:/VideoOutput.qml"));
@@ -103,8 +103,7 @@ VideoView::VideoView(QWidget* parent)
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(makeAudioFormat());
     m_audioWorker->moveToThread(m_audioThread);
-    connect(m_audioThread, &QThread::started,  m_audioWorker, &AudioWorker::start);
-    connect(m_audioThread, &QThread::finished, m_audioWorker, &QObject::deleteLater);
+    connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
 
     // decoder thread → audio thread の QueuedConnection 経路。
     // GUI thread を経由しないため、modal loop 中もキュー配送が GUI に滞留しない
@@ -125,7 +124,14 @@ VideoView::VideoView(QWidget* parent)
         // 新ソース読み込み中は旧ソースの遅延 positionChanged を破棄する
         if (m_primeFirstFrame) return;
         const qint64 dur = m_player->duration();
-        if (!m_pausingAtEnd && dur > 0 && pos >= dur - 50 && isPlaying()) {
+        // 末尾自動 pause の閾値を再生速度に応じて動的に伸ばす。
+        // playbackRate が大きいと positionChanged の発火間隔が wall-clock 上縮まる代わりに
+        // メディア時間軸上は粗くなり、固定 50ms では末尾を踏み越える。
+        // max(50, 100*rate) で 1.0x は 100ms、4.0x なら 400ms 手前で確実に pause する。
+        // rate を qMax で 1.0 にクランプすることで、想定外の負値・0 でも下限 50ms を維持する
+        const qreal rate = std::max<qreal>(1.0, m_player->playbackRate());
+        const qint64 threshold = static_cast<qint64>(100.0 * rate);
+        if (!m_pausingAtEnd && dur > 0 && pos >= dur - threshold && isPlaying()) {
             m_pausingAtEnd = true;
             m_player->pause();
         }
@@ -145,7 +151,12 @@ VideoView::VideoView(QWidget* parent)
         if (!m_primeFirstFrame) return;
         if (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia) {
             m_primeFirstFrame = false;
-            m_videoContainer->show();
+            // hasVideo が true のときのみ QQuickView コンテナを表示する。
+            // 音声のみのソースで表示すると VideoOutput に何も描画されず黒矩形が残るため、
+            // 描画対象が確定したフレームでだけコンテナを可視化する
+            if (m_player->hasVideo()) {
+                m_videoContainer->show();
+            }
             m_player->play();
         }
     });
@@ -153,14 +164,27 @@ VideoView::VideoView(QWidget* parent)
 
 VideoView::~VideoView()
 {
-    // audio thread を停止して worker を deleteLater 経由で破棄する。
+    // QMediaPlayer が破棄前に videoSink へフレームを書き込まないよう先に切断する。
+    // QQuickView 側の VideoOutput より QMediaPlayer のほうが寿命が長いケースに備え、
+    // 明示的に nullptr を設定してフレーム転送経路を断つ
+    if (m_player) m_player->setVideoSink(nullptr);
+
+    // audio thread の停止と worker の破棄
     // QAudioSink は audio thread で生成しているため、quit() の前に teardown を
     // BlockingQueuedConnection で呼んで audio thread 上で sink を解放する。
-    // GUI thread で sink を破棄すると thread affinity 違反になるため、この順序が必須
-    if (m_audioThread && m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
+    // GUI thread で sink を破棄すると thread affinity 違反になるため、この順序が必須。
+    // m_audioThread と m_audioWorker は独立してガードして、片方が null でも
+    // もう一方を確実に解放できるようにする（リーク防止）
+    if (m_audioThread) {
+        if (m_audioWorker) {
+            QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
+        }
         m_audioThread->quit();
         m_audioThread->wait();
+    }
+    if (m_audioWorker) {
+        delete m_audioWorker;
+        m_audioWorker = nullptr;
     }
 }
 
@@ -294,12 +318,4 @@ void VideoView::onQmlContextMenuRequested(qreal x, qreal y)
 void VideoView::onQmlWheelScrolled(bool forward)
 {
     emit wheelScrolled(forward);
-}
-
-void VideoView::onQmlFileDropped(const QString& url)
-{
-    const QUrl parsed(url);
-    if (parsed.isLocalFile()) {
-        emit fileDropped(parsed.toLocalFile());
-    }
 }

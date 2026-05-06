@@ -28,10 +28,15 @@ public slots:
     // Float サンプルを tanh でソフトクリップする（hard clip による歪みを避けるため）
     void onAudioBuffer(const QAudioBuffer& buf);
 
-    // ソース切替時に sink 内の積み残しサンプルを破棄する
+    // ソース切替時の sink 積み残し破棄
+    // QAudioSink::reset() は内部バッファのみ破棄するため、必ず stop() してから
+    // start() を呼び直して QIODevice を取り直す。stop() を挟まないと積み残し
+    // サンプルの再生が続くケースがある
     void reset();
 
     // 音量ブースト倍率を更新する
+    // 書き込みループと同一スレッド（audio thread）からの呼び出しを保証するため、
+    // VideoView::setVolumeBoost からは QueuedConnection 経由で呼ぶ
     void setGain(double gain);
 
     // 所属スレッドで QAudioSink を停止・破棄する

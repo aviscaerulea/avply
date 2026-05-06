@@ -99,9 +99,6 @@ private slots:
     // QML の wheelScrolled シグナルをブリッジする
     void onQmlWheelScrolled(bool forward);
 
-    // QML DropArea からドロップされた URL 文字列をローカルパスに変換して emit する
-    void onQmlFileDropped(const QString& url);
-
 private:
     QQuickView*         m_quickView;
     QWidget*            m_videoContainer = nullptr;

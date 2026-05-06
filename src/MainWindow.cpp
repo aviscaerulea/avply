@@ -3,7 +3,6 @@
 #include "OutputNamer.h"
 #include "Settings.h"
 #include <QApplication>
-#include <QEventLoop>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -606,7 +605,7 @@ void MainWindow::loadFile(const QString& path)
 
     // 読込完了に応じて動画プレビュー領域の表示／非表示を切り替える
     // 音声のみ：プレビュー領域を完全に消し、下部 UI のみのコンパクト表示にする
-    // 動画あり：QVideoWidget の遅延表示は VideoView 内部のロジックに委ねる
+    // 動画あり：QQuickView コンテナの遅延表示は VideoView::mediaStatusChanged ハンドラに委ねる
     if (isAudioOnly()) {
         m_videoView->hide();
     }
@@ -783,34 +782,6 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
     }
 
     MSG* msg = static_cast<MSG*>(message);
-
-    // ドラッグ中も Qt のイベントループを駆動させて再生を継続させる
-    // modal size/move ループ中は通常の Qt ディスパッチが止まるため QMediaPlayer の
-    // キューシグナル経由のフレームが滞留する。Win32 タイマは modal loop 内でも
-    // 発火するため、これをフックして processEvents() でキューを drain する
-    // Qt 内部の USER タイマ（1 付近から昇順割り当て）との衝突を避けた任意の固定 ID
-    static constexpr UINT kSizeMoveTimerId = 0xAB1E;
-    // 最小値指定で WM_TIMER の最小解像度（USER_TIMER_MINIMUM = 10ms 程度）に丸まる
-    static constexpr UINT kSizeMoveTimerInterval = 1;
-    if (msg->message == WM_ENTERSIZEMOVE) {
-        if (SetTimer(msg->hwnd, kSizeMoveTimerId, kSizeMoveTimerInterval, nullptr)) {
-            m_sizeMoveTimerActive = true;
-        }
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-    if (msg->message == WM_EXITSIZEMOVE) {
-        if (m_sizeMoveTimerActive) {
-            KillTimer(msg->hwnd, kSizeMoveTimerId);
-            m_sizeMoveTimerActive = false;
-        }
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-    if (msg->message == WM_TIMER && msg->wParam == static_cast<WPARAM>(kSizeMoveTimerId)) {
-        // QQuickView render thread との sync ステップを GUI スレッド側で処理する
-        QCoreApplication::sendPostedEvents();
-        QCoreApplication::processEvents(QEventLoop::AllEvents);
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
 
     if (msg->message != WM_SIZING) {
         return QMainWindow::nativeEvent(eventType, message, result);
