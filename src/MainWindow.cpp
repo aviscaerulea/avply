@@ -93,11 +93,13 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_posLabel = new QLabel("  --:--:-- / --:--:--");
 
     // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
-    m_speedLabel = new QLabel("  x1.00");
+    // 先頭の 🎬（カチンコ）は音量ラベル（同じ "x◯.◯◯" 表記）との視覚的区別のため付与する
+    m_speedLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x8e\xac x1.00"));
 
     // --- 音量ブースト倍率ラベル（再生速度の右に配置） ---
     // 値は avply.toml から取得し、起動時に一度だけ設定する
-    m_volumeLabel = new QLabel("  x1.00");
+    // 先頭の 🔊 は再生速度ラベル（同じ "x◯.◯◯" 表記）との視覚的区別のため付与する
+    m_volumeLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x94\x8a x1.00"));
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -240,7 +242,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate = cfg.playbackSpeed;
     m_videoView->setVolumeBoost(cfg.audioVolume);
-    m_volumeLabel->setText(QString::asprintf("  x%.2f", cfg.audioVolume));
+    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("x%.2f", cfg.audioVolume));
     updateSpeedDisplay();
 
     // --- コンテキストメニュー用アクションを構築する ---
@@ -993,7 +995,7 @@ void MainWindow::changePlaybackRate(qreal delta)
 
 void MainWindow::updateSpeedDisplay()
 {
-    m_speedLabel->setText(QString::asprintf("  x%.2f", m_playbackRate));
+    m_speedLabel->setText(QString::fromUtf8("  \xf0\x9f\x8e\xac ") + QString::asprintf("x%.2f", m_playbackRate));
 }
 
 QString MainWindow::openDialogStartDir() const
