@@ -5,6 +5,29 @@
 #include <QByteArray>
 #include <QDebug>
 
+namespace {
+
+// soft-clip 閾値
+// 閾値以下は線形通過させ、閾値超過分のみ tanh で滑らかに飽和させる。
+// 入力全体に tanh を適用すると小振幅サンプルでも非線形歪み（THD）が発生し、
+// 「ザリザリ」感のあるノイズとして可聴化する。閾値以下を線形通過させることで
+// 通常音量の信号品質を維持しつつ、overshoot 部分のみソフトクリップする。
+// 0.8 ≈ -1.94 dBFS。これより上を soft knee 領域として ±1.0 に収束させる。
+constexpr float kSoftClipThreshold = 0.8f;
+
+// soft-clip（閾値以下は線形通過、閾値超過分のみ tanh で ±1.0 に圧縮）
+inline float softClip(float v)
+{
+    const float a = std::fabs(v);
+    if (a <= kSoftClipThreshold) return v;
+    const float sign    = (v < 0.0f) ? -1.0f : 1.0f;
+    const float ceiling = 1.0f - kSoftClipThreshold;
+    const float over    = a - kSoftClipThreshold;
+    return sign * (kSoftClipThreshold + ceiling * std::tanh(over / ceiling));
+}
+
+} // namespace
+
 AudioWorker::AudioWorker(const QAudioFormat& format, QObject* parent)
     : QObject(parent)
     , m_format(format)
@@ -33,10 +56,11 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     if (!m_sinkDev) return;
     if (buf.format().sampleFormat() != QAudioFormat::Float) return;
 
-    // Float サンプルに gain を線形乗算し tanhf で ±1.0 付近に滑らかに飽和させる（ソフトクリップ）。
-    // ハードクリップ（直角カット）は高調波歪み（ザリザリ音）を生むため避ける。
-    // 特に playbackRate 変更時の resampler は overshoot サンプル（±1.0 超）を生成するため
-    // gain 1.0 でもクリップ経路を通る場合に問題化する
+    // Float サンプルに gain を線形乗算し、閾値超過分のみソフトクリップする。
+    // 閾値以下のサンプルは線形通過（無歪み）、閾値超過分のみ tanh で ±1.0 付近に飽和させる。
+    // 全サンプルに tanh を通す方式は小振幅でも歪みが乗るため、
+    // 高 gain × playbackRate ≠ 1.0（resampler overshoot あり）の組み合わせで
+    // 可聴ノイズが顕在化していた。
     const qsizetype n = buf.byteCount() / static_cast<qsizetype>(sizeof(float));
     if (n <= 0) return;
     // 端数バイト切り捨て対策
@@ -48,7 +72,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     float* dst = reinterpret_cast<float*>(out.data());
     const float g = static_cast<float>(m_gain);
     for (qsizetype i = 0; i < n; ++i) {
-        dst[i] = std::tanh(src[i] * g);
+        dst[i] = softClip(src[i] * g);
     }
     // 書き込みアンダーラン検出
     // 戻り値が要求バイト数より少ない場合、sink の内部バッファが飽和して書き込みを
