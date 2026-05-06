@@ -49,7 +49,7 @@ jobs:
       - name: Verify Qt DLL deployment
         shell: pwsh
         run: |
-          $required = @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll')
+          $required = @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6Quick.dll', 'Qt6Qml.dll')
           foreach ($dll in $required) {
               if (-not (Test-Path "out\Release\$dll")) {
                   Write-Error "windeployqt did not deploy required DLL: $dll"
