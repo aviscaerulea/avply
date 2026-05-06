@@ -68,6 +68,8 @@ VideoView::VideoView(QWidget* parent)
         }
         // QML シグナルを C++ スロットに接続する（SIGNAL/SLOT マクロ形式が QML シグナルに対応）
         connect(root, SIGNAL(clicked()), this, SLOT(onQmlClicked()));
+        connect(root, SIGNAL(contextMenuRequested(qreal,qreal)),
+                this, SLOT(onQmlContextMenuRequested(qreal,qreal)));
         connect(root, SIGNAL(wheelScrolled(bool)), this, SLOT(onQmlWheelScrolled(bool)));
         connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
     });
@@ -278,6 +280,15 @@ void VideoView::onQmlClicked()
     if (m_interactive && !m_player->source().isEmpty()) {
         togglePlay();
     }
+}
+
+void VideoView::onQmlContextMenuRequested(qreal x, qreal y)
+{
+    // QML の real 座標を受けたまま QPointF で mapToGlobal する。
+    // 高 DPI 環境では MouseArea の mouse.x/y が小数を含むため、int で受けると切り捨てで
+    // メニュー表示位置がクリック位置と数ピクセルずれる
+    const QPoint globalPos = m_quickView->mapToGlobal(QPointF(x, y)).toPoint();
+    emit contextMenuRequested(globalPos);
 }
 
 void VideoView::onQmlWheelScrolled(bool forward)

@@ -84,6 +84,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
         if (ms > 0) seekRelative(forward ? ms : -ms);
     });
+    // QQuickView はネイティブ子ウィンドウのため右クリックが MainWindow へ伝搬しない。
+    // VideoView から転送されたシグナルでメニューを表示する
+    connect(m_videoView, &VideoView::contextMenuRequested,
+            this, &MainWindow::showContextMenuAt);
 
     // --- 再生位置ラベル（ステータスバー右端に配置） ---
     // 先頭 2 半角スペースは項目間の区切りとして機能する
@@ -1103,6 +1107,11 @@ void MainWindow::startWaveformGeneration(const QString& inputPath)
 
 void MainWindow::contextMenuEvent(QContextMenuEvent* event)
 {
+    showContextMenuAt(event->globalPos());
+}
+
+void MainWindow::showContextMenuAt(const QPoint& globalPos)
+{
     QMenu menu(this);
 
     menu.addAction(m_actOpen);
@@ -1119,7 +1128,7 @@ void MainWindow::contextMenuEvent(QContextMenuEvent* event)
     // tooltip をメニュー項目に表示するため明示有効化する
     settings->setToolTipsVisible(true);
 
-    menu.exec(event->globalPos());
+    menu.exec(globalPos);
 }
 
 void MainWindow::onToggleTopmost(bool checked)

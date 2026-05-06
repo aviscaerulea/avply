@@ -84,9 +84,17 @@ signals:
     // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
     void wheelScrolled(bool forward);
 
+    // 右クリックでコンテキストメニュー要求が発生したとき emit する
+    // QQuickView はネイティブ子ウィンドウのため Win32 が右クリックを親 QWidget へ
+    // 伝搬しない。プレビュー上のメニュー表示を実現するため QML 側で受けて転送する
+    void contextMenuRequested(const QPoint& globalPos);
+
 private slots:
     // QML VideoOutput.qml の clicked シグナルを受け取り再生トグルに変換する
     void onQmlClicked();
+
+    // QML の contextMenuRequested を受け、ローカル座標を画面座標に変換して再 emit する
+    void onQmlContextMenuRequested(qreal x, qreal y);
 
     // QML の wheelScrolled シグナルをブリッジする
     void onQmlWheelScrolled(bool forward);

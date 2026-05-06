@@ -10,6 +10,7 @@ Item {
     property alias videoSink: videoOutput.videoSink
 
     signal clicked()
+    signal contextMenuRequested(real x, real y)
     signal wheelScrolled(bool forward)
     signal fileDropped(string url)
 
@@ -20,8 +21,15 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        onClicked: root.clicked()
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: function(mouse) {
+            if (mouse.button === Qt.RightButton) {
+                root.contextMenuRequested(mouse.x, mouse.y)
+            }
+            else {
+                root.clicked()
+            }
+        }
         onWheel: function(wheel) {
             root.wheelScrolled(wheel.angleDelta.y > 0)
         }

@@ -134,6 +134,10 @@ private:
     // メニューアクションの enabled 状態を現在の文脈に合わせて更新する
     void updateMenuActionEnabled();
 
+    // 指定した画面座標にコンテキストメニューを表示する
+    // contextMenuEvent と VideoView 経由のシグナルから共通で呼び出す
+    void showContextMenuAt(const QPoint& globalPos);
+
     // 動画情報
     QString   m_filePath;
     VideoInfo m_info;
