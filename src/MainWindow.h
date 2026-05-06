@@ -115,6 +115,12 @@ private:
     // 再生速度ラベルの表示を現在値で更新する
     void updateSpeedDisplay();
 
+    // 音量を相対変更してラベル表示と VideoView へ反映する（delta は 0.05 単位想定）
+    void changeVolume(qreal delta);
+
+    // 音量ラベルの表示を現在値で更新する
+    void updateVolumeDisplay();
+
     // 「開く...」ダイアログの初期ディレクトリを返す
     // 動画読込済なら同フォルダ、未読込なら %USERPROFILE%
     QString openDialogStartDir() const;
@@ -158,6 +164,9 @@ private:
 
     // 現在の再生速度（1.0 = 等速）
     qreal m_playbackRate = 1.0;
+
+    // 現在の再生音量（0.0〜1.0）
+    qreal m_volume = 1.0;
 
     // ウィンドウのアスペクト比連動用状態
     // m_videoAspect は WM_SIZING 中に参照する動画の基準比率（動画未読込時は 16:9）

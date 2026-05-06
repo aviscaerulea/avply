@@ -92,9 +92,9 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
     // モニタ比率は 0.1〜1.0 にクランプする
     // 0 以下では初期サイズが破綻し、1.0 超ではタスクバーやマルチモニタ境界を侵す
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
-    // 音量は 0.0〜3.0 にクランプ
-    // 負値や極端値の流入を防ぐ
-    cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 3.0);
+    // 音量は 0.0〜1.0 にクランプ
+    // QAudioOutput::setVolume の有効範囲に合わせる（100% 超のソフトウェアブーストは行わない）
+    cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 1.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

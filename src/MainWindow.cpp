@@ -241,9 +241,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_seekWheelBackMs      = cfg.wheelBackMs;
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate = cfg.playbackSpeed;
-    m_videoView->setVolumeBoost(cfg.audioVolume);
-    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("x%.2f", cfg.audioVolume));
+    m_volume = cfg.audioVolume;
+    m_videoView->setVolume(m_volume);
     updateSpeedDisplay();
+    updateVolumeDisplay();
 
     // --- コンテキストメニュー用アクションを構築する ---
     // contextMenuEvent ごとにメニューを組み立てる際に使い回せるようメンバとして保持する
@@ -952,10 +953,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             if (m_info.duration > 0.0) m_videoView->togglePlay();
             return true;
         case Qt::Key_Up:
-            changePlaybackRate(0.05);
+            // Shift 修飾子併用時は音量、それ以外は再生速度を ±0.05 単位で変更する
+            if (ke->modifiers() & Qt::ShiftModifier) changeVolume(0.05);
+            else                                     changePlaybackRate(0.05);
             return true;
         case Qt::Key_Down:
-            changePlaybackRate(-0.05);
+            // Shift 修飾子併用時は音量、それ以外は再生速度を ±0.05 単位で変更する
+            if (ke->modifiers() & Qt::ShiftModifier) changeVolume(-0.05);
+            else                                     changePlaybackRate(-0.05);
             return true;
         case Qt::Key_R:
             // 区間マーカーのみクリア（再生位置・再生状態は維持する）
@@ -996,6 +1001,20 @@ void MainWindow::changePlaybackRate(qreal delta)
 void MainWindow::updateSpeedDisplay()
 {
     m_speedLabel->setText(QString::fromUtf8("  \xf0\x9f\x8e\xac ") + QString::asprintf("x%.2f", m_playbackRate));
+}
+
+void MainWindow::changeVolume(qreal delta)
+{
+    // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
+    const qreal next = std::round((m_volume + delta) * 100.0) / 100.0;
+    m_volume = qBound(qreal(0.0), next, qreal(1.0));
+    m_videoView->setVolume(m_volume);
+    updateVolumeDisplay();
+}
+
+void MainWindow::updateVolumeDisplay()
+{
+    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("x%.2f", m_volume));
 }
 
 QString MainWindow::openDialogStartDir() const

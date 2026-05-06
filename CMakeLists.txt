@@ -17,8 +17,6 @@ qt_add_executable(avply WIN32
     src/FfmpegRunner.cpp
     src/VideoView.h
     src/VideoView.cpp
-    src/AudioWorker.h
-    src/AudioWorker.cpp
     src/RangeSlider.h
     src/RangeSlider.cpp
     src/Encoder.h
