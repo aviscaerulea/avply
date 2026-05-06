@@ -48,6 +48,10 @@ private:
     // 拡張子がメディア（動画・音声）として受け付け可能か判定する
     static bool isAcceptedMedia(const QString& path);
 
+    // 拡張子から音声ファイル（mp3/wav/flac/ogg/opus）かを判定する
+    // ロード前の初期ウィンドウ構成に使う簡易判定。コンテナ内が実際に音声のみかは ffprobe で再判定する
+    static bool isAudioByExtension(const QString& path);
+
     // ffprobe 結果が音声のみ（映像ストリーム未検出）であるかを返す
     bool isAudioOnly() const { return m_info.codec.isEmpty() || m_info.width <= 0; }
 
@@ -94,8 +98,9 @@ private:
     // アプリケーション全体のキー入力を捕捉してシーク・再生制御に変換する
     bool eventFilter(QObject* watched, QEvent* event) override;
 
-    // ウィンドウ最小サイズを動画アスペクト比から再計算する
-    void updateMinimumWindowSize();
+    // 現在の幅と動画アスペクト比から正しい高さを逆算してウィンドウを矯正する
+    // 手動リサイズ完了後の遅延発火と resizeEvent 経路の両方で使う
+    void applyAspectFix();
 
     // 動画情報
     QString   m_filePath;
@@ -155,4 +160,7 @@ private:
     // シーク要求のスロットル（連続 valueChanged を間引く）
     QTimer  m_seekTimer;
     qint64  m_pendingSeekMs = -1;
+
+    // 手動リサイズ完了後のアスペクト矯正用デバウンスタイマー
+    QTimer m_aspectFixTimer;
 };

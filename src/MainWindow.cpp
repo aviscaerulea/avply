@@ -28,12 +28,25 @@
 
 static constexpr int kSliderMax = 10000;
 
+// 手動リサイズ完了から高さ矯正発火までの遅延（ドラッグ静止判定）
+static constexpr int kAspectFixDebounceMs = 80;
+
+// 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
+// 動画ロード後に動画サイズへリサイズするまでの暫定表示用
+static constexpr int kInitialWindowW = 500;
+static constexpr int kInitialWindowH = 375;
+
 MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
     , m_encoder(nullptr)
 {
     setWindowTitle("avply");
     setAcceptDrops(true);
+
+    // リサイズで露出した領域の未描画ギャップを軽減する
+    // 新たに露出した領域がパレット既定色で即時クリアされ、「外枠だけ新サイズ・内側未描画」の
+    // 描画追従ラグによる隙間が見えにくくなる
+    setAutoFillBackground(true);
 
     // --- ファイル選択行 ---
     m_filePathLabel = new QLabel("メディアファイルを選択するか、ウィンドウへドロップしてください");
@@ -210,17 +223,42 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     updateSpeedDisplay();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
-    // show() 前にレイアウトを確定して下部 UI 高を保存する。
-    // 初期ファイルがある場合は loadFile もここで完了させることで、
-    // show() の時点から適切なサイズが表示されてチラツきを防ぐ
+
+    // 手動リサイズ時のアスペクト矯正をデバウンスする。
+    // ドラッグ中は resizeEvent が連続発火するため即時 resize を呼ぶと
+    // 「ユーザの resize → 矯正の resize」が毎フレーム繰り返され、
+    // 外枠と内部描画の同期ズレ（外枠だけ新サイズ）が顕在化する。
+    // ドラッグ静止 80ms 後にだけ 1 回矯正することで二段階リサイズを排除する。
+    m_aspectFixTimer.setSingleShot(true);
+    m_aspectFixTimer.setInterval(kAspectFixDebounceMs);
+    connect(&m_aspectFixTimer, &QTimer::timeout, this, &MainWindow::applyAspectFix);
+
+    // show() 前にレイアウトを確定して下部 UI 高（プレビューを除いた UI 部の高さ）を保存する
     adjustSize();
     m_lowerUiH = height() - m_videoView->height();
-    if (!initialPath.isEmpty() && isAcceptedMedia(initialPath) && QFile::exists(initialPath)) {
-        loadFile(initialPath);
+
+    const bool hasInitialPath = !initialPath.isEmpty()
+        && isAcceptedMedia(initialPath) && QFile::exists(initialPath);
+
+    if (hasInitialPath && isAudioByExtension(initialPath)) {
+        // 音声ファイルは可視化前にプレビュー領域を非表示にして幅 500 で見せる。
+        // 最小高も m_lowerUiH に合わせ、起動直後から最終形に近い見た目で表示する
+        m_videoView->hide();
+        setMinimumSize(kInitialWindowW, m_lowerUiH);
+        resize(kInitialWindowW, m_lowerUiH);
     }
     else {
-        updateMinimumWindowSize();
+        // 動画／ファイル指定なし共通：500x375 を初期形とする
+        setMinimumSize(kInitialWindowW, kInitialWindowH);
+        resize(kInitialWindowW, kInitialWindowH);
     }
+
+    // 初期ファイルのロードはイベントループに戻った直後に行い、show() を最速で先行させる
+    // これにより、ユーザにはまずデフォルトサイズのウィンドウが表示され、続いて動画サイズへリサイズされる
+    if (hasInitialPath) {
+        QTimer::singleShot(0, this, [this, initialPath]() { loadFile(initialPath); });
+    }
+
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
 }
@@ -540,10 +578,11 @@ void MainWindow::loadFile(const QString& path)
     const QRect geom = sc->availableGeometry();
 
     if (isAudioOnly()) {
-        updateMinimumWindowSize();
+        // 音声専用：プレビュー領域をなくした高さへ縮小できるよう最小高を更新する
+        setMinimumSize(kInitialWindowW, m_lowerUiH);
 
         m_resizingProgrammatically = true;
-        resize(std::max(400, width()), m_lowerUiH);
+        resize(std::max(kInitialWindowW, width()), m_lowerUiH);
         QRect frame = frameGeometry();
         frame.moveCenter(geom.center());
         move(frame.topLeft());
@@ -552,7 +591,7 @@ void MainWindow::loadFile(const QString& path)
     else {
         // 動画のアスペクト比をウィンドウ連動の基準として更新する
         m_videoAspect = static_cast<double>(info.width) / info.height;
-        updateMinimumWindowSize();
+        setMinimumSize(kInitialWindowW, kInitialWindowH);
 
         // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
         // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.8）
@@ -573,7 +612,7 @@ void MainWindow::loadFile(const QString& path)
         const int previewH = qRound(info.height * scale);
 
         m_resizingProgrammatically = true;
-        resize(std::max(400, previewW), previewH + m_lowerUiH);
+        resize(std::max(kInitialWindowW, previewW), previewH + m_lowerUiH);
         // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
         // frameGeometry は resize 直後も Windows では即時反映されるため安全
         QRect frame = frameGeometry();
@@ -591,6 +630,13 @@ bool MainWindow::isAcceptedMedia(const QString& path)
     if (ext == "mp3" || ext == "wav" || ext == "flac"
         || ext == "ogg" || ext == "opus") return true;
     return false;
+}
+
+bool MainWindow::isAudioByExtension(const QString& path)
+{
+    const QString ext = QFileInfo(path).suffix().toLower();
+    return ext == "mp3" || ext == "wav" || ext == "flac"
+        || ext == "ogg" || ext == "opus";
 }
 
 void MainWindow::setUiEnabled(bool enabled)
@@ -639,16 +685,6 @@ void MainWindow::setRunning(Operation op)
     if (op == Operation::Trim)    m_trimBtn   ->setEnabled(true);
 }
 
-void MainWindow::updateMinimumWindowSize()
-{
-    constexpr int kMinW = 400;
-    // 音声のみ：プレビュー領域なしのため下部 UI 高のみで最小高さを決める
-    const int minH = (m_info.valid && isAudioOnly())
-        ? m_lowerUiH
-        : qRound(kMinW / m_videoAspect) + m_lowerUiH;
-    setMinimumSize(kMinW, minH);
-}
-
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
@@ -657,6 +693,16 @@ void MainWindow::resizeEvent(QResizeEvent* event)
     if (isAudioOnly()) return;
     // 最大化・全画面・最小化中は OS にサイズ制御を任せ、アスペクト矯正を行わない
     // （矯正で resize すると画面領域を超えて下部 UI が画面外に押し出される）
+    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
+
+    // 即時の矯正 resize はドラッグ中の二段階リサイズを生むためデバウンスする
+    m_aspectFixTimer.start();
+}
+
+void MainWindow::applyAspectFix()
+{
+    if (m_resizingProgrammatically || m_lowerUiH <= 0 || !m_info.valid) return;
+    if (isAudioOnly()) return;
     if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
 
     // 幅基準で「正しい高さ」を逆算してウィンドウのアスペクト比を矯正する

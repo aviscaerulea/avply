@@ -33,12 +33,12 @@ int main(int argc, char* argv[])
     const QStringList args = app.arguments();
     const QString initialPath = (args.size() > 1) ? args[1] : QString();
 
-    MainWindow win(initialPath);
     // 起動時の白フラッシュ抑制
     // Windows のネイティブウィンドウ作成直後に発生する WM_ERASEBKGND による白塗りは
     // Qt 側の背景属性では抑止しきれないため、最初の paint が終わるまでウィンドウを
     // 透明化して視覚的に隠す。次のイベントループで不透明に戻すと、その時点では既に
     // VideoView の暗色背景および UI が描画済みのためフラッシュは見えない
+    MainWindow win(initialPath);
     win.setWindowOpacity(0.0);
     win.show();
     QTimer::singleShot(0, &win, [&win]() {
