@@ -95,7 +95,9 @@ initial_screen_ratio = 0.8
 
 - Visual Studio 2022+ Build Tools（C++ ワークロード）
 - CMake 3.25+（`scoop install cmake`）
-- Qt 6.10.3 MSVC2022 x64（`python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir D:/Qt --modules qtmultimedia`）
+- Qt 6.10.3 MSVC2022 x64
+  - `python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir <インストールフォルダ> --modules qtmultimedia`
+  - インストールフォルダは `CMakePresets.json` の `CMAKE_PREFIX_PATH` に合わせること
 
 ### ビルド手順
 
