@@ -1,5 +1,5 @@
 #include "VideoView.h"
-#include <cmath>
+#include "AudioWorker.h"
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QQuickView>
@@ -8,16 +8,15 @@
 #include <QMediaPlayer>
 #include <QAudioBufferOutput>
 #include <QAudioBuffer>
-#include <QAudioSink>
 #include <QAudioFormat>
-#include <QIODevice>
-#include <QByteArray>
 #include <QEvent>
 #include <QWheelEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QMimeData>
+#include <QThread>
+#include <QMetaObject>
 #include <QUrl>
 #include <QDebug>
 
@@ -42,7 +41,6 @@ VideoView::VideoView(QWidget* parent)
     , m_quickView(new QQuickView)
     , m_player(new QMediaPlayer(this))
     , m_audioBuf(new QAudioBufferOutput(makeAudioFormat(), this))
-    , m_sink(new QAudioSink(makeAudioFormat(), this))
 {
     // VideoView 本体の背景を即時に黒系に設定する。
     // QQuickView のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
@@ -87,45 +85,32 @@ VideoView::VideoView(QWidget* parent)
     layout->addWidget(m_videoContainer);
 
     // 100% 超のソフトウェア音量ブーストのため QAudioOutput は接続せず、
-    // QAudioBufferOutput でサンプルを取得して QAudioSink に push する
+    // QAudioBufferOutput でサンプルを取得して AudioWorker（QAudioSink 所有）に渡す
     m_player->setAudioBufferOutput(m_audioBuf);
-
-    // ウィンドウドラッグ中の音声途切れ対策で QAudioSink バッファを 500ms に拡張する。
-    // modal size/move loop 中は WM_TIMER 経由（≈70ms 間隔）でしか audioBufferReceived を
-    // drain できないため、WASAPI 既定（10〜30ms）のままだと空白期間にアンダーランして
-    // 無音化する。500ms 確保しておけば WM_TIMER 数周期分の遅延も吸収できる
-    constexpr int kAudioBufferBytes = 48000 * 2 * sizeof(float) * 500 / 1000;
-    m_sink->setBufferSize(kAudioBufferBytes);
-    m_sinkDev = m_sink->start();
-    if (!m_sinkDev) {
-        qWarning() << "QAudioSink::start() failed:" << m_sink->error();
-    }
 
     // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
 
-    // 音声バッファ受信時に gain を適用して QAudioSink へ書き込む
-    // Float サンプルを線形乗算し tanhf で ±1.0 付近に滑らかに飽和させる（ソフトクリップ）。
-    // ハードクリップ（直角カット）は高調波歪み（ザリザリ音）を生むため避ける。
-    // 特に playbackRate 変更時の resampler は overshoot サンプル（±1.0 超）を生成するため
-    // gain 1.0 でもクリップ経路を通る場合に問題化する
-    connect(m_audioBuf, &QAudioBufferOutput::audioBufferReceived,
-            this, [this](const QAudioBuffer& buf) {
-        if (!m_sinkDev) return;
-        if (buf.format().sampleFormat() != QAudioFormat::Float) return;
+    // QAudioSink を所有する専用スレッドを起動する。
+    // GUI thread が Win32 modal size/move loop で WM_TIMER 周期（≈70ms）にしか
+    // 動かなくなる状況でも、audio thread は独立稼働するため WASAPI へのフィードが
+    // 継続する。AudioWorker は started で QAudioSink を生成し、所属スレッドで
+    // 一貫した thread affinity を維持する
+    m_audioThread = new QThread(this);
+    m_audioWorker = new AudioWorker(makeAudioFormat());
+    m_audioWorker->moveToThread(m_audioThread);
+    connect(m_audioThread, &QThread::started,  m_audioWorker, &AudioWorker::start);
+    connect(m_audioThread, &QThread::finished, m_audioWorker, &QObject::deleteLater);
 
-        const int n = buf.byteCount() / static_cast<int>(sizeof(float));
-        const float* src = buf.constData<float>();
-        QByteArray out(buf.byteCount(), Qt::Uninitialized);
-        float* dst = reinterpret_cast<float*>(out.data());
-        const float g = static_cast<float>(m_gain);
-        for (int i = 0; i < n; ++i) {
-            dst[i] = std::tanh(src[i] * g);
-        }
-        m_sinkDev->write(out);
-    });
+    // decoder thread → audio thread の QueuedConnection 経路。
+    // GUI thread を経由しないため、modal loop 中もキュー配送が GUI に滞留しない
+    connect(m_audioBuf, &QAudioBufferOutput::audioBufferReceived,
+            m_audioWorker, &AudioWorker::onAudioBuffer,
+            Qt::QueuedConnection);
+
+    m_audioThread->start();
 
     // D&D は createWindowContainer では機能しないため VideoView 自体で受け付ける
     setAcceptDrops(true);
@@ -164,7 +149,18 @@ VideoView::VideoView(QWidget* parent)
     });
 }
 
-VideoView::~VideoView() = default;
+VideoView::~VideoView()
+{
+    // audio thread を停止して worker を deleteLater 経由で破棄する。
+    // QAudioSink は audio thread で生成しているため、quit() の前に teardown を
+    // BlockingQueuedConnection で呼んで audio thread 上で sink を解放する。
+    // GUI thread で sink を破棄すると thread affinity 違反になるため、この順序が必須
+    if (m_audioThread && m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
+        m_audioThread->quit();
+        m_audioThread->wait();
+    }
+}
 
 void VideoView::setSource(const QString& filePath)
 {
@@ -181,9 +177,8 @@ void VideoView::clear()
     m_player->stop();
     m_player->setSource(QUrl());
     m_videoContainer->hide();
-    // ソース切替時にシンクへ積み残ったサンプルを破棄する
-    m_sink->reset();
-    m_sinkDev = m_sink->start();
+    // ソース切替時にシンクへ積み残ったサンプルを audio thread 側で破棄する
+    QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
 }
 
 qint64 VideoView::position() const
@@ -205,7 +200,10 @@ void VideoView::setPlaybackRate(qreal rate)
 
 void VideoView::setVolumeBoost(double gain)
 {
-    m_gain = gain;
+    // gain は audio thread の AudioWorker が保持する。書き込みループと同一スレッドで
+    // 反映するため QueuedConnection 経由で更新する
+    QMetaObject::invokeMethod(m_audioWorker, "setGain", Qt::QueuedConnection,
+                              Q_ARG(double, gain));
 }
 
 void VideoView::togglePlay()

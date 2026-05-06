@@ -5,18 +5,21 @@
 class QQuickView;
 class QMediaPlayer;
 class QAudioBufferOutput;
-class QAudioSink;
-class QIODevice;
+class QThread;
+class AudioWorker;
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QWheelEvent;
 
-// QMediaPlayer + QQuickView (VideoOutput) + QAudioBufferOutput + QAudioSink を束ねた動画プレビュー
+// QMediaPlayer + QQuickView (VideoOutput) + QAudioBufferOutput + AudioWorker を束ねた動画プレビュー
 // 音声付き再生・シーク・状態通知・D&D 受付を担う。
 // QQuickView の threaded render loop により Win32 modal size/move loop 中も描画が継続する。
 // 100% 超のソフトウェア音量ブーストを実現するため、QAudioOutput ではなく
-// QAudioBufferOutput でサンプルを取得し、gain 適用後 QAudioSink に push する
+// QAudioBufferOutput でサンプルを取得し、gain 適用後 QAudioSink に push する。
+// QAudioSink の所有・書き込みは専用スレッドの AudioWorker に移譲する。
+// decoder thread → audio thread の QueuedConnection 経路にすることで、GUI thread が
+// modal size/move loop でブロックされても音声経路は独立稼働する
 class VideoView : public QWidget {
     Q_OBJECT
 public:
@@ -96,11 +99,12 @@ private:
     QWidget*            m_videoContainer = nullptr;
     QMediaPlayer*       m_player;
     QAudioBufferOutput* m_audioBuf;
-    QAudioSink*         m_sink;
-    QIODevice*          m_sinkDev = nullptr;
 
-    // 音量ブースト倍率（1.0 = 100%）
-    double m_gain = 1.0;
+    // QAudioSink を所有する専用スレッドとワーカ
+    // decoder thread の audioBufferReceived から AudioWorker::onAudioBuffer に
+    // QueuedConnection で配送し、GUI thread のブロックから音声経路を独立させる
+    QThread*     m_audioThread = nullptr;
+    AudioWorker* m_audioWorker = nullptr;
 
     // 読み込み完了後に 1 フレームだけ描画するためのフラグ
     bool m_primeFirstFrame = false;
