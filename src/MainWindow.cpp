@@ -778,6 +778,26 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
     }
 
     MSG* msg = static_cast<MSG*>(message);
+
+    // ドラッグ開始/終了でメディア再生を一時停止/再開する
+    // Win32 の modal size/move ループ中は Qt のメッセージポンプが止まり、
+    // QMediaPlayer のキューシグナル経由のフレーム配送が滞留する。
+    // 一時停止しないとドラッグ終了後にフレームが一気に押し戻されカクつく
+    if (msg->message == WM_ENTERSIZEMOVE) {
+        if (m_videoView->isPlaying()) {
+            m_videoView->pause();
+            m_resumeOnExitSizeMove = true;
+        }
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+    if (msg->message == WM_EXITSIZEMOVE) {
+        if (m_resumeOnExitSizeMove) {
+            m_resumeOnExitSizeMove = false;
+            m_videoView->togglePlay();
+        }
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
     if (msg->message != WM_SIZING) {
         return QMainWindow::nativeEvent(eventType, message, result);
     }

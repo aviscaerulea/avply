@@ -161,6 +161,11 @@ private:
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
 
+    // WM_ENTERSIZEMOVE 突入時に再生中だったかを保持し、WM_EXITSIZEMOVE で再開判定する
+    // Win32 の modal size/move ループ中は Qt のキューシグナル配送が止まり、
+    // QMediaPlayer のフレーム滞留で再生が飛び飛びになる。ドラッグ中だけ pause して回避する
+    bool m_resumeOnExitSizeMove = false;
+
     // ウィジェット
     QLabel*       m_filePathLabel;
     VideoView*    m_videoView;
