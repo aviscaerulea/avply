@@ -647,10 +647,10 @@ void MainWindow::loadFile(const QString& path)
 
     // ホバープレビューのソース更新
     // 音声のみは抽出抑止（QSize() を渡す）。動画は scale フィルタが force_original_aspect_ratio
-    // で縦横比を保つため、固定 160x90 を渡せば実際の出力 PNG は元動画比に合わせて縮小される
+    // で縦横比を保つため、固定サイズを渡せば実際の出力 PNG は元動画比に合わせて縮小される
     if (m_seekPreview) m_seekPreview->hide();
     if (m_thumbExtractor) {
-        const QSize thumbSize = isAudioOnly() ? QSize() : QSize(160, 90);
+        const QSize thumbSize = isAudioOnly() ? QSize() : QSize(240, 135);
         m_thumbExtractor->setSource(m_ffmpegPath, path, thumbSize);
     }
     m_hoverDebounce.stop();
