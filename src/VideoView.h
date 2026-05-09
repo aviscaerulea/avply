@@ -5,9 +5,6 @@
 class QQuickView;
 class QMediaPlayer;
 class QAudioOutput;
-class QDragEnterEvent;
-class QDragMoveEvent;
-class QDropEvent;
 class QWheelEvent;
 
 // QMediaPlayer + QQuickView (VideoOutput) + QAudioOutput を束ねた動画プレビュー
@@ -59,9 +56,6 @@ public:
 
 protected:
     void wheelEvent(QWheelEvent* event) override;
-    void dragEnterEvent(QDragEnterEvent* event) override;
-    void dragMoveEvent(QDragMoveEvent* event) override;
-    void dropEvent(QDropEvent* event) override;
 
 signals:
     // 再生位置が変化したとき発火する（ms 単位）
@@ -90,6 +84,8 @@ private slots:
 
     // QML の wheelScrolled シグナルをブリッジする
     void onQmlWheelScrolled(bool forward);
+
+    void onQmlFileDropped(const QString& url);
 
 private:
     QQuickView*   m_quickView;

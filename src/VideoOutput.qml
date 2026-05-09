@@ -3,8 +3,9 @@ import QtMultimedia
 
 // 動画レンダリング領域。QQuickView + threaded render loop で描画するため
 // Win32 modal size/move loop（ウィンドウリサイズ中）でも再生が継続する。
-// D&D は createWindowContainer 経由で QQuickView を埋め込んだ QWidget 側
-// （VideoView::dragEnterEvent / dropEvent）で受けるため、QML 側に DropArea は置かない
+// D&D は QML 側 DropArea で受ける。createWindowContainer の埋め込み HWND が
+// 親 QWidget の dragEnter/drop へイベントを伝搬しないため、QWidget 側のオーバーライドでは
+// プレビュー可視時にドロップを受け取れない
 Item {
     id: root
 
@@ -14,10 +15,24 @@ Item {
     signal clicked()
     signal contextMenuRequested(real x, real y)
     signal wheelScrolled(bool forward)
+    signal fileDropped(string url)
 
     VideoOutput {
         id: videoOutput
         anchors.fill: parent
+    }
+
+    // DropArea は MouseArea より前に宣言する。
+    // QML は後宣言ほど前面に配置するため、MouseArea を後にしてクリック・ホイールが
+    // DropArea に吸収されないようにする
+    DropArea {
+        anchors.fill: parent
+        onDropped: function(drop) {
+            if (drop.urls.length > 0) {
+                root.fileDropped(drop.urls[0].toString())
+            }
+            drop.accept()
+        }
     }
 
     MouseArea {

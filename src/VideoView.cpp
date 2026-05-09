@@ -8,10 +8,6 @@
 #include <QAudioOutput>
 #include <QEvent>
 #include <QWheelEvent>
-#include <QDragEnterEvent>
-#include <QDragMoveEvent>
-#include <QDropEvent>
-#include <QMimeData>
 #include <QUrl>
 #include <QDebug>
 #include <algorithm>
@@ -51,12 +47,14 @@ VideoView::VideoView(QWidget* parent)
         connect(root, SIGNAL(contextMenuRequested(qreal,qreal)),
                 this, SLOT(onQmlContextMenuRequested(qreal,qreal)));
         connect(root, SIGNAL(wheelScrolled(bool)), this, SLOT(onQmlWheelScrolled(bool)));
+        connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
     });
 
     m_quickView->setSource(QUrl("qrc:/VideoOutput.qml"));
 
-    // QQuickView を QWidget として埋め込む。createWindowContainer は D&D 非対応のため
-    // ドロップは VideoView 自体（このウィジェット）の dragEnterEvent/dropEvent で受け取る
+    // QQuickView を QWidget として埋め込む。
+    // D&D は QML 側 DropArea で受ける（createWindowContainer の埋め込み HWND が
+    // 親 QWidget の dragEnter/drop へイベントを伝搬しないため）
     m_videoContainer = QWidget::createWindowContainer(m_quickView, this);
     m_videoContainer->setMinimumSize(1, 1);
     m_videoContainer->hide();
@@ -71,9 +69,6 @@ VideoView::VideoView(QWidget* parent)
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
-
-    // D&D は createWindowContainer では機能しないため VideoView 自体で受け付ける
-    setAcceptDrops(true);
 
     // 末尾到達時に Qt が自動で StoppedState（位置 0 に戻る）へ遷移するのを抑止する。
     // 終端の数十 ms 手前で先取りで pause を呼び、ユーザがそこからシークバーで微調整
@@ -210,31 +205,6 @@ void VideoView::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
-void VideoView::dragEnterEvent(QDragEnterEvent* event)
-{
-    if (event->mimeData()->hasUrls()) {
-        event->acceptProposedAction();
-    }
-}
-
-void VideoView::dragMoveEvent(QDragMoveEvent* event)
-{
-    if (event->mimeData()->hasUrls()) {
-        event->acceptProposedAction();
-    }
-}
-
-void VideoView::dropEvent(QDropEvent* event)
-{
-    for (const QUrl& url : event->mimeData()->urls()) {
-        if (url.isLocalFile()) {
-            emit fileDropped(url.toLocalFile());
-            event->acceptProposedAction();
-            return;
-        }
-    }
-}
-
 void VideoView::onQmlClicked()
 {
     if (m_interactive && !m_player->source().isEmpty()) {
@@ -254,4 +224,12 @@ void VideoView::onQmlContextMenuRequested(qreal x, qreal y)
 void VideoView::onQmlWheelScrolled(bool forward)
 {
     emit wheelScrolled(forward);
+}
+
+void VideoView::onQmlFileDropped(const QString& url)
+{
+    const QUrl parsed(url);
+    if (parsed.isLocalFile()) {
+        emit fileDropped(parsed.toLocalFile());
+    }
 }

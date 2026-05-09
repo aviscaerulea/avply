@@ -75,7 +75,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, &MainWindow::onPlayerPositionChanged);
     connect(m_videoView, &VideoView::fileDropped,
             this, [this](const QString& path) {
-        if (isAcceptedMedia(path)) loadFile(path);
+        if (m_runningOp == Operation::None && isAcceptedMedia(path)) loadFile(path);
     });
     // プレビュー領域のホイール回転をシークに変換する（変換中・対象方向が無効値の場合は抑制）
     connect(m_videoView, &VideoView::wheelScrolled, this, [this](bool forward) {
@@ -783,9 +783,9 @@ void MainWindow::setRunning(Operation op)
     if (running) m_videoView->pause();
 
     setUiEnabled(!running);
-    // 実行中は D&D を拒否する（ウィンドウ全体・プレビュー領域の両方）
+    // 実行中はウィンドウ全体への D&D を拒否する
+    // プレビュー領域の D&D は QML DropArea 経由のため fileDropped ハンドラ側で抑止する
     setAcceptDrops(!running);
-    m_videoView->setAcceptDrops(!running);
     // 実行中はプレビュー領域のマウスクリックでの再生トグルも封じる
     m_videoView->setInteractive(!running);
 
