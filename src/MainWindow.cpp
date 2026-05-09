@@ -316,7 +316,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 初期ファイルのロードはイベントループに戻った直後に行い、show() を最速で先行させる
     // これにより、ユーザにはまずデフォルトサイズのウィンドウが表示され、続いて動画サイズへリサイズされる
     if (hasInitialPath) {
-        QTimer::singleShot(0, this, [this, initialPath]() { loadFile(initialPath); });
+        QTimer::singleShot(0, this, [this, initialPath]() { loadFile(initialPath, true); });
     }
 
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
@@ -557,7 +557,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
 // ---- 内部ユーティリティ ----
 
-void MainWindow::loadFile(const QString& path)
+void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
 {
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
@@ -673,9 +673,6 @@ void MainWindow::loadFile(const QString& path)
         setFixedHeight(m_lowerUiH);
 
         resize(std::max(kInitialWindowW, width()), m_lowerUiH);
-        QRect frame = frameGeometry();
-        frame.moveCenter(geom.center());
-        move(frame.topLeft());
     }
     else {
         // 動画のアスペクト比をウィンドウ連動の基準として更新する
@@ -706,8 +703,11 @@ void MainWindow::loadFile(const QString& path)
         const int previewH = qRound(info.height * scale);
 
         resize(std::max(kInitialWindowW, previewW), previewH + m_lowerUiH);
-        // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
-        // frameGeometry は resize 直後も Windows では即時反映されるため安全
+    }
+
+    // タイトルバーを含むフレーム矩形をモニタ作業領域の中心に合わせる
+    // frameGeometry は resize 直後も Windows では即時反映されるため安全
+    if (centerOnMonitor) {
         QRect frame = frameGeometry();
         frame.moveCenter(geom.center());
         move(frame.topLeft());

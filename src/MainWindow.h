@@ -65,7 +65,8 @@ private slots:
 
 private:
     // メディアファイルを実際に読み込む（Open ダイアログと D&D 共通）
-    void loadFile(const QString& path);
+    // centerOnMonitor=true のときのみモニタ作業領域の中央へウィンドウを移動する
+    void loadFile(const QString& path, bool centerOnMonitor = false);
 
     // 拡張子がメディア（動画・音声）として受け付け可能か判定する
     static bool isAcceptedMedia(const QString& path);
