@@ -175,7 +175,7 @@ private:
     int     m_seekWheelBackMs    = 5000;
 
     // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（avply.toml の [window].initial_screen_ratio）
-    double m_initialScreenRatio = 0.8;
+    double m_initialScreenRatio = 0.7;
 
     // 現在の再生速度（1.0 = 等速）
     qreal m_playbackRate = 1.0;

@@ -701,7 +701,7 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
         setMinimumSize(kInitialWindowW, kInitialWindowH);
 
         // モニタ作業領域の指定比率を上限としてアスペクト比維持で動画サイズを縮める
-        // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.8）
+        // 比率は avply.toml の [window].initial_screen_ratio で変更可能（デフォルト 0.7）
         const double maxWindowW  = geom.width()  * m_initialScreenRatio;
         const double maxWindowH  = geom.height() * m_initialScreenRatio;
         const double maxPreviewH = maxWindowH - m_lowerUiH;

@@ -21,8 +21,8 @@ struct AppConfig {
     // 1.00 = 100%、0.50 = 50%。0.00〜1.00 にクランプ
     double audioVolume = 1.0;
 
-    // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.8）
-    double initialScreenRatio = 0.8;
+    // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.7）
+    double initialScreenRatio = 0.7;
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ
