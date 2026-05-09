@@ -8,6 +8,9 @@
 RangeSlider::RangeSlider(Qt::Orientation orientation, QWidget* parent)
     : QSlider(orientation, parent)
 {
+    // ボタン非押下時の mouseMoveEvent を受信するためにホバートラッキングを有効化する
+    // ホバープレビューがボタン押下を待たずにマウス追従できるようにするための前提
+    setMouseTracking(true);
 }
 
 QSize RangeSlider::sizeHint() const
@@ -104,10 +107,26 @@ void RangeSlider::mouseMoveEvent(QMouseEvent* event)
         const int v = QStyle::sliderValueFromPosition(
             minimum(), maximum(), x, width());
         setValue(v);
+        // ドラッグ中もホバー通知を出す（MPC-HC 互換でプレビューが追従する）
+        emit hoverMoved(std::clamp(x, 0, width() - 1), v);
         event->accept();
         return;
     }
+    // ボタン非押下のホバー通知。クランプ済み X からスライダー値を逆算する
+    if (width() > 0) {
+        const int x  = static_cast<int>(event->position().x());
+        const int xc = std::clamp(x, 0, width() - 1);
+        const int v  = QStyle::sliderValueFromPosition(
+            minimum(), maximum(), xc, width());
+        emit hoverMoved(xc, v);
+    }
     QSlider::mouseMoveEvent(event);
+}
+
+void RangeSlider::leaveEvent(QEvent* event)
+{
+    emit hoverLeft();
+    QSlider::leaveEvent(event);
 }
 
 void RangeSlider::mouseReleaseEvent(QMouseEvent* event)

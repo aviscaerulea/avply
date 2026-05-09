@@ -50,6 +50,13 @@ signals:
     // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
     void wheelScrolled(bool forward);
 
+    // ホバー位置（widget 内 X 座標、クランプ済み）と対応スライダー値を通知する
+    // ボタン非押下時もドラッグ中も連続的に発火する
+    void hoverMoved(int x, int sliderValue);
+
+    // マウスがバー外に出たことを通知する
+    void hoverLeft();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -59,6 +66,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     bool   m_hasRange    = false;

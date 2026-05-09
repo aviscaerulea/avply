@@ -19,6 +19,10 @@ qt_add_executable(avply WIN32
     src/VideoView.cpp
     src/RangeSlider.h
     src/RangeSlider.cpp
+    src/SeekPreview.h
+    src/SeekPreview.cpp
+    src/ThumbnailExtractor.h
+    src/ThumbnailExtractor.cpp
     src/Encoder.h
     src/Encoder.cpp
     src/OutputNamer.h

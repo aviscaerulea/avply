@@ -8,6 +8,8 @@
 #include "VideoView.h"
 #include "RangeSlider.h"
 #include "Encoder.h"
+#include "SeekPreview.h"
+#include "ThumbnailExtractor.h"
 
 class QDragEnterEvent;
 class QDropEvent;
@@ -51,6 +53,15 @@ private slots:
     void onTrimOrCancel();
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
+
+    // シークバーのホバー位置を受信して、サムネイル + 時刻のプレビューを表示する
+    void onSeekHoverMoved(int x, int sliderValue);
+
+    // マウスがシークバー外に出たときにプレビューを非表示にする
+    void onSeekHoverLeft();
+
+    // ホバー停止 debounce 満了時に ffmpeg 起動でサムネイル抽出を要求する
+    void onHoverDebounceTimeout();
 
 private:
     // メディアファイルを実際に読み込む（Open ダイアログと D&D 共通）
@@ -144,6 +155,9 @@ private:
     // contextMenuEvent と VideoView 経由のシグナルから共通で呼び出す
     void showContextMenuAt(const QPoint& globalPos);
 
+    // 現在のシークスライダー位置から SeekPreview の表示位置を更新する
+    void updateSeekPreviewPosition(int x);
+
     // 動画情報
     QString   m_filePath;
     VideoInfo m_info;
@@ -212,6 +226,16 @@ private:
 
     // 現在生成中プロセスの出力先 PNG パス。kill 時に部分書き込みファイルを削除するため保持する
     QString m_waveformProcOutPath;
+
+    // シークバーホバープレビュー
+    SeekPreview*        m_seekPreview    = nullptr;
+    ThumbnailExtractor* m_thumbExtractor = nullptr;
+
+    // ホバー停止判定の debounce タイマと、最新の量子化済みホバー秒数
+    // クロージャ内で「現在のホバー対象が同じ秒か」をチェックして古い結果の表示を防ぐ
+    QTimer m_hoverDebounce;
+    int    m_hoverPendingSec = -1;
+    int    m_hoverLastX      = 0;
 
     // 実行中の操作種別。None ならアイドル
     Operation m_runningOp = Operation::None;

@@ -115,6 +115,22 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         if (ms > 0) seekRelative(forward ? ms : -ms);
     });
 
+    // --- シークバーホバープレビュー（MPC-HC 風） ---
+    m_seekPreview    = new SeekPreview(this);
+    m_thumbExtractor = new ThumbnailExtractor(this);
+
+    // ホバー停止判定の debounce タイマ
+    // マウスが止まった瞬間に 1 度だけ ffmpeg を起動し、サムネイル抽出を行う
+    m_hoverDebounce.setSingleShot(true);
+    m_hoverDebounce.setInterval(150);
+    connect(&m_hoverDebounce, &QTimer::timeout,
+            this, &MainWindow::onHoverDebounceTimeout);
+
+    connect(m_seekSlider, &RangeSlider::hoverMoved,
+            this, &MainWindow::onSeekHoverMoved);
+    connect(m_seekSlider, &RangeSlider::hoverLeft,
+            this, &MainWindow::onSeekHoverLeft);
+
     // アイコン式ボタン共通スタイル
     // 外枠と内側パディングを消し、ホバー時のみ薄いグレーで反応を示す
     // padding: 0 を入れないとテキストボタン（【】）でホバー範囲が縦に膨らみ、
@@ -312,6 +328,7 @@ MainWindow::~MainWindow()
     // デストラクタ実行中にコールバックが発火すると this が破棄済みとなり未定義動作になるため、
     // synchronous=true で waitForFinished を挟んで確実に終わらせる
     stopWaveformProcess(true);
+    if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
 }
 
 // ---- ドラッグ＆ドロップ ----
@@ -627,6 +644,17 @@ void MainWindow::loadFile(const QString& path)
     else {
         startWaveformGeneration(path);
     }
+
+    // ホバープレビューのソース更新
+    // 音声のみは抽出抑止（QSize() を渡す）。動画は scale フィルタが force_original_aspect_ratio
+    // で縦横比を保つため、固定 160x90 を渡せば実際の出力 PNG は元動画比に合わせて縮小される
+    if (m_seekPreview) m_seekPreview->hide();
+    if (m_thumbExtractor) {
+        const QSize thumbSize = isAudioOnly() ? QSize() : QSize(160, 90);
+        m_thumbExtractor->setSource(m_ffmpegPath, path, thumbSize);
+    }
+    m_hoverDebounce.stop();
+    m_hoverPendingSec = -1;
 
     // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
     // 再生速度はインスタンス起動中ずっと保持するためファイル間でリセットしない
@@ -1206,4 +1234,81 @@ void MainWindow::stopWaveformProcess(bool synchronous)
         QFile::remove(m_waveformProcOutPath);
         m_waveformProcOutPath.clear();
     }
+}
+
+// ---- シークバーホバープレビュー ----
+
+void MainWindow::onSeekHoverMoved(int x, int sliderValue)
+{
+    if (!m_info.valid || m_info.duration <= 0.0) return;
+    if (!m_seekPreview) return;
+
+    const double sec      = sliderToSec(sliderValue);
+    // ThumbnailExtractor::kQuantSec の粒度に合わせて量子化する。
+    // 粒度を変えるなら ThumbnailExtractor 側の定数を変えるだけで両者が連動する
+    const int    quantSec = static_cast<int>(sec / ThumbnailExtractor::kQuantSec)
+                            * ThumbnailExtractor::kQuantSec;
+
+    m_hoverLastX      = x;
+    m_hoverPendingSec = quantSec;
+
+    // ポップアップ位置はマウス追従で即時更新する（内部で show() も行う）
+    updateSeekPreviewPosition(x);
+
+    const QString timeText = formatSec(sec);
+
+    // 動画のキャッシュヒット時は同期サムネ反映、ミス時は時刻のみ + debounce 後に ffmpeg 起動
+    QPixmap cached;
+    const bool videoHit = !isAudioOnly()
+        && m_thumbExtractor
+        && m_thumbExtractor->tryGetCached(quantSec, cached);
+
+    if (videoHit) {
+        m_seekPreview->setContent(cached, timeText);
+    }
+    else {
+        // サムネ未取得（音声 or キャッシュミス）：時刻のみ更新
+        m_seekPreview->setTimeOnly(timeText);
+        // 動画のときだけ debounce 起動して ffmpeg にサムネ抽出を要求する
+        if (!isAudioOnly()) m_hoverDebounce.start();
+    }
+}
+
+void MainWindow::onSeekHoverLeft()
+{
+    m_hoverDebounce.stop();
+    m_hoverPendingSec = -1;
+    if (m_thumbExtractor) m_thumbExtractor->cancelInflight(false);
+    if (m_seekPreview) m_seekPreview->hide();
+}
+
+void MainWindow::onHoverDebounceTimeout()
+{
+    if (m_hoverPendingSec < 0 || isAudioOnly()) return;
+    if (!m_thumbExtractor || !m_seekPreview) return;
+
+    const int target = m_hoverPendingSec;
+    const double sec = static_cast<double>(target);
+
+    m_thumbExtractor->request(target,
+        [this, sec, target](bool ok, const QPixmap& pix) {
+        if (!ok) return;
+        // ホバー対象が遷移していたら古い結果は捨てる（最新位置を上書きしない）
+        if (m_hoverPendingSec != target) return;
+        if (!m_seekPreview->isVisible()) return;
+        m_seekPreview->setContent(pix, formatSec(sec));
+        // 位置はずれている可能性があるため、最後に補正する
+        updateSeekPreviewPosition(m_hoverLastX);
+    });
+}
+
+void MainWindow::updateSeekPreviewPosition(int x)
+{
+    if (!m_seekPreview || !m_seekSlider) return;
+    const QPoint cursorGlobal = m_seekSlider->mapToGlobal(QPoint(x, 0));
+    const QRect  sliderGlobal(m_seekSlider->mapToGlobal(QPoint(0, 0)),
+                              m_seekSlider->size());
+    const QScreen* sc = m_seekSlider->screen();
+    const QRect avail = sc ? sc->availableGeometry() : QRect();
+    m_seekPreview->showAt(cursorGlobal, sliderGlobal, avail);
 }
