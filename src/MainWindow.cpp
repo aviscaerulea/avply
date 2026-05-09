@@ -678,7 +678,8 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
         setMaximumWidth(QWIDGETSIZE_MAX);
         setFixedHeight(m_lowerUiH);
 
-        resize(std::max(kInitialWindowW, width()), m_lowerUiH);
+        // 動画→音声切替時にも最小幅へ縮める（音声 UI は最小幅で十分）
+        resize(kInitialWindowW, m_lowerUiH);
     }
     else {
         // 動画のアスペクト比をウィンドウ連動の基準として更新する
