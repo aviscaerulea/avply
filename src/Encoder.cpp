@@ -108,6 +108,12 @@ void Encoder::cancel()
     }
 }
 
+bool Encoder::waitForFinished(int timeoutMs)
+{
+    if (!m_process) return true;
+    return m_process->waitForFinished(timeoutMs);
+}
+
 void Encoder::onReadyReadOutput()
 {
     if (!m_process || m_totalDuration <= 0.0) return;

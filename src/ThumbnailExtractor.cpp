@@ -134,8 +134,12 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
     disconnect(proc, nullptr, this, nullptr);
     proc->kill();
 
+    // kill 後にプロセス終端を短時間待つ
+    // Windows の DeleteFile は ffmpeg のファイルハンドルが残った状態では失敗するため、
+    // QFile::remove より先に確実にプロセスを終了させる必要がある
+    proc->waitForFinished(synchronous ? 3000 : 1000);
+
     if (synchronous) {
-        proc->waitForFinished(3000);
         delete proc;
     }
     else {

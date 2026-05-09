@@ -326,7 +326,13 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 MainWindow::~MainWindow()
 {
     // デストラクタ実行中にコールバックが発火すると this が破棄済みとなり未定義動作になるため、
-    // synchronous=true で waitForFinished を挟んで確実に終わらせる
+    // synchronous=true で waitForFinished を挟んで確実に終わらせる。
+    // Encoder は親子破棄でも QProcess の dtor が kill+wait するが、
+    // av1_nvenc が長く残るケースを考慮して先制 cancel を入れて終了応答性を確保する
+    if (m_encoder && m_encoder->isRunning()) {
+        m_encoder->cancel();
+        m_encoder->waitForFinished(3000);
+    }
     stopWaveformProcess(true);
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
 }
@@ -1219,8 +1225,12 @@ void MainWindow::stopWaveformProcess(bool synchronous)
     disconnect(m_waveformProc, nullptr, this, nullptr);
     m_waveformProc->kill();
 
+    // kill 後にプロセス終端を短時間待つ
+    // Windows の DeleteFile は ffmpeg のファイルハンドルが残った状態では失敗するため、
+    // QFile::remove より先に確実にプロセスを終了させる必要がある
+    m_waveformProc->waitForFinished(synchronous ? 3000 : 1000);
+
     if (synchronous) {
-        m_waveformProc->waitForFinished(3000);
         delete m_waveformProc;
     }
     else {

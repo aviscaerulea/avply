@@ -33,6 +33,10 @@ public:
     // 変換を中断する
     void cancel();
 
+    // 走行中の ffmpeg プロセスの終了待ち
+    // 既に停止済みなら即時 true。タイムアウトすると false。デストラクタの終了応答性確保用
+    bool waitForFinished(int timeoutMs);
+
     bool isRunning() const;
 
 signals:
