@@ -185,7 +185,7 @@ private:
 
     // ウィンドウのアスペクト比連動用状態
     // m_videoAspect は WM_SIZING 中に参照する動画の基準比率（動画未読込時は 16:9）
-    // m_lowerUiH はレイアウト確定後の下部 UI 合計高さ（一度だけ取得）
+    // m_lowerUiH は下部 UI（filePathLabel + seekRow + statusBar + 余白）の自然高合計
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
 

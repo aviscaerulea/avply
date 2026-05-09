@@ -293,9 +293,18 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
 
-    // show() 前にレイアウトを確定して下部 UI 高（プレビューを除いた UI 部の高さ）を保存する
-    adjustSize();
-    m_lowerUiH = height() - m_videoView->height();
+    // 下部 UI（filePathLabel + seekRow + statusBar + 余白）の自然高を直接合算する。
+    // videoView は stretch=1 のためレイアウト後の実高は伸縮配分で揺れる。
+    // 引き算ではなく構成要素の sizeHint を積み上げて算出する。
+    ensurePolished();
+    QLayout* mainLayout = centralWidget()->layout();
+    Q_ASSERT(mainLayout);
+    const QMargins cm = mainLayout->contentsMargins();
+    const int spacing = mainLayout->spacing();
+    m_lowerUiH = cm.top() + cm.bottom()
+               + m_filePathLabel->sizeHint().height() + spacing
+               + RangeSlider::kTotalH + spacing
+               + statusBar()->sizeHint().height();
 
     const bool hasInitialPath = !initialPath.isEmpty()
         && isAcceptedMedia(initialPath) && QFile::exists(initialPath);
