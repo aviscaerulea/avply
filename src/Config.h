@@ -32,6 +32,18 @@ struct AppConfig {
     // ThumbnailExtractor が ffmpeg に渡す -hwaccel 値
     // "auto" / "d3d11va" / "cuda" 等。"none" は -hwaccel 指定をスキップする
     QString thumbnailHwaccel = "auto";
+
+    // BT 機器のアイドル復帰時プチノイズ抑制用サイレンストーンの有効化
+    // false にすると SilenceTone を起動せず、OS への常時音声出力を行わない
+    bool silenceToneEnabled = true;
+
+    // サイレンストーンの周波数（Hz）と振幅
+    // 周波数は 20〜20000 Hz、振幅は 0.0〜0.01（-40 dBFS）にクランプする。
+    // 既定 1 kHz / 0.0001（約 -80 dBFS）は BT コーデックのパスバンド内かつ
+    // 通常環境では知覚困難なレベル。設定ミスによる耳障りな音量を防ぐため
+    // 上限を 0.01 と低めに固定し、16bit フルスケール（1.0）の指定はできない。
+    double silenceToneFreqHz = 1000.0;
+    double silenceToneAmp    = 0.0001;
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ

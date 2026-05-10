@@ -7,6 +7,8 @@
 #include <QtMath>
 #include <QDebug>
 #include <cmath>
+#include <cstring>
+#include <memory>
 
 namespace {
 
@@ -15,10 +17,9 @@ namespace {
 // 内部位相 m_phase を保持することでフレーム境界での不連続を回避する
 class ToneDevice : public QIODevice {
 public:
-    ToneDevice(int sampleRate, int channels, double freq, double amp)
-        : m_sampleRate(sampleRate)
-        , m_channels(channels)
-        , m_phaseStep(2.0 * M_PI * freq / static_cast<double>(sampleRate))
+    ToneDevice(int channels, double phaseStep, double amp)
+        : m_channels(channels)
+        , m_phaseStep(phaseStep)
         , m_amp(amp)
     {
     }
@@ -26,9 +27,19 @@ public:
 protected:
     qint64 readData(char* data, qint64 maxlen) override
     {
+        if (maxlen <= 0) return 0;
+
         // S16LE 想定。1 フレーム = チャンネル数 × 2 バイト
         const qint64 frameBytes = static_cast<qint64>(m_channels) * 2;
         const qint64 frames = maxlen / frameBytes;
+
+        // 端数バイトはゼロ埋めして maxlen 全長を返す。
+        // frames=0 や部分書き込みを返すと一部 backend が EOF/Idle と誤認するため
+        if (frames == 0) {
+            std::memset(data, 0, static_cast<size_t>(maxlen));
+            return maxlen;
+        }
+
         for (qint64 i = 0; i < frames; ++i) {
             const double v = std::sin(m_phase) * m_amp;
             const qint16 s = static_cast<qint16>(v * 32767.0);
@@ -37,9 +48,17 @@ protected:
                 p[c] = s;
             }
             m_phase += m_phaseStep;
-            if (m_phase >= 2.0 * M_PI) m_phase -= 2.0 * M_PI;
+            // 連続稼働時の精度劣化を防ぐため while で 2π 周期に正規化する。
+            // if 1 回だけだと frames が 2π/phaseStep を跨ぐ要求で残留が累積する
+            while (m_phase >= 2.0 * M_PI) m_phase -= 2.0 * M_PI;
         }
-        return frames * frameBytes;
+
+        const qint64 framedBytes = frames * frameBytes;
+        const qint64 leftover    = maxlen - framedBytes;
+        if (leftover > 0) {
+            std::memset(data + framedBytes, 0, static_cast<size_t>(leftover));
+        }
+        return maxlen;
     }
 
     qint64 writeData(const char*, qint64) override { return 0; }
@@ -47,7 +66,6 @@ protected:
     bool isSequential() const override { return true; }
 
 private:
-    int    m_sampleRate;
     int    m_channels;
     double m_phaseStep;
     double m_amp;
@@ -58,7 +76,17 @@ private:
 
 SilenceTone::SilenceTone(QObject* parent)
     : QObject(parent)
+    , m_mediaDevices(new QMediaDevices(this))
 {
+    // BT 接続/切断や USB DAC 抜き挿しで出力デバイスリストが変化した時、
+    // 古い sink は stalled state のまま残るため、リスナで sink を作り直す。
+    // 100 ms の debounce で短時間の連続発火（接続シーケンス中の複数通知）を 1 回に集約する
+    m_restartDebounce.setSingleShot(true);
+    m_restartDebounce.setInterval(100);
+    connect(&m_restartDebounce, &QTimer::timeout,
+            this, &SilenceTone::onAudioOutputsChanged);
+    connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged,
+            this, [this]() { m_restartDebounce.start(); });
 }
 
 SilenceTone::~SilenceTone()
@@ -66,7 +94,42 @@ SilenceTone::~SilenceTone()
     stop();
 }
 
+// 周波数を設定する
+void SilenceTone::setFrequency(double hz)
+{
+    m_freq = hz;
+}
+
+// 振幅を設定する
+void SilenceTone::setAmplitude(double amp)
+{
+    m_amp = amp;
+}
+
 void SilenceTone::start()
+{
+    if (m_started) return;
+    m_started = true;
+    openSink();
+}
+
+void SilenceTone::stop()
+{
+    // m_started=false 後に debounce を停止する。
+    // pending 中のデバイス変更通知を確実に握り潰し、stop 後の openSink 起動を防ぐ
+    m_started = false;
+    m_restartDebounce.stop();
+    closeSink();
+}
+
+void SilenceTone::onAudioOutputsChanged()
+{
+    if (!m_started) return;
+    closeSink();
+    openSink();
+}
+
+void SilenceTone::openSink()
 {
     if (m_sink) return;
 
@@ -83,32 +146,38 @@ void SilenceTone::start()
         return;
     }
 
-    // 1 kHz / -72 dB 相当（振幅 0.00025）の不可聴トーン
-    // 1 kHz は SBC 等の高域カット影響を受けず、BT パイプラインを確実に「アクティブ」状態に保つ周波数
-    // 振幅は 16bit フルスケールの約 1/4000 で実用環境では知覚できない
-    // m_device を先に確立し、以降の処理で例外が起きても stop() でクリーンアップできるようにする
-    auto* tone = new ToneDevice(fmt.sampleRate(), fmt.channelCount(), 1000.0, 0.00025);
-    tone->open(QIODevice::ReadOnly);
-    m_device = tone;
+    // unique_ptr で例外安全に確立してから release してメンバへ移管する。
+    // QAudioSink のコンストラクタで例外（bad_alloc 等）が発生した場合でも tone がリークしない
+    const double phaseStep = 2.0 * M_PI * m_freq / static_cast<double>(fmt.sampleRate());
+    std::unique_ptr<ToneDevice> tone(new ToneDevice(fmt.channelCount(), phaseStep, m_amp));
+    if (!tone->open(QIODevice::ReadOnly)) {
+        return;
+    }
 
-    // parent を nullptr にして stop() が唯一の所有者となる（parent 経由の自動削除と deleteLater の二重破棄を防ぐ）
-    m_sink = new QAudioSink(dev, fmt, nullptr);
-    // バッファアンダーフロー対策で大きめに確保する（約 100 ms 分）。
-    // OS スケジューリング遅延でプル要求が遅延しても無音になりにくい
-    m_sink->setBufferSize(fmt.sampleRate() * fmt.channelCount() * 2 / 10);
-    m_sink->start(tone);
+    // parent=nullptr で生成し、stop() の delete を唯一の所有経路とする
+    std::unique_ptr<QAudioSink> sink(new QAudioSink(dev, fmt, nullptr));
+    // バッファアンダーフロー対策で大きめに確保する（約 100 ms 分のヒント）。
+    // setBufferSize は backend によりヒント扱いで実際の値は bufferSize() で確認する
+    sink->setBufferSize(fmt.sampleRate() * fmt.channelCount() * 2 / 10);
+    sink->start(tone.get());
+
+    m_device = tone.release();
+    m_sink   = sink.release();
 }
 
-void SilenceTone::stop()
+void SilenceTone::closeSink()
 {
+    // QAudioSink::stop は同期完了が保証される。
+    // delete で内部 audio thread を join してから ToneDevice を解放することで
+    // readData 呼び出しと device delete の競合を完全に防ぐ
     if (m_sink) {
         m_sink->stop();
-        m_sink->deleteLater();
+        delete m_sink;
         m_sink = nullptr;
     }
     if (m_device) {
         m_device->close();
-        m_device->deleteLater();
+        delete m_device;
         m_device = nullptr;
     }
 }

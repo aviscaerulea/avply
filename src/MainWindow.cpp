@@ -335,9 +335,14 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
 
     // BT 機器のアイドル復帰時プチノイズ抑制用に、不可聴トーンを常時出力する
-    // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ
-    m_silenceTone = new SilenceTone(this);
-    m_silenceTone->start();
+    // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ。
+    // [audio].silence_tone_enabled=false で完全にスキップ可能（OS への常時音声出力を行わない）
+    if (cfg.silenceToneEnabled) {
+        m_silenceTone = new SilenceTone(this);
+        m_silenceTone->setFrequency(cfg.silenceToneFreqHz);
+        m_silenceTone->setAmplitude(cfg.silenceToneAmp);
+        m_silenceTone->start();
+    }
 }
 
 MainWindow::~MainWindow()
