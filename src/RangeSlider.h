@@ -12,7 +12,7 @@ public:
     static constexpr int kTrackH = 28;
 
     // 下段（区間・進捗帯）の高さ
-    static constexpr int kRangeBarH = 8;
+    static constexpr int kRangeBarH = 4;
 
     // ウィジェット全体の固定高
     static constexpr int kTotalH = kTrackH + kRangeBarH;

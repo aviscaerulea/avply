@@ -189,17 +189,17 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     leftIconRow->addWidget(m_stopBtn);
     leftIconRow->addWidget(m_setInBtn);
 
-    // 行内すべての要素を縦中央で揃える
-    // ボタン高（28px）とスライダーの sizeHint 高に差があるためウィジェット間で
-    // 中心位置がズレやすい。AlignVCenter を明示することでウィンドウリサイズ時も
-    // シークバーが各ボタンの中心と一致した状態を保つ
+    // 行内すべての要素を上端で揃える
+    // 左側アイコンボタンの固定高がスライダー上段トラック高（RangeSlider::kTrackH）と
+    // 一致する前提のため、AlignTop により波形中心とボタン中心が一致する。
+    // 下段の区間バー（kRangeBarH）はボタン下に張り出して描画される
     auto* seekRow = new QHBoxLayout;
     seekRow->setSpacing(2);
     seekRow->addLayout(leftIconRow);
-    seekRow->setAlignment(leftIconRow, Qt::AlignVCenter);
-    seekRow->addWidget(m_seekSlider, 1, Qt::AlignVCenter);
-    seekRow->addWidget(m_setOutBtn,  0, Qt::AlignVCenter);
-    seekRow->addWidget(m_trimBtn,    0, Qt::AlignVCenter);
+    seekRow->setAlignment(leftIconRow, Qt::AlignTop);
+    seekRow->addWidget(m_seekSlider, 1, Qt::AlignTop);
+    seekRow->addWidget(m_setOutBtn,  0, Qt::AlignTop);
+    seekRow->addWidget(m_trimBtn,    0, Qt::AlignTop);
 
     // --- 動画情報ラベル（ステータスバー左端、解像度・動画形式・音声形式） ---
     m_videoInfoLabel = new QLabel;
