@@ -1,5 +1,6 @@
 #include "Config.h"
-#include <QCoreApplication>
+#define NOMINMAX
+#include <windows.h>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -84,6 +85,11 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "playback" && key == "speed") assignDouble(cfg.playbackSpeed);
         if (section == "window"   && key == "initial_screen_ratio") assignDouble(cfg.initialScreenRatio);
         if (section == "audio"    && key == "volume")               assignDouble(cfg.audioVolume);
+
+        // 文字列値（[playback] の HW デコード関連）
+        // 空文字を明示すれば Qt 自動選択 / -hwaccel 指定スキップへフォールバックできる
+        if (section == "playback" && key == "hw_decoder_priority") cfg.hwDecoderPriority = value;
+        if (section == "playback" && key == "thumbnail_hwaccel")   cfg.thumbnailHwaccel  = value;
     }
 
     // 再生速度は MainWindow の上下キー操作と同じ範囲（0.05〜4.0）に丸める
@@ -102,11 +108,27 @@ QString scoopFallback()
     return QDir::homePath() + "/scoop/apps/ffmpeg/current/bin/ffmpeg.exe";
 }
 
+// 実行ファイルのあるディレクトリを返す
+// QCoreApplication が未構築でも動くよう Win32 API を直接使う。
+// main.cpp の qputenv 経路から QApplication 構築前に呼ばれる
+QString exeDirectory()
+{
+    wchar_t buf[MAX_PATH];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return QString();
+
+    QString path = QString::fromWCharArray(buf, static_cast<int>(n));
+    const int slash = path.lastIndexOf('/');
+    const int back  = path.lastIndexOf('\\');
+    const int sep   = std::max(slash, back);
+    return (sep >= 0) ? path.left(sep) : QString();
+}
+
 } // namespace
 
 AppConfig Config::load()
 {
-    const QString exeDir = QCoreApplication::applicationDirPath();
+    const QString exeDir = exeDirectory();
     AppConfig cfg;
 
     mergeFromFile(exeDir + "/avply.toml",       cfg);

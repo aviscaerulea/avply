@@ -1,8 +1,7 @@
 #include "ThumbnailExtractor.h"
 #include <QProcess>
-#include <QFile>
-#include <QStandardPaths>
-#include <QCoreApplication>
+#include <QImage>
+#include <QByteArray>
 #include <cmath>
 
 ThumbnailExtractor::ThumbnailExtractor(QObject* parent)
@@ -26,6 +25,11 @@ void ThumbnailExtractor::setSource(const QString& ffmpegPath,
     m_ffmpegPath = ffmpegPath;
     m_inputPath  = inputPath;
     m_thumbSize  = thumbSize;
+}
+
+void ThumbnailExtractor::setHwaccel(const QString& hwaccel)
+{
+    m_hwaccel = hwaccel;
 }
 
 void ThumbnailExtractor::request(int seconds,
@@ -52,52 +56,52 @@ void ThumbnailExtractor::request(int seconds,
     // 走行中の旧プロセスをキャンセル（旧 callback は disconnect で封殺）
     cancelInflight(false);
 
-    // 一時 PNG パスを生成。プロセス内シーケンスで上書き衝突を避ける
-    const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    const QString outPath = QString("%1/avply_thumb_%2_%3.png")
-        .arg(tmpDir)
-        .arg(QCoreApplication::applicationPid())
-        .arg(++m_seq);
-
     // ffmpeg コマンドライン
+    // -hwaccel は -i の前（input options）に置く。GPU デコードでシーク + 1 フレーム取り出しを高速化
     // -ss を -i の前に置く（input seek）ことで高速にスキップする
     // -frames:v 1 で 1 フレームのみ書き出し、-an -sn -dn で他ストリームを除外して軽量化
     // scale フィルタの force_original_aspect_ratio=decrease で縦横比を維持して縮小する
+    // 出力は image2pipe + png で stdout へ送り、一時ファイル I/O を排除する
     const QString filterStr = QString(
         "scale=%1:%2:force_original_aspect_ratio=decrease,format=rgb24")
         .arg(m_thumbSize.width()).arg(m_thumbSize.height());
-    const QStringList args = {
-        "-hide_banner", "-loglevel", "error",
-        "-ss", QString::number(seconds),
-        "-i", m_inputPath,
-        "-frames:v", "1",
-        "-an", "-sn", "-dn",
-        "-vf", filterStr,
-        "-f", "image2",
-        "-y", outPath,
-    };
+
+    QStringList args = { "-hide_banner", "-loglevel", "error" };
+    if (!m_hwaccel.isEmpty() && m_hwaccel.compare("none", Qt::CaseInsensitive) != 0) {
+        args << "-hwaccel" << m_hwaccel;
+    }
+    args
+        << "-ss" << QString::number(seconds)
+        << "-i" << m_inputPath
+        << "-frames:v" << "1"
+        << "-an" << "-sn" << "-dn"
+        << "-vf" << filterStr
+        << "-f" << "image2pipe"
+        << "-vcodec" << "png"
+        << "pipe:1";
 
     auto* proc = new QProcess(this);
-    proc->setProcessChannelMode(QProcess::MergedChannels);
+    // stdout には PNG バイナリのみを流したいため stderr を分離する
+    proc->setProcessChannelMode(QProcess::SeparateChannels);
     m_proc = proc;
-    m_procOutPath = outPath;
 
     QObject::connect(proc,
         QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
         this,
-        [this, proc, outPath, seconds, callback](int code, QProcess::ExitStatus status) {
-        // 正常終了かつ PNG 実体ありで成功扱い
-        const bool ok = (status == QProcess::NormalExit
-                         && code == 0
-                         && QFile::exists(outPath));
+        [this, proc, seconds, callback](int code, QProcess::ExitStatus status) {
+        const bool exitOk = (status == QProcess::NormalExit && code == 0);
         QPixmap pix;
-        if (ok) {
-            pix.load(outPath);
+        bool ok = false;
+        if (exitOk) {
+            const QByteArray pngBytes = proc->readAllStandardOutput();
+            QImage img;
+            if (img.loadFromData(pngBytes, "PNG")) {
+                pix = QPixmap::fromImage(std::move(img));
+                ok = !pix.isNull();
+            }
         }
-        // 一時 PNG はディスクに残さず、読み込み後に即削除する
-        QFile::remove(outPath);
 
-        if (ok && !pix.isNull()) {
+        if (ok) {
             putCache(seconds, pix);
             callback(true, pix);
         }
@@ -109,7 +113,23 @@ void ThumbnailExtractor::request(int seconds,
         // cancelInflight 後の遅延 finished では既に別プロセスが入っている可能性があるため
         if (m_proc == proc) {
             m_proc = nullptr;
-            m_procOutPath.clear();
+        }
+        proc->deleteLater();
+    });
+
+    // 起動失敗を捕捉する
+    // FailedToStart のとき finished は発火しないため、
+    // ここで callback を確実に呼ばないと呼び出し元が永久待機する。
+    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
+    QObject::connect(proc, &QProcess::errorOccurred, this,
+        [this, proc, callback](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart) return;
+
+        // finished 経路と二重発火しないよう、ここで disconnect する
+        disconnect(proc, nullptr, this, nullptr);
+        callback(false, QPixmap());
+        if (m_proc == proc) {
+            m_proc = nullptr;
         }
         proc->deleteLater();
     });
@@ -127,16 +147,14 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
     if (!m_proc) return;
 
     QProcess* proc = m_proc;
-    const QString outPath = m_procOutPath;
 
     // disconnect でコールバック経路を切ってから kill する
-    // 旧 callback が finished 経由で発火して新規ファイルへ誤反映するのを防ぐ
+    // 旧 callback が finished 経由で発火して新規結果へ誤反映するのを防ぐ
     disconnect(proc, nullptr, this, nullptr);
     proc->kill();
 
     // kill 後にプロセス終端を短時間待つ
-    // Windows の DeleteFile は ffmpeg のファイルハンドルが残った状態では失敗するため、
-    // QFile::remove より先に確実にプロセスを終了させる必要がある
+    // 同期モード（デストラクタ）では確実に終端を待ってから delete する
     proc->waitForFinished(synchronous ? 3000 : 1000);
 
     if (synchronous) {
@@ -147,12 +165,6 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
     }
 
     m_proc = nullptr;
-    m_procOutPath.clear();
-
-    // 中途まで書かれた可能性のある PNG を削除する
-    if (!outPath.isEmpty()) {
-        QFile::remove(outPath);
-    }
 }
 
 void ThumbnailExtractor::putCache(int key, const QPixmap& pix)

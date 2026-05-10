@@ -89,6 +89,16 @@ volume = 0.80   # 1.00 = 100%、0.80 = 80%
 initial_screen_ratio = 0.7
 ```
 
+再生プレビューとシークバーホバー時のサムネイル抽出における HW デコード経路は `[playback]` セクションで制御できる。デフォルトは Windows 共通の `d3d11va` を最優先、フォールバックに NVIDIA NVDEC（`cuda`）を指定する。
+
+GPU が無い環境やドライバ非対応の場合、Qt および ffmpeg は自動的に CPU デコードへフォールバックするため、未調整でも動作する。
+
+```toml
+[playback]
+hw_decoder_priority = "d3d11va,cuda"   # QMediaPlayer の HW デコーダ優先順位（カンマ区切り、空文字で Qt 自動選択）
+thumbnail_hwaccel   = "auto"           # サムネイル抽出の ffmpeg -hwaccel 値（"none" でスキップ）
+```
+
 ## ビルド方法
 
 ### 必要ツール

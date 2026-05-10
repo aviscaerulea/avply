@@ -32,6 +32,11 @@ public:
                    const QString& inputPath,
                    const QSize& thumbSize);
 
+    // ffmpeg に渡す -hwaccel 値を設定する（"auto" / "d3d11va" / "cuda" など）
+    // "none" または空文字で -hwaccel 指定をスキップする。
+    // setSource の前後どちらで呼んでもよい
+    void setHwaccel(const QString& hwaccel);
+
     // 量子化済みの秒数キーでサムネイル取得を要求する
     // キャッシュヒット時は同期的に callback(true, pix) を呼ぶ
     // ミス時は ffmpeg を起動し、終了時に callback を呼ぶ
@@ -59,12 +64,11 @@ private:
     QString m_ffmpegPath;
     QString m_inputPath;
     QSize   m_thumbSize;
+    QString m_hwaccel = "auto";
 
     QHash<int, QPixmap> m_cache;
     // LRU 順序：先頭が最新、末尾が古い。容量超過時に末尾を捨てる
     QList<int>          m_lru;
 
     QProcess* m_proc        = nullptr;
-    QString   m_procOutPath;
-    quint64   m_seq         = 0;
 };

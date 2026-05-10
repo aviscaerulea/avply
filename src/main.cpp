@@ -8,6 +8,7 @@
 #include <QIcon>
 #include <QStringList>
 #include <QTimer>
+#include "Config.h"
 #include "MainWindow.h"
 #include "Settings.h"
 #include "SingleInstance.h"
@@ -17,6 +18,16 @@ int main(int argc, char* argv[])
     // 再生速度変更時に pitchCompensation を有効化するため
     // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+
+    // FFmpeg バックエンドの HW デコード優先順位を avply.toml から取得して反映する。
+    // QApplication 構築前に qputenv する必要があるため早期ロードする
+    // （Config::load() は exe ディレクトリ取得を Win32 API で行うため Qt 初期化非依存）。
+    // 空文字なら Qt 自動選択へフォールバックする
+    const AppConfig earlyCfg = Config::load();
+    if (!earlyCfg.hwDecoderPriority.isEmpty()) {
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES",
+                earlyCfg.hwDecoderPriority.toUtf8());
+    }
 
     // 単一インスタンス強制が ON のとき、自身が 2 個目以降なら引数を既存へ転送して即時終了する
     // QApplication 構築前に判定することで、不要な GUI 初期化を避ける

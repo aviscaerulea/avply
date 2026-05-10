@@ -262,6 +262,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     updateSpeedDisplay();
     updateVolumeDisplay();
 
+    // サムネイル抽出時の ffmpeg HW デコード値を反映する
+    if (m_thumbExtractor) m_thumbExtractor->setHwaccel(cfg.thumbnailHwaccel);
+
     // --- コンテキストメニュー用アクションを構築する ---
     // contextMenuEvent ごとにメニューを組み立てる際に使い回せるようメンバとして保持する
     m_actOpen = new QAction("ファイルを開く", this);

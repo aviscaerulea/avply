@@ -23,6 +23,15 @@ struct AppConfig {
 
     // 動画読込時の初期ウィンドウサイズ上限のモニタ比率（0.1〜1.0、デフォルト 0.7）
     double initialScreenRatio = 0.7;
+
+    // QMediaPlayer FFmpeg バックエンドの HW デコード優先順位
+    // QT_FFMPEG_DECODING_HW_DEVICE_TYPES と同形式（カンマ区切り）。
+    // 空文字なら Qt の自動選択に任せる
+    QString hwDecoderPriority = "d3d11va,cuda";
+
+    // ThumbnailExtractor が ffmpeg に渡す -hwaccel 値
+    // "auto" / "d3d11va" / "cuda" 等。"none" は -hwaccel 指定をスキップする
+    QString thumbnailHwaccel = "auto";
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ
