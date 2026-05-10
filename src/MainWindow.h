@@ -61,9 +61,6 @@ private slots:
     // マウスがシークバー外に出たときにプレビューを非表示にする
     void onSeekHoverLeft();
 
-    // ホバー停止 debounce 満了時に ffmpeg 起動でサムネイル抽出を要求する
-    void onHoverDebounceTimeout();
-
 private:
     // メディアファイルを実際に読み込む（Open ダイアログと D&D 共通）
     // centerOnMonitor=true のときのみモニタ作業領域の中央へウィンドウを移動する
@@ -160,6 +157,10 @@ private:
     // 現在のシークスライダー位置から SeekPreview の表示位置を更新する
     void updateSeekPreviewPosition(int x);
 
+    // 現在の m_hoverPendingSec を対象にサムネイル抽出を要求する
+    // 完了 callback 内で最新ホバー位置が遷移していたら自分自身を再呼び出しして連鎖追従する
+    void requestHoverThumbnail();
+
     // 動画情報
     QString   m_filePath;
     VideoInfo m_info;
@@ -233,9 +234,9 @@ private:
     SeekPreview*        m_seekPreview    = nullptr;
     ThumbnailExtractor* m_thumbExtractor = nullptr;
 
-    // ホバー停止判定の debounce タイマと、最新の量子化済みホバー秒数
+    // 最新の量子化済みホバー秒数（-1 = 未設定。シークバー外・ファイル未読込の初期状態）
+    // -1 との比較により初回ホバーは必ず ffmpeg を起動する。
     // クロージャ内で「現在のホバー対象が同じ秒か」をチェックして古い結果の表示を防ぐ
-    QTimer m_hoverDebounce;
     int    m_hoverPendingSec = -1;
     int    m_hoverLastX      = 0;
 

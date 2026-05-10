@@ -53,17 +53,22 @@ void ThumbnailExtractor::request(int seconds,
         return;
     }
 
-    // 走行中の旧プロセスをキャンセル（旧 callback は disconnect で封殺）
-    cancelInflight(false);
+    // 走行中の ffmpeg があれば新規要求は破棄する（完走優先 — 連続ホバーでも各ジョブを最後まで実行）
+    // 呼び出し側は finished 後に最新位置を改めて request すること
+    if (m_proc) {
+        callback(false, QPixmap());
+        return;
+    }
 
     // ffmpeg コマンドライン
     // -hwaccel は -i の前（input options）に置く。GPU デコードでシーク + 1 フレーム取り出しを高速化
     // -ss を -i の前に置く（input seek）ことで高速にスキップする
     // -frames:v 1 で 1 フレームのみ書き出し、-an -sn -dn で他ストリームを除外して軽量化
-    // scale フィルタの force_original_aspect_ratio=decrease で縦横比を維持して縮小する
-    // 出力は image2pipe + png で stdout へ送り、一時ファイル I/O を排除する
+    // scale フィルタは fast_bilinear で軽量化（lanczos より明確に高速、サムネイル用途で画質劣化は実用上無視可）
+    // force_original_aspect_ratio=decrease で縦横比を維持して縮小する
+    // 出力は image2pipe + bmp で stdout へ送り、一時ファイル I/O と PNG 圧縮 CPU コストを排除する
     const QString filterStr = QString(
-        "scale=%1:%2:force_original_aspect_ratio=decrease,format=rgb24")
+        "scale=%1:%2:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=rgb24")
         .arg(m_thumbSize.width()).arg(m_thumbSize.height());
 
     QStringList args = { "-hide_banner", "-loglevel", "error" };
@@ -77,11 +82,11 @@ void ThumbnailExtractor::request(int seconds,
         << "-an" << "-sn" << "-dn"
         << "-vf" << filterStr
         << "-f" << "image2pipe"
-        << "-vcodec" << "png"
+        << "-vcodec" << "bmp"
         << "pipe:1";
 
     auto* proc = new QProcess(this);
-    // stdout には PNG バイナリのみを流したいため stderr を分離する
+    // stdout には BMP バイナリのみを流したいため stderr を分離する
     proc->setProcessChannelMode(QProcess::SeparateChannels);
     m_proc = proc;
 
@@ -93,13 +98,20 @@ void ThumbnailExtractor::request(int seconds,
         QPixmap pix;
         bool ok = false;
         if (exitOk) {
-            const QByteArray pngBytes = proc->readAllStandardOutput();
+            const QByteArray bmpBytes = proc->readAllStandardOutput();
             QImage img;
-            if (img.loadFromData(pngBytes, "PNG")) {
+            if (img.loadFromData(bmpBytes, "BMP")) {
                 pix = QPixmap::fromImage(std::move(img));
                 ok = !pix.isNull();
             }
         }
+
+        // callback 呼出前に m_proc をクリアする。
+        // callback 内から request() を呼んで連鎖実行できるようにする（完走優先設計のキモ）
+        if (m_proc == proc) {
+            m_proc = nullptr;
+        }
+        proc->deleteLater();
 
         if (ok) {
             putCache(seconds, pix);
@@ -108,13 +120,6 @@ void ThumbnailExtractor::request(int seconds,
         else {
             callback(false, QPixmap());
         }
-
-        // 自身が現在の走行プロセスなら参照をクリアする
-        // cancelInflight 後の遅延 finished では既に別プロセスが入っている可能性があるため
-        if (m_proc == proc) {
-            m_proc = nullptr;
-        }
-        proc->deleteLater();
     });
 
     // 起動失敗を捕捉する
@@ -127,11 +132,11 @@ void ThumbnailExtractor::request(int seconds,
 
         // finished 経路と二重発火しないよう、ここで disconnect する
         disconnect(proc, nullptr, this, nullptr);
-        callback(false, QPixmap());
         if (m_proc == proc) {
             m_proc = nullptr;
         }
         proc->deleteLater();
+        callback(false, QPixmap());
     });
 
     proc->start(m_ffmpegPath, args);
@@ -147,24 +152,28 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
     if (!m_proc) return;
 
     QProcess* proc = m_proc;
+    m_proc = nullptr;
 
     // disconnect でコールバック経路を切ってから kill する
     // 旧 callback が finished 経由で発火して新規結果へ誤反映するのを防ぐ
     disconnect(proc, nullptr, this, nullptr);
-    proc->kill();
-
-    // kill 後にプロセス終端を短時間待つ
-    // 同期モード（デストラクタ）では確実に終端を待ってから delete する
-    proc->waitForFinished(synchronous ? 3000 : 1000);
 
     if (synchronous) {
+        // 同期モード（デストラクタ）では確実に終端を待ってから delete する
+        proc->kill();
+        proc->waitForFinished(3000);
         delete proc;
-    }
-    else {
-        proc->deleteLater();
+        return;
     }
 
-    m_proc = nullptr;
+    // 非同期モード：UI スレッドをブロックしないため終端待ちは行わない。
+    // 連続ホバーで request が連発するため waitForFinished で 100ms でも待つと UI が固まる。
+    // 終了時に自動で解放されるよう finished から自身の deleteLater を直結する。
+    // disconnect で this 受信は切ってあるので旧 callback は呼ばれない。
+    QObject::connect(proc,
+                     QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                     proc, &QProcess::deleteLater);
+    proc->kill();
 }
 
 void ThumbnailExtractor::putCache(int key, const QPixmap& pix)

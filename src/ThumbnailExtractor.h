@@ -10,7 +10,7 @@
 class QProcess;
 
 // シークバーホバー時のサムネイル抽出 + LRU キャッシュ
-// ffmpeg を非同期起動して 1 フレームを PNG 出力させ、QPixmap として返す
+// ffmpeg を非同期起動して 1 フレームを BMP 出力させ、QPixmap として返す
 // 走行中プロセスは 1 本のみ保持し、新規要求で kill して上書きする
 class ThumbnailExtractor : public QObject {
     Q_OBJECT
@@ -19,8 +19,8 @@ public:
     // 1 秒粒度なら同一秒内のホバー微振動でほぼキャッシュヒット
     static constexpr int kQuantSec = 1;
 
-    // LRU 上限（160x90 程度なら最大でも 2MB 弱に収まる）
-    static constexpr int kCacheCap = 30;
+    // LRU 上限（160x90 RGBA32 で 1 枚 ≒ 56KB、100 件で約 5.6MB）
+    static constexpr int kCacheCap = 100;
 
     explicit ThumbnailExtractor(QObject* parent = nullptr);
     ~ThumbnailExtractor() override;

@@ -119,13 +119,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_seekPreview    = new SeekPreview(this);
     m_thumbExtractor = new ThumbnailExtractor(this);
 
-    // ホバー停止判定の debounce タイマ
-    // マウスが止まった瞬間に 1 度だけ ffmpeg を起動し、サムネイル抽出を行う
-    m_hoverDebounce.setSingleShot(true);
-    m_hoverDebounce.setInterval(150);
-    connect(&m_hoverDebounce, &QTimer::timeout,
-            this, &MainWindow::onHoverDebounceTimeout);
-
     connect(m_seekSlider, &RangeSlider::hoverMoved,
             this, &MainWindow::onSeekHoverMoved);
     connect(m_seekSlider, &RangeSlider::hoverLeft,
@@ -681,7 +674,6 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
         const QSize thumbSize = isAudioOnly() ? QSize() : QSize(240, 135);
         m_thumbExtractor->setSource(m_ffmpegPath, path, thumbSize);
     }
-    m_hoverDebounce.stop();
     m_hoverPendingSec = -1;
 
     // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
@@ -1290,7 +1282,7 @@ void MainWindow::onSeekHoverMoved(int x, int sliderValue)
 
     const QString timeText = formatSec(sec);
 
-    // 動画のキャッシュヒット時は同期サムネ反映、ミス時は時刻のみ + debounce 後に ffmpeg 起動
+    // 動画のキャッシュヒット時は同期サムネ反映
     QPixmap cached;
     const bool videoHit = !isAudioOnly()
         && m_thumbExtractor
@@ -1298,41 +1290,52 @@ void MainWindow::onSeekHoverMoved(int x, int sliderValue)
 
     if (videoHit) {
         m_seekPreview->setContent(cached, timeText);
+        return;
     }
-    else {
-        // サムネ未取得（音声 or キャッシュミス）：時刻のみ更新
-        m_seekPreview->setTimeOnly(timeText);
-        // 動画のときだけ debounce 起動して ffmpeg にサムネ抽出を要求する
-        if (!isAudioOnly()) m_hoverDebounce.start();
-    }
+
+    // サムネ未取得（音声 or キャッシュミス）：時刻のみ即更新する
+    m_seekPreview->setTimeOnly(timeText);
+
+    if (isAudioOnly() || !m_thumbExtractor) return;
+
+    // 走行中なら request() 内で破棄される（完走優先）。
+    // 走行中ジョブの finished で connect された callback がここを再帰呼びして最新位置を取りに行く
+    requestHoverThumbnail();
+}
+
+void MainWindow::requestHoverThumbnail()
+{
+    if (m_hoverPendingSec < 0 || isAudioOnly()) return;
+    if (!m_thumbExtractor || !m_seekPreview) return;
+    if (!m_seekPreview->isVisible()) return;
+
+    const int target = m_hoverPendingSec;
+    m_thumbExtractor->request(target,
+        [this, target](bool ok, const QPixmap& pix) {
+        // ok=false は走行中ガードまたは起動失敗。走行中ガード時はそのジョブの完走 callback から
+        // 再 request されるため、ここからの追加チェインは行わない
+        if (!ok) return;
+        if (!m_seekPreview->isVisible()) return;
+
+        // 完走したサムネは常に表示する（MPC-HC 風：時刻は最新ホバー位置、サムネは多少遅れて追従）。
+        // target == m_hoverPendingSec の同期チェックは行わない。マウス移動中に不一致が続いて
+        // 何も表示されない事態を避ける
+        const int displaySec = (m_hoverPendingSec >= 0) ? m_hoverPendingSec : target;
+        m_seekPreview->setContent(pix, formatSec(static_cast<double>(displaySec)));
+        updateSeekPreviewPosition(m_hoverLastX);
+
+        // 最新位置が遷移していれば次の取得を投げる（連鎖追従）
+        if (m_hoverPendingSec != target) {
+            requestHoverThumbnail();
+        }
+    });
 }
 
 void MainWindow::onSeekHoverLeft()
 {
-    m_hoverDebounce.stop();
     m_hoverPendingSec = -1;
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(false);
     if (m_seekPreview) m_seekPreview->hide();
-}
-
-void MainWindow::onHoverDebounceTimeout()
-{
-    if (m_hoverPendingSec < 0 || isAudioOnly()) return;
-    if (!m_thumbExtractor || !m_seekPreview) return;
-
-    const int target = m_hoverPendingSec;
-    const double sec = static_cast<double>(target);
-
-    m_thumbExtractor->request(target,
-        [this, sec, target](bool ok, const QPixmap& pix) {
-        if (!ok) return;
-        // ホバー対象が遷移していたら古い結果は捨てる（最新位置を上書きしない）
-        if (m_hoverPendingSec != target) return;
-        if (!m_seekPreview->isVisible()) return;
-        m_seekPreview->setContent(pix, formatSec(sec));
-        // 位置はずれている可能性があるため、最後に補正する
-        updateSeekPreviewPosition(m_hoverLastX);
-    });
 }
 
 void MainWindow::updateSeekPreviewPosition(int x)
