@@ -92,8 +92,10 @@ void RangeSlider::wheelEvent(QWheelEvent* event)
 {
     // QSlider デフォルトのホイール動作（値変更）を抑制してシーク信号に変換する
     const int delta = event->angleDelta().y();
-    const bool shift = event->modifiers().testFlag(Qt::ShiftModifier);
-    if (delta != 0) emit wheelScrolled(delta > 0, shift);
+    const auto mods = event->modifiers();
+    const bool shift = mods.testFlag(Qt::ShiftModifier);
+    const bool ctrl  = mods.testFlag(Qt::ControlModifier);
+    if (delta != 0) emit wheelScrolled(delta > 0, shift, ctrl);
     event->accept();
 }
 

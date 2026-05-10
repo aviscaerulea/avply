@@ -48,8 +48,8 @@ public:
 
 signals:
     // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
-    // shift = true は Shift 修飾子押下中（音量調整用）
-    void wheelScrolled(bool forward, bool shift);
+    // shift = true は Shift 修飾子押下中（音量調整用）、ctrl = true は Ctrl 修飾子押下中（再生速度調整用）
+    void wheelScrolled(bool forward, bool shift, bool ctrl);
 
     // ホバー位置（widget 内 X 座標、クランプ済み）と対応スライダー値を通知する
     // ボタン非押下時もドラッグ中も連続的に発火する

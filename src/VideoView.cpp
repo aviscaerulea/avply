@@ -49,7 +49,7 @@ VideoView::VideoView(QWidget* parent)
         const std::pair<const char*, const char*> qmlConns[] = {
             { "2clicked()",                        "1onQmlClicked()" },
             { "2contextMenuRequested(qreal,qreal)","1onQmlContextMenuRequested(qreal,qreal)" },
-            { "2wheelScrolled(bool,bool)",         "1onQmlWheelScrolled(bool,bool)" },
+            { "2wheelScrolled(bool,bool,bool)",     "1onQmlWheelScrolled(bool,bool,bool)" },
             { "2fileDropped(QString)",             "1onQmlFileDropped(QString)" },
         };
         for (const auto& [sig, slot] : qmlConns) {
@@ -210,8 +210,10 @@ QSize VideoView::minimumSizeHint() const
 void VideoView::wheelEvent(QWheelEvent* event)
 {
     const int delta = event->angleDelta().y();
-    const bool shift = event->modifiers().testFlag(Qt::ShiftModifier);
-    if (delta != 0) emit wheelScrolled(delta > 0, shift);
+    const auto mods = event->modifiers();
+    const bool shift = mods.testFlag(Qt::ShiftModifier);
+    const bool ctrl  = mods.testFlag(Qt::ControlModifier);
+    if (delta != 0) emit wheelScrolled(delta > 0, shift, ctrl);
     event->accept();
 }
 
@@ -231,9 +233,9 @@ void VideoView::onQmlContextMenuRequested(qreal x, qreal y)
     emit contextMenuRequested(globalPos);
 }
 
-void VideoView::onQmlWheelScrolled(bool forward, bool shift)
+void VideoView::onQmlWheelScrolled(bool forward, bool shift, bool ctrl)
 {
-    emit wheelScrolled(forward, shift);
+    emit wheelScrolled(forward, shift, ctrl);
 }
 
 void VideoView::onQmlFileDropped(const QString& url)
