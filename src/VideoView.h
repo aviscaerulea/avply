@@ -68,7 +68,8 @@ signals:
     void fileDropped(const QString& path);
 
     // マウスホイール回転時に emit する。forward = true で前転（早送り方向）
-    void wheelScrolled(bool forward);
+    // shift = true は Shift 修飾子押下中（音量調整用）
+    void wheelScrolled(bool forward, bool shift);
 
     // 右クリックでコンテキストメニュー要求が発生したとき emit する
     // QQuickView はネイティブ子ウィンドウのため Win32 が右クリックを親 QWidget へ
@@ -83,7 +84,7 @@ private slots:
     void onQmlContextMenuRequested(qreal x, qreal y);
 
     // QML の wheelScrolled シグナルをブリッジする
-    void onQmlWheelScrolled(bool forward);
+    void onQmlWheelScrolled(bool forward, bool shift);
 
     void onQmlFileDropped(const QString& url);
 

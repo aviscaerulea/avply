@@ -46,7 +46,7 @@ VideoView::VideoView(QWidget* parent)
         connect(root, SIGNAL(clicked()), this, SLOT(onQmlClicked()));
         connect(root, SIGNAL(contextMenuRequested(qreal,qreal)),
                 this, SLOT(onQmlContextMenuRequested(qreal,qreal)));
-        connect(root, SIGNAL(wheelScrolled(bool)), this, SLOT(onQmlWheelScrolled(bool)));
+        connect(root, SIGNAL(wheelScrolled(bool,bool)), this, SLOT(onQmlWheelScrolled(bool,bool)));
         connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
     });
 
@@ -201,7 +201,8 @@ QSize VideoView::minimumSizeHint() const
 void VideoView::wheelEvent(QWheelEvent* event)
 {
     const int delta = event->angleDelta().y();
-    if (delta != 0) emit wheelScrolled(delta > 0);
+    const bool shift = event->modifiers().testFlag(Qt::ShiftModifier);
+    if (delta != 0) emit wheelScrolled(delta > 0, shift);
     event->accept();
 }
 
@@ -221,9 +222,9 @@ void VideoView::onQmlContextMenuRequested(qreal x, qreal y)
     emit contextMenuRequested(globalPos);
 }
 
-void VideoView::onQmlWheelScrolled(bool forward)
+void VideoView::onQmlWheelScrolled(bool forward, bool shift)
 {
-    emit wheelScrolled(forward);
+    emit wheelScrolled(forward, shift);
 }
 
 void VideoView::onQmlFileDropped(const QString& url)

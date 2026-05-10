@@ -77,9 +77,14 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, [this](const QString& path) {
         if (m_runningOp == Operation::None && isAcceptedMedia(path)) loadFile(path);
     });
-    // プレビュー領域のホイール回転をシークに変換する（変換中・対象方向が無効値の場合は抑制）
-    connect(m_videoView, &VideoView::wheelScrolled, this, [this](bool forward) {
+    // プレビュー領域のホイール回転をシーク／音量変更に変換する
+    // Shift 併用時は音量を ±0.05、修飾子なしのときは設定値ぶんシークする（変換中は抑制）
+    connect(m_videoView, &VideoView::wheelScrolled, this, [this](bool forward, bool shift) {
         if (m_runningOp != Operation::None) return;
+        if (shift) {
+            changeVolume(forward ? 0.05 : -0.05);
+            return;
+        }
         const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
         if (ms > 0) seekRelative(forward ? ms : -ms);
     });
@@ -108,9 +113,14 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // valueChanged を使うことでクリックジャンプの位置も拾える
     connect(m_seekSlider, &QSlider::valueChanged,
             this, &MainWindow::onSeekSliderChanged);
-    // ホイール回転をシークに変換する（変換中・対象方向が無効値の場合は抑制）
-    connect(m_seekSlider, &RangeSlider::wheelScrolled, this, [this](bool forward) {
+    // ホイール回転をシーク／音量変更に変換する
+    // Shift 併用時は音量を ±0.05、修飾子なしのときは設定値ぶんシークする（変換中は抑制）
+    connect(m_seekSlider, &RangeSlider::wheelScrolled, this, [this](bool forward, bool shift) {
         if (m_runningOp != Operation::None) return;
+        if (shift) {
+            changeVolume(forward ? 0.05 : -0.05);
+            return;
+        }
         const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
         if (ms > 0) seekRelative(forward ? ms : -ms);
     });

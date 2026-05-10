@@ -14,7 +14,7 @@ Item {
 
     signal clicked()
     signal contextMenuRequested(real x, real y)
-    signal wheelScrolled(bool forward)
+    signal wheelScrolled(bool forward, bool shift)
     signal fileDropped(string url)
 
     VideoOutput {
@@ -47,7 +47,7 @@ Item {
             }
         }
         onWheel: function(wheel) {
-            root.wheelScrolled(wheel.angleDelta.y > 0)
+            root.wheelScrolled(wheel.angleDelta.y > 0, (wheel.modifiers & Qt.ShiftModifier) !== 0)
         }
     }
 }
