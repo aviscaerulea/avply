@@ -33,8 +33,15 @@ struct FfmpegResult {
 
 // ffprobe/ffmpeg 実行ユーティリティ
 namespace Ffmpeg {
-    // ffprobe で動画情報を取得する
-    VideoInfo probe(const QString& ffprobePath, const QString& filePath, FfmpegResult& result);
+    // ffprobe で動画情報を非同期取得する
+    // 同期版は UI スレッドを waitForFinished で 15 秒間ブロックしうるため非同期化した。
+    // QProcess は parent の子オブジェクトとして生成され、完了時に callback を呼んだ後 deleteLater される。
+    // 戻り値の QProcess* は呼び出し側が保持し、新ファイル読込時の kill キャンセル用に使う
+    QProcess* probeAsync(
+        const QString& ffprobePath,
+        const QString& filePath,
+        QObject* parent,
+        std::function<void(const VideoInfo& info, const FfmpegResult& result)> callback);
 
     // av1_nvenc エンコーダが利用可能か確認する
     bool checkAv1Nvenc(const QString& ffmpegPath);

@@ -2,16 +2,36 @@
 // 全 include より前に定義する
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>
 
 #include <QApplication>
 #include <QByteArray>
 #include <QIcon>
-#include <QStringList>
+#include <QString>
 #include <QTimer>
 #include "Config.h"
 #include "MainWindow.h"
 #include "Settings.h"
 #include "SingleInstance.h"
+
+namespace {
+
+// QApplication 構築前にコマンドライン第 1 引数を Unicode 安全に取得する
+// argv は MSVCRT が CP932 でナロー化したものなので、CP932 範囲外の文字
+// （中国語・絵文字等）が含まれるパスは取得できない。
+// GetCommandLineW + CommandLineToArgvW で UTF-16 から直接取得する
+QString firstArgumentUnicode()
+{
+    int wargc = 0;
+    LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    if (!wargv) return QString();
+    QString result;
+    if (wargc > 1) result = QString::fromWCharArray(wargv[1]);
+    LocalFree(wargv);
+    return result;
+}
+
+} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -32,8 +52,7 @@ int main(int argc, char* argv[])
     // 単一インスタンス強制が ON のとき、自身が 2 個目以降なら引数を既存へ転送して即時終了する
     // QApplication 構築前に判定することで、不要な GUI 初期化を避ける
     const bool singleInstanceEnabled = Settings::instance().singleInstance();
-    QString preliminaryArg;
-    if (argc > 1) preliminaryArg = QString::fromLocal8Bit(argv[1]);
+    const QString preliminaryArg = firstArgumentUnicode();
 
     if (singleInstanceEnabled) {
         if (SingleInstance::tryForwardAndExit(preliminaryArg)) return 0;
@@ -61,9 +80,11 @@ int main(int argc, char* argv[])
     app.setOrganizationName("avply");
 
     // コマンドライン第 1 引数があれば初期ファイルとして MainWindow に渡す
-    // （Windows の D&D 起動・「送る」・「プログラムを指定して開く」用）
-    const QStringList args = app.arguments();
-    const QString initialPath = (args.size() > 1) ? args[1] : QString();
+    // （Windows の D&D 起動・「送る」・「プログラムを指定して開く」用）。
+    // QApplication 構築前に取得した Unicode 引数をそのまま使う
+    // （app.arguments() は Qt 6 でも内部的に WinMain 由来の UTF-16 を再構成するが、
+    // 起動経路を一本化するため preliminaryArg を流用する）
+    const QString initialPath = preliminaryArg;
 
     // 起動時の白フラッシュ抑制
     // Windows のネイティブウィンドウ作成直後に発生する WM_ERASEBKGND による白塗りは

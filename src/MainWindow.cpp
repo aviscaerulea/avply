@@ -53,6 +53,53 @@ static constexpr int kInitialWindowH = 375;
 static constexpr int kWaveformW = 2048;
 static constexpr int kWaveformH = 48;
 
+namespace {
+
+// ステータスバーラベル先頭の絵文字プレフィックス
+// 🎬 = 再生速度、🔊 = 音量。U+1F3AC / U+1F50A の UTF-8 バイト列を直書きする
+// （C++17 では char16_t/u8 リテラルが MSVC で扱いづらいため）
+const QString kSpeedPrefix  = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
+const QString kVolumePrefix = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
+
+// 受け入れ可能なメディア拡張子（小文字、ドットなし）
+// QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
+const QStringList kVideoExts = { "mp4", "mkv", "mov", "avi", "webm" };
+const QStringList kAudioExts = { "mp3", "wav", "flac", "ogg", "opus" };
+
+// QFileDialog のフィルタ文字列を生成する
+// "*.mp4 *.mkv ..." 形式のスペース区切り
+QString dialogFilterFromExts()
+{
+    QStringList globs;
+    for (const QString& e : kVideoExts) globs << ("*." + e);
+    for (const QString& e : kAudioExts) globs << ("*." + e);
+    return globs.join(' ');
+}
+
+// 古い波形キャッシュ PNG を削除する
+// mtime キーで命名済みのため、ユーザがソースを更新すると古い PNG が残り続ける。
+// 60 日 atime/mtime しきい値で削除する（再生頻度の低いファイル分のみ自動清掃）。
+// startup から非同期で呼び出し、UI スレッドの応答性を優先する
+void purgeOldWaveformCache()
+{
+    const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QDir dir(tmpDir);
+    if (!dir.exists()) return;
+    const QDateTime threshold = QDateTime::currentDateTime().addDays(-60);
+    const QFileInfoList entries = dir.entryInfoList(
+        { "avply_wave_*.png" }, QDir::Files);
+    for (const QFileInfo& fi : entries) {
+        // 最後アクセス時刻が取れる環境では atime、取れなければ mtime を見る
+        const QDateTime ref = fi.lastRead().isValid() && !fi.lastRead().isNull()
+                              ? fi.lastRead() : fi.lastModified();
+        if (ref < threshold) {
+            QFile::remove(fi.absoluteFilePath());
+        }
+    }
+}
+
+} // namespace
+
 MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
     , m_encoder(nullptr)
@@ -99,12 +146,12 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // --- 再生速度ラベル（ステータスバー右端、再生位置の右に配置） ---
     // 先頭の 🎬（カチンコ）はラベル種別の視覚的区別のため付与する
-    m_speedLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x8e\xac x1.00"));
+    m_speedLabel = new QLabel(kSpeedPrefix + "x1.00");
 
     // --- 音量ラベル（再生速度の右に配置） ---
     // 初期値は avply.toml の [audio].volume から取得し、Shift+カーソルキーで動的に変更する
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
-    m_volumeLabel = new QLabel(QString::fromUtf8("  \xf0\x9f\x94\x8a 100%"));
+    m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -337,6 +384,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
 
+    // 起動時に古い波形キャッシュを清掃する（mtime キー命名のため自然に肥大化していくのを抑える）
+    QTimer::singleShot(0, this, []() { purgeOldWaveformCache(); });
+
     // BT 機器のアイドル復帰時プチノイズ抑制用に、不可聴トーンを常時出力する
     // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ。
     // [audio].silence_tone_enabled=false で完全にスキップ可能（OS への常時音声出力を行わない）
@@ -360,6 +410,14 @@ MainWindow::~MainWindow()
     }
     stopWaveformProcess(true);
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
+
+    // ffprobe 残存プロセスを停止する。disconnect で deleteLater 内ラムダから this 参照を断ち、
+    // QProcess の dtor が kill+wait してプロセスを確実に終わらせる
+    if (m_probeProc) {
+        disconnect(m_probeProc, nullptr, this, nullptr);
+        m_probeProc->kill();
+        m_probeProc->waitForFinished(1000);
+    }
 }
 
 // ---- ドラッグ＆ドロップ ----
@@ -392,10 +450,10 @@ void MainWindow::dropEvent(QDropEvent* event)
 
 void MainWindow::onOpenFile()
 {
+    const QString filter = QString("メディアファイル (%1);;すべてのファイル (*)")
+        .arg(dialogFilterFromExts());
     const QString path = QFileDialog::getOpenFileName(
-        this, "メディアファイルを開く", openDialogStartDir(),
-        "メディアファイル (*.mp4 *.mkv *.mov *.avi *.webm *.mp3 *.wav *.flac *.ogg *.opus)"
-        ";;すべてのファイル (*)");
+        this, "メディアファイルを開く", openDialogStartDir(), filter);
     if (path.isEmpty()) return;
     loadFile(path);
 }
@@ -593,20 +651,37 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
 
-    const QString ffprobePath = Ffmpeg::ffprobePath(m_ffmpegPath);
-    FfmpegResult result;
-    const VideoInfo info = Ffmpeg::probe(ffprobePath, path, result);
-    if (!result.ok) {
-        m_videoView->clear();
-        QMessageBox::critical(this, "エラー", "動画情報を取得できませんでした：\n" + result.err);
-        return;
-    }
-    if (!info.valid || info.duration <= 0.0) {
-        m_videoView->clear();
-        QMessageBox::critical(this, "エラー", "有効なメディアファイルではありません。");
-        return;
+    // 旧 probe を破棄してから新規発行する。
+    // 連続 D&D などで前ファイルの probe 結果が遅れて到着し、新ファイルの状態を上書きするのを防ぐ
+    if (m_probeProc) {
+        disconnect(m_probeProc, nullptr, this, nullptr);
+        m_probeProc->kill();
+        m_probeProc->deleteLater();
+        m_probeProc = nullptr;
     }
 
+    const QString ffprobePath = Ffmpeg::ffprobePath(m_ffmpegPath);
+    m_probeProc = Ffmpeg::probeAsync(ffprobePath, path, this,
+        [this, path, centerOnMonitor](const VideoInfo& info, const FfmpegResult& result) {
+        // callback 内では m_probeProc 自身が deleteLater 予約済みのためポインタを先に解放する
+        m_probeProc = nullptr;
+
+        if (!result.ok) {
+            m_videoView->clear();
+            QMessageBox::critical(this, "エラー", "動画情報を取得できませんでした：\n" + result.err);
+            return;
+        }
+        if (!info.valid || info.duration <= 0.0) {
+            m_videoView->clear();
+            QMessageBox::critical(this, "エラー", "有効なメディアファイルではありません。");
+            return;
+        }
+        onProbeFinished(path, info, centerOnMonitor);
+    });
+}
+
+void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, bool centerOnMonitor)
+{
     m_filePath = path;
     m_info     = info;
     m_inSet    = false;
@@ -691,7 +766,10 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
     m_videoView->setPlaybackRate(m_playbackRate);
 
     // ウィンドウサイズを決定する：動画はアスペクト比連動、音声は下部 UI 高にあわせる
+    // primaryScreen() も null を返しうる（QGuiApplication 初期化失敗時など）。
+    // スクリーン取得不能ならサイズ調整・センタリングをスキップして安全側で抜ける
     const QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen();
+    if (!sc) return;
     const QRect geom = sc->availableGeometry();
 
     if (isAudioOnly()) {
@@ -748,18 +826,13 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
 bool MainWindow::isAcceptedMedia(const QString& path)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
-    if (ext == "mp4" || ext == "mkv" || ext == "mov"
-        || ext == "avi" || ext == "webm") return true;
-    if (ext == "mp3" || ext == "wav" || ext == "flac"
-        || ext == "ogg" || ext == "opus") return true;
-    return false;
+    return kVideoExts.contains(ext) || kAudioExts.contains(ext);
 }
 
 bool MainWindow::isAudioByExtension(const QString& path)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
-    return ext == "mp3" || ext == "wav" || ext == "flac"
-        || ext == "ogg" || ext == "opus";
+    return kAudioExts.contains(ext);
 }
 
 void MainWindow::setUiEnabled(bool enabled)
@@ -834,80 +907,29 @@ void MainWindow::setRunning(Operation op)
     updateMenuActionEnabled();
 }
 
-bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
+namespace {
+
+// WM_SIZING で使う、ウィンドウフレーム外周→クライアント領域への差分マージン
+struct FrameMargins {
+    int left;
+    int top;
+    int right;
+    int bottom;
+};
+
+FrameMargins computeFrameMargins(const QRect& frameGeom, const QRect& clientGeom)
 {
-    // WM_SIZING を捕まえて RECT を直接書き換え、ドラッグ中もアスペクト比を維持する
-    // 事後補正方式と異なりマウスドラッグの毎フレームに反映されるため、
-    // リリース時のスナップバック（ドラッグ中サイズと最終サイズの食い違い）が起きない
-    if (eventType != "windows_generic_MSG") {
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
+    return {
+        clientGeom.left()   - frameGeom.left(),
+        clientGeom.top()    - frameGeom.top(),
+        frameGeom.right()   - clientGeom.right(),
+        frameGeom.bottom()  - clientGeom.bottom(),
+    };
+}
 
-    MSG* msg = static_cast<MSG*>(message);
-
-    if (msg->message != WM_SIZING) {
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-
-    // 動画モード以外（音声・未読込）はアスペクト維持の対象外
-    // 音声モードは setFixedHeight により Qt 側で縦が固定されているため別途介在不要
-    // ガード節は QMainWindow::nativeEvent への委譲で統一し、*result の伝搬経路を一本化する
-    if (isAudioOnly() || !m_info.valid || m_lowerUiH <= 0) {
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-    if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) {
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-    if (m_videoAspect <= 0.0) {
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-
-    RECT* r = reinterpret_cast<RECT*>(msg->lParam);
-    const WPARAM edge = msg->wParam;
-
-    // ウィンドウフレーム余白を frameGeometry() と geometry() の差から取得する
-    // RECT はフレーム外周の矩形のため、クライアント領域に変換するためにフレームを差し引く
-    const QRect fg = frameGeometry();
-    const QRect cg = geometry();
-    const int frameLeft   = cg.left()   - fg.left();
-    const int frameTop    = cg.top()    - fg.top();
-    const int frameRight  = fg.right()  - cg.right();
-    const int frameBottom = fg.bottom() - cg.bottom();
-
-    int clientW = (r->right - r->left) - frameLeft - frameRight;
-    int clientH = (r->bottom - r->top) - frameTop - frameBottom;
-
-    // 上下辺ドラッグは高さマスター、それ以外（左右辺・角）は幅マスターとして扱う
-    const bool heightMaster = (edge == WMSZ_TOP || edge == WMSZ_BOTTOM);
-
-    if (heightMaster) {
-        const int previewH = clientH - m_lowerUiH;
-        if (previewH <= 0) return QMainWindow::nativeEvent(eventType, message, result);
-        clientW = qRound(previewH * m_videoAspect);
-    }
-    else {
-        const int previewH = qRound(clientW / m_videoAspect);
-        clientH = previewH + m_lowerUiH;
-    }
-
-    // 最小サイズへのクランプ
-    // WM_GETMINMAXINFO 経由の Qt 最小サイズ制約は WM_SIZING の RECT 書き換え後にも適用されるが、
-    // クランプによりアスペクト比が崩れるためこちら側で先に整合させる
-    if (clientW < kInitialWindowW) {
-        clientW = kInitialWindowW;
-        clientH = qRound(clientW / m_videoAspect) + m_lowerUiH;
-    }
-    if (clientH < kInitialWindowH) {
-        clientH = kInitialWindowH;
-        const int previewH = clientH - m_lowerUiH;
-        if (previewH > 0) clientW = qRound(previewH * m_videoAspect);
-    }
-
-    const int newW = clientW + frameLeft + frameRight;
-    const int newH = clientH + frameTop + frameBottom;
-
-    // 辺・角ごとに RECT のどの座標を動かすか決定する
-    // ドラッグした辺の対辺をアンカーすることで OS のドラッグ感覚と一致させる
+// ドラッグ辺をアンカー反対側に固定した上で newW/newH に書き換える
+void anchorRectByEdge(RECT* r, WPARAM edge, int newW, int newH)
+{
     switch (edge) {
     case WMSZ_LEFT:
         r->left   = r->right  - newW;
@@ -942,8 +964,71 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
         r->right  = r->left   + newW;
         break;
     default:
-        return false;
+        break;
     }
+}
+
+} // namespace
+
+bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
+{
+    // WM_SIZING を捕まえて RECT を直接書き換え、ドラッグ中もアスペクト比を維持する。
+    // 事後補正方式と異なりマウスドラッグの毎フレームに反映されるため、
+    // リリース時のスナップバック（ドラッグ中サイズと最終サイズの食い違い）が起きない
+    if (eventType != "windows_generic_MSG") {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+    MSG* msg = static_cast<MSG*>(message);
+    if (msg->message != WM_SIZING) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
+    // 動画モード以外（音声・未読込）はアスペクト維持の対象外。
+    // 音声モードは setFixedHeight により Qt 側で縦が固定されているため別途介在不要
+    const bool stateExcluded =
+        windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized);
+    if (isAudioOnly() || !m_info.valid || m_lowerUiH <= 0
+        || m_videoAspect <= 0.0 || stateExcluded) {
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
+    RECT* r = reinterpret_cast<RECT*>(msg->lParam);
+    const WPARAM edge = msg->wParam;
+
+    const FrameMargins fm = computeFrameMargins(frameGeometry(), geometry());
+
+    int clientW = (r->right - r->left) - fm.left - fm.right;
+    int clientH = (r->bottom - r->top) - fm.top - fm.bottom;
+
+    // 上下辺ドラッグは高さマスター、それ以外（左右辺・角）は幅マスターとして扱う
+    const bool heightMaster = (edge == WMSZ_TOP || edge == WMSZ_BOTTOM);
+    if (heightMaster) {
+        const int previewH = clientH - m_lowerUiH;
+        if (previewH <= 0) return QMainWindow::nativeEvent(eventType, message, result);
+        clientW = qRound(previewH * m_videoAspect);
+    }
+    else {
+        const int previewH = qRound(clientW / m_videoAspect);
+        clientH = previewH + m_lowerUiH;
+    }
+
+    // 最小サイズへのクランプ。
+    // WM_GETMINMAXINFO 経由の Qt 最小サイズ制約は WM_SIZING の RECT 書き換え後にも適用されるが、
+    // クランプによりアスペクト比が崩れるためこちら側で先に整合させる
+    if (clientW < kInitialWindowW) {
+        clientW = kInitialWindowW;
+        clientH = qRound(clientW / m_videoAspect) + m_lowerUiH;
+    }
+    if (clientH < kInitialWindowH) {
+        clientH = kInitialWindowH;
+        const int previewH = clientH - m_lowerUiH;
+        if (previewH > 0) clientW = qRound(previewH * m_videoAspect);
+    }
+
+    const int newW = clientW + fm.left + fm.right;
+    const int newH = clientH + fm.top + fm.bottom;
+
+    anchorRectByEdge(r, edge, newW, newH);
 
     *result = TRUE;
     return true;
@@ -1014,7 +1099,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         case Qt::Key_Up:
         case Qt::Key_Down: {
             // Shift 単独併用時は音量、修飾子なしのときは再生速度を ±0.05 単位で増減する。
-            // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する
+            // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する。
+            // KeypadModifier はテンキー押下時に付与される修飾子で意味的中立のためマスクから除外する
+            // （テンキーの ↑↓ も同じ動作で扱う）
             const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
             const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
             if      (mods == Qt::ShiftModifier) changeVolume(sign);
@@ -1059,13 +1146,16 @@ void MainWindow::changePlaybackRate(qreal delta)
 
 void MainWindow::updateSpeedDisplay()
 {
-    m_speedLabel->setText(QString::fromUtf8("  \xf0\x9f\x8e\xac ") + QString::asprintf("x%.2f", m_playbackRate));
+    m_speedLabel->setText(kSpeedPrefix + QString::asprintf("x%.2f", m_playbackRate));
 }
 
 void MainWindow::changeVolume(qreal delta)
 {
     // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
-    const qreal next = std::round((m_volume + delta) * 100.0) / 100.0;
+    // NaN ガード：std::round が NaN を返すと qBound でも NaN がそのまま伝搬し、
+    // 以降のラベル表示・QAudioOutput への伝達まで腐らせるため初期値へ戻す
+    qreal next = std::round((m_volume + delta) * 100.0) / 100.0;
+    if (std::isnan(next)) next = 0.0;
     m_volume = qBound(qreal(0.0), next, qreal(1.0));
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
@@ -1073,7 +1163,7 @@ void MainWindow::changeVolume(qreal delta)
 
 void MainWindow::updateVolumeDisplay()
 {
-    m_volumeLabel->setText(QString::fromUtf8("  \xf0\x9f\x94\x8a ") + QString::asprintf("%.0f%%", m_volume * 100.0));
+    m_volumeLabel->setText(kVolumePrefix + QString::asprintf("%.0f%%", m_volume * 100.0));
 }
 
 QString MainWindow::openDialogStartDir() const

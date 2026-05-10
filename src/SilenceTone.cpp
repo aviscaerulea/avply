@@ -12,6 +12,19 @@
 
 namespace {
 
+// S16 サンプルの最大絶対値（int16 のフルスケール）
+constexpr double kInt16FullScale = 32767.0;
+
+// QAudioFormat の固定パラメータ
+// 互換性重視で 48 kHz / Stereo / S16 を採用する（大半の OS / BT スタックがネイティブ対応）
+constexpr int kSinkSampleRate     = 48000;
+constexpr int kSinkChannelCount   = 2;
+constexpr int kSinkBytesPerSample = 2;
+
+// 出力バッファ長のヒント（ms）
+// アンダーフロー対策に余裕を持たせる。実際の値は backend 依存
+constexpr int kSinkBufferMs = 100;
+
 // 連続トーン生成 QIODevice
 // QAudioSink::start(QIODevice*) のプル方式で要求バイト数だけサンプルを生成する。
 // 内部位相 m_phase を保持することでフレーム境界での不連続を回避する
@@ -29,8 +42,8 @@ protected:
     {
         if (maxlen <= 0) return 0;
 
-        // S16LE 想定。1 フレーム = チャンネル数 × 2 バイト
-        const qint64 frameBytes = static_cast<qint64>(m_channels) * 2;
+        // S16LE 想定。1 フレーム = チャンネル数 × S16 1 サンプル分のバイト数
+        const qint64 frameBytes = static_cast<qint64>(m_channels) * kSinkBytesPerSample;
         const qint64 frames = maxlen / frameBytes;
 
         // 端数バイトはゼロ埋めして maxlen 全長を返す。
@@ -42,7 +55,7 @@ protected:
 
         for (qint64 i = 0; i < frames; ++i) {
             const double v = std::sin(m_phase) * m_amp;
-            const qint16 s = static_cast<qint16>(v * 32767.0);
+            const qint16 s = static_cast<qint16>(v * kInt16FullScale);
             qint16* p = reinterpret_cast<qint16*>(data + i * frameBytes);
             for (int c = 0; c < m_channels; ++c) {
                 p[c] = s;
@@ -136,8 +149,8 @@ void SilenceTone::openSink()
     // 互換性重視で 48 kHz / Int16 / Stereo を要求する。
     // 大半の OS / BT スタックがネイティブ対応する形式
     QAudioFormat fmt;
-    fmt.setSampleRate(48000);
-    fmt.setChannelCount(2);
+    fmt.setSampleRate(kSinkSampleRate);
+    fmt.setChannelCount(kSinkChannelCount);
     fmt.setSampleFormat(QAudioFormat::Int16);
 
     QAudioDevice dev = QMediaDevices::defaultAudioOutput();
@@ -156,9 +169,10 @@ void SilenceTone::openSink()
 
     // parent=nullptr で生成し、stop() の delete を唯一の所有経路とする
     std::unique_ptr<QAudioSink> sink(new QAudioSink(dev, fmt, nullptr));
-    // バッファアンダーフロー対策で大きめに確保する（約 100 ms 分のヒント）。
+    // バッファアンダーフロー対策で大きめに確保する（約 kSinkBufferMs 分のヒント）。
     // setBufferSize は backend によりヒント扱いで実際の値は bufferSize() で確認する
-    sink->setBufferSize(fmt.sampleRate() * fmt.channelCount() * 2 / 10);
+    sink->setBufferSize(fmt.sampleRate() * fmt.channelCount() * kSinkBytesPerSample
+                        * kSinkBufferMs / 1000);
     sink->start(tone.get());
 
     m_device = tone.release();

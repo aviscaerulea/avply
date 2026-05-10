@@ -3,11 +3,24 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QSharedPointer>
+#include <QStandardPaths>
 #include <QTimer>
+#include <QFileInfo>
 
 namespace {
-// パイプ名（ユーザセッション内で一意）
-constexpr const char* kPipeName = "avply-ipc";
+// パイプ名（ユーザスコープで一意）
+// Windows のローカルシステム内に複数ユーザが存在する場合、固定名のみだと
+// 別ユーザが先に同名 QLocalServer を listen していると本ユーザからの接続が
+// その別ユーザのプロセスへ届いてしまう（受信側は ack 不正で破棄するが、
+// 不必要な接続リレーが起きる）。ユーザディレクトリ末尾名で名前空間を分け、
+// プロトコルマジックと組み合わせて二重に他プロセス混入を防ぐ
+QString pipeName()
+{
+    const QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    const QString user = QFileInfo(home).fileName();
+    if (user.isEmpty()) return QStringLiteral("avply-ipc");
+    return QStringLiteral("avply-ipc-") + user;
+}
 
 // プロトコルマジック
 // 同名パイプを別アプリが listen している場合に「相手が avply か」を判別するための識別子。
@@ -30,7 +43,7 @@ constexpr int kServerRecvTimeoutMs = 2000;
 bool SingleInstance::tryForwardAndExit(const QString& arg)
 {
     QLocalSocket socket;
-    socket.connectToServer(kPipeName);
+    socket.connectToServer(pipeName());
     if (!socket.waitForConnected(kConnectTimeoutMs)) return false;
 
     // 改行終端のペイロードを送信する
@@ -58,8 +71,8 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
 
     // 前回プロセス異常終了時にパイプ名が残ったままだと listen が失敗するため、
     // 事前に removeServer で削除する（Qt 公式推奨パターン）
-    QLocalServer::removeServer(kPipeName);
-    if (!server->listen(kPipeName)) return;
+    QLocalServer::removeServer(pipeName());
+    if (!server->listen(pipeName())) return;
 
     QObject::connect(server, &QLocalServer::newConnection, win, [server, win]() {
         QLocalSocket* socket = server->nextPendingConnection();

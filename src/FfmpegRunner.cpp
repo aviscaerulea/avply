@@ -10,39 +10,21 @@
 
 namespace Ffmpeg {
 
-VideoInfo probe(const QString& ffprobePath, const QString& filePath, FfmpegResult& result)
+namespace {
+
+// ffprobe の JSON 出力から VideoInfo を組み立てる
+// probeAsync 内のラムダから呼ぶ純粋関数。Qt 依存は QJson* に限る
+VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
 {
     VideoInfo info;
-    QProcess proc;
-    proc.setProcessChannelMode(QProcess::SeparateChannels);
-
-    const QStringList args = {
-        "-v", "quiet",
-        "-print_format", "json",
-        "-show_format",
-        "-show_streams",
-        filePath
-    };
-    proc.start(ffprobePath, args);
-    if (!proc.waitForFinished(15000)) {
-        result = {false, "ffprobe がタイムアウトしました"};
-        return info;
-    }
-    if (proc.exitCode() != 0) {
-        result = {false, "ffprobe の実行に失敗しました: " + proc.readAllStandardError()};
-        return info;
-    }
-
     QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(proc.readAllStandardOutput(), &parseError);
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonBytes, &parseError);
     if (parseError.error != QJsonParseError::NoError) {
         result = {false, "ffprobe JSON パースエラー: " + parseError.errorString()};
         return info;
     }
 
     const QJsonObject root = doc.object();
-
-    // フォーマット情報から総時間を取得
     const QJsonObject fmt = root["format"].toObject();
     info.duration = fmt["duration"].toString("0").toDouble();
 
@@ -57,7 +39,6 @@ VideoInfo probe(const QString& ffprobePath, const QString& filePath, FfmpegResul
             info.codec = s["codec_name"].toString();
             info.width = s["width"].toInt();
             info.height = s["height"].toInt();
-            // ビットレートは文字列として格納されている
             const QString br = s["bit_rate"].toString();
             if (!br.isEmpty()) info.videoBitrate = br.toDouble();
             // フレームレートは "num/den" 形式の文字列で格納されている
@@ -85,6 +66,47 @@ VideoInfo probe(const QString& ffprobePath, const QString& filePath, FfmpegResul
     info.valid = true;
     result = {true, {}};
     return info;
+}
+
+} // namespace
+
+QProcess* probeAsync(
+    const QString& ffprobePath,
+    const QString& filePath,
+    QObject* parent,
+    std::function<void(const VideoInfo& info, const FfmpegResult& result)> callback)
+{
+    const QStringList args = {
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        "-show_streams",
+        filePath
+    };
+
+    auto* proc = new QProcess(parent);
+    proc->setProcessChannelMode(QProcess::SeparateChannels);
+    QObject::connect(proc,
+        QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+        parent,
+        [proc, callback](int code, QProcess::ExitStatus status) {
+        VideoInfo info;
+        FfmpegResult result;
+        if (status != QProcess::NormalExit) {
+            result = {false, "ffprobe が異常終了しました"};
+        }
+        else if (code != 0) {
+            result = {false, "ffprobe の実行に失敗しました: "
+                             + QString::fromUtf8(proc->readAllStandardError())};
+        }
+        else {
+            info = parseProbeJson(proc->readAllStandardOutput(), result);
+        }
+        callback(info, result);
+        proc->deleteLater();
+    });
+    proc->start(ffprobePath, args);
+    return proc;
 }
 
 bool checkAv1Nvenc(const QString& ffmpegPath)

@@ -7,6 +7,14 @@
 #include <QDateTime>
 #include <QStandardPaths>
 
+namespace {
+
+// 出力映像の幅上限（px）
+// QWXGA = 2048 を上限とし、これを超える入力はアスペクト比維持でダウンスケールする
+constexpr int kMaxOutputWidth = 2048;
+
+} // namespace
+
 Encoder::Encoder(const QString& ffmpegPath, QObject* parent)
     : QObject(parent)
     , m_ffmpegPath(ffmpegPath)
@@ -54,9 +62,9 @@ void Encoder::encode(const EncodeParams& params)
 
     if (params.mode == EncodeMode::Reencode) {
         if (params.hasVideo) {
-            // QWXGA（幅 2048px）超の場合はアスペクト比を維持してスケールダウン
-            if (params.inputWidth > 2048) {
-                args << "-vf" << "scale=2048:-2";
+            // 幅上限超の場合はアスペクト比を維持してスケールダウン
+            if (params.inputWidth > kMaxOutputWidth) {
+                args << "-vf" << QString("scale=%1:-2").arg(kMaxOutputWidth);
             }
 
             args << "-c:v" << "av1_nvenc"
@@ -133,6 +141,9 @@ void Encoder::onReadyReadOutput()
     }
 
     if (latestSec >= 0.0) {
+        // 進捗を 99% で頭打ちにする。
+        // 100% は onProcessFinished 内で出力ファイルの確定後に明示的に emit する
+        // ため、進捗段階での 100% を抑止して「完了直前で 100%」の誤表示を避ける
         const int pct = static_cast<int>(latestSec / m_totalDuration * 100.0);
         emit progressChanged(qBound(0, pct, 99));
     }
@@ -168,15 +179,21 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
         return;
     }
 
-    // 一時ファイルを本来の出力パスへ移動する
+    // 一時ファイルを本来の出力パスへ移動する。
+    // %TEMP% と出力先が別ボリュームのとき QFile::rename はクロスボリューム移動に失敗する。
+    // rename を試みてから失敗時に copy + remove へフォールバックする。
+    // この順により同一ボリュームでは高速 rename、別ボリュームでは低速だが確実な copy で確実に届ける
     if (QFile::exists(m_params.outputPath)) {
         QFile::remove(m_params.outputPath);
     }
     if (!QFile::rename(m_tempPath, m_params.outputPath)) {
-        cleanupTemp();
-        emit finished(false, m_params.outputPath,
-                      "一時ファイルから出力先への移動に失敗しました");
-        return;
+        if (!QFile::copy(m_tempPath, m_params.outputPath)) {
+            cleanupTemp();
+            emit finished(false, m_params.outputPath,
+                          "一時ファイルから出力先への移動に失敗しました");
+            return;
+        }
+        QFile::remove(m_tempPath);
     }
 
     emit progressChanged(100);

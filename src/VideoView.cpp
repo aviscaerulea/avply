@@ -42,12 +42,21 @@ VideoView::VideoView(QWidget* parent)
         if (sink) {
             m_player->setVideoSink(sink);
         }
-        // QML シグナルを C++ スロットに接続する（SIGNAL/SLOT マクロ形式が QML シグナルに対応）
-        connect(root, SIGNAL(clicked()), this, SLOT(onQmlClicked()));
-        connect(root, SIGNAL(contextMenuRequested(qreal,qreal)),
-                this, SLOT(onQmlContextMenuRequested(qreal,qreal)));
-        connect(root, SIGNAL(wheelScrolled(bool,bool)), this, SLOT(onQmlWheelScrolled(bool,bool)));
-        connect(root, SIGNAL(fileDropped(QString)), this, SLOT(onQmlFileDropped(QString)));
+        // QML シグナルを C++ スロットに接続する。
+        // SIGNAL/SLOT マクロは文字列照合のためビルド時の型チェックが効かない。
+        // QObject::connect の戻り値（QMetaObject::Connection）を検査し、
+        // QML 側のシグネチャと不一致になっていれば起動時に警告ログを出す
+        const std::pair<const char*, const char*> qmlConns[] = {
+            { "2clicked()",                        "1onQmlClicked()" },
+            { "2contextMenuRequested(qreal,qreal)","1onQmlContextMenuRequested(qreal,qreal)" },
+            { "2wheelScrolled(bool,bool)",         "1onQmlWheelScrolled(bool,bool)" },
+            { "2fileDropped(QString)",             "1onQmlFileDropped(QString)" },
+        };
+        for (const auto& [sig, slot] : qmlConns) {
+            if (!connect(root, sig, this, slot)) {
+                qWarning() << "VideoView: QML signal connect failed:" << sig;
+            }
+        }
     });
 
     m_quickView->setSource(QUrl("qrc:/VideoOutput.qml"));

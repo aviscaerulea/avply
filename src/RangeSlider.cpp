@@ -5,6 +5,20 @@
 #include <QWheelEvent>
 #include <algorithm>
 
+namespace {
+
+// 描画色
+// 上段：トラック背景／音声なし時の中央基線／再生済みオーバーレイ／現在位置インジケータ
+// 下段：区間ハイライト（赤）／進捗オーバーレイ（青）
+const QColor kTrackBgColor       (0x1A, 0x1A, 0x1A);
+const QColor kBaselineColor      (180, 180, 180, 120);
+const QColor kPlayedOverlayColor (140, 140, 140, 100);
+const QColor kIndicatorColor     (63,  169, 245);
+const QColor kRangeColor         (220, 60,  60,  220);
+const QColor kProgressColor      (60,  130, 220, 220);
+
+} // namespace
+
 RangeSlider::RangeSlider(Qt::Orientation orientation, QWidget* parent)
     : QSlider(orientation, parent)
 {
@@ -151,7 +165,7 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
     // --- 上段：MPC-HC 風トラック ---
 
     // トラック背景（暗灰色）。アプリ背景より暗くして輪郭を出す
-    painter.fillRect(trackRect, QColor(0x1A, 0x1A, 0x1A));
+    painter.fillRect(trackRect, kTrackBgColor);
 
     // 波形 PNG をトラック全体にスケール描画。波形なし時は中央基線を 1px 描画
     if (!m_waveform.isNull()) {
@@ -160,7 +174,7 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
     else if (m_drawBaseline) {
         const int y = trackRect.center().y();
         painter.fillRect(QRect(trackRect.left(), y, trackRect.width(), 1),
-                         QColor(180, 180, 180, 120));
+                         kBaselineColor);
     }
 
     // 現在位置の x 座標を slider 値から逆算する
@@ -169,16 +183,14 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
 
     // 再生済み部分（左端〜現在位置）に半透明グレーを被せて視認性を上げる
     if (handleX > 0) {
-        painter.fillRect(QRect(0, 0, handleX, kTrackH),
-                         QColor(140, 140, 140, 100));
+        painter.fillRect(QRect(0, 0, handleX, kTrackH), kPlayedOverlayColor);
     }
 
     // 現在位置インジケータ（幅 2px の青縦棒、トラック全高）
     // 端で半切れにならないよう [1, width()-1] にクランプして 2px 全体が widget 内に収まるようにする
     if (width() >= 2) {
         const int indicatorX = std::clamp(handleX, 1, width() - 1);
-        painter.fillRect(QRect(indicatorX - 1, 0, 2, kTrackH),
-                         QColor(63, 169, 245));
+        painter.fillRect(QRect(indicatorX - 1, 0, 2, kTrackH), kIndicatorColor);
     }
 
     // --- 下段：区間・進捗帯 ---
@@ -186,15 +198,14 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
     if (m_hasRange && m_outRatio > m_inRatio) {
         const int x1 = static_cast<int>(width() * m_inRatio);
         const int x2 = static_cast<int>(width() * m_outRatio);
-        painter.fillRect(QRect(x1, rangeRect.y(), x2 - x1, kRangeBarH),
-                         QColor(220, 60, 60, 220));
+        painter.fillRect(QRect(x1, rangeRect.y(), x2 - x1, kRangeBarH), kRangeColor);
 
         // 進捗オーバーレイ（青）を区間内に重ねる。100% で区間全体が青に見える
         if (m_hasProgress) {
             const int progressW = static_cast<int>((x2 - x1) * m_progressPct / 100.0);
             if (progressW > 0) {
                 painter.fillRect(QRect(x1, rangeRect.y(), progressW, kRangeBarH),
-                                 QColor(60, 130, 220, 220));
+                                 kProgressColor);
             }
         }
     }

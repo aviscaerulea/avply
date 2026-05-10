@@ -66,6 +66,11 @@ private:
     // centerOnMonitor=true のときのみモニタ作業領域の中央へウィンドウを移動する
     void loadFile(const QString& path, bool centerOnMonitor = false);
 
+    // ffprobe 完了後の UI 反映処理
+    // loadFile の async コールバックから呼び出され、メディア情報のラベル更新・
+    // ウィンドウサイズ調整・波形生成キックを担う
+    void onProbeFinished(const QString& path, const VideoInfo& info, bool centerOnMonitor);
+
     // 拡張子がメディア（動画・音声）として受け付け可能か判定する
     static bool isAcceptedMedia(const QString& path);
 
@@ -226,6 +231,9 @@ private:
 
     // 実行中の波形生成プロセス。新規ファイル読込時に kill して入れ替える
     QProcess* m_waveformProc = nullptr;
+
+    // 実行中の ffprobe プロセス。新規ファイル読込時に kill して旧結果を破棄する
+    QProcess* m_probeProc = nullptr;
 
     // 現在生成中プロセスの出力先 PNG パス。kill 時に部分書き込みファイルを削除するため保持する
     QString m_waveformProcOutPath;
