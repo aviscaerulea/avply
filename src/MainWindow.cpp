@@ -333,6 +333,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
+
+    // BT 機器のアイドル復帰時プチノイズ抑制用に、不可聴トーンを常時出力する
+    // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ
+    m_silenceTone = new SilenceTone(this);
+    m_silenceTone->start();
 }
 
 MainWindow::~MainWindow()

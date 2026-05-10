@@ -33,6 +33,8 @@ qt_add_executable(avply WIN32
     src/Settings.cpp
     src/SingleInstance.h
     src/SingleInstance.cpp
+    src/SilenceTone.h
+    src/SilenceTone.cpp
     src/icons.qrc
     src/app.rc
 )
