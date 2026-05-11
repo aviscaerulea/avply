@@ -32,6 +32,7 @@
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <QWindow>
+#include <QThreadPool>
 #include <algorithm>
 #include <cmath>
 
@@ -56,8 +57,7 @@ static constexpr int kWaveformH = 48;
 namespace {
 
 // ステータスバーラベル先頭の絵文字プレフィックス
-// 🎬 = 再生速度、🔊 = 音量。U+1F3AC / U+1F50A の UTF-8 バイト列を直書きする
-// （C++17 では char16_t/u8 リテラルが MSVC で扱いづらいため）
+// 🎬 = 再生速度、🔊 = 音量。MSVC の文字リテラル経路を避けるため UTF-8 バイト列で直書きする
 const QString kSpeedPrefix  = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 
@@ -79,7 +79,7 @@ QString dialogFilterFromExts()
 // 古い波形キャッシュ PNG を削除する
 // mtime キーで命名済みのため、ユーザがソースを更新すると古い PNG が残り続ける。
 // 60 日 atime/mtime しきい値で削除する（再生頻度の低いファイル分のみ自動清掃）。
-// startup から非同期で呼び出し、UI スレッドの応答性を優先する
+// 起動時に QThreadPool 経由でワーカースレッドから呼び出す（UI スレッドの I/O ブロックを避けるため）
 void purgeOldWaveformCache()
 {
     const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
@@ -124,22 +124,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
             this, [this](const QString& path) {
         if (m_runningOp == Operation::None && isAcceptedMedia(path)) loadFile(path);
     });
-    // プレビュー領域のホイール回転をシーク／音量／再生速度の変更に変換する
-    // Ctrl 併用時は再生速度を ±0.05、Shift 併用時は音量を ±0.05、修飾子なしは設定値ぶんシークする
-    // 変換中はすべて抑制。Ctrl と Shift 同時押しは Ctrl 優先
-    connect(m_videoView, &VideoView::wheelScrolled, this, [this](bool forward, bool shift, bool ctrl) {
-        if (m_runningOp != Operation::None) return;
-        if (ctrl) {
-            changePlaybackRate(forward ? 0.05 : -0.05);
-            return;
-        }
-        if (shift) {
-            changeVolume(forward ? 0.05 : -0.05);
-            return;
-        }
-        const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
-        if (ms > 0) seekRelative(forward ? ms : -ms);
-    });
+    connect(m_videoView, &VideoView::wheelScrolled,
+            this, &MainWindow::handleWheelInput);
     // QQuickView はネイティブ子ウィンドウのため右クリックが MainWindow へ伝搬しない。
     // VideoView から転送されたシグナルでメニューを表示する
     connect(m_videoView, &VideoView::contextMenuRequested,
@@ -165,22 +151,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // valueChanged を使うことでクリックジャンプの位置も拾える
     connect(m_seekSlider, &QSlider::valueChanged,
             this, &MainWindow::onSeekSliderChanged);
-    // ホイール回転をシーク／音量／再生速度の変更に変換する
-    // Ctrl 併用時は再生速度を ±0.05、Shift 併用時は音量を ±0.05、修飾子なしは設定値ぶんシークする
-    // 変換中はすべて抑制。Ctrl と Shift 同時押しは Ctrl 優先
-    connect(m_seekSlider, &RangeSlider::wheelScrolled, this, [this](bool forward, bool shift, bool ctrl) {
-        if (m_runningOp != Operation::None) return;
-        if (ctrl) {
-            changePlaybackRate(forward ? 0.05 : -0.05);
-            return;
-        }
-        if (shift) {
-            changeVolume(forward ? 0.05 : -0.05);
-            return;
-        }
-        const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
-        if (ms > 0) seekRelative(forward ? ms : -ms);
-    });
+    connect(m_seekSlider, &RangeSlider::wheelScrolled,
+            this, &MainWindow::handleWheelInput);
 
     // --- シークバーホバープレビュー（MPC-HC 風） ---
     m_seekPreview    = new SeekPreview(this);
@@ -256,10 +228,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     leftIconRow->addWidget(m_stopBtn);
     leftIconRow->addWidget(m_setInBtn);
 
-    // 行内すべての要素を上端で揃える
-    // 左側アイコンボタンの固定高がスライダー上段トラック高（RangeSlider::kTrackH）と
-    // 一致する前提のため、AlignTop により波形中心とボタン中心が一致する。
-    // 下段の区間バー（kRangeBarH）はボタン下に張り出して描画される
+    // 行内要素を上端で揃える
+    // 左側アイコンボタン高がスライダー上段トラック高（RangeSlider::kTrackH）と一致する前提で、
+    // 波形中心とボタン中心が揃う。下段の区間バー（kRangeBarH）はボタン下に張り出して描画される
     auto* seekRow = new QHBoxLayout;
     seekRow->setSpacing(2);
     seekRow->addLayout(leftIconRow);
@@ -394,8 +365,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
     QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
 
-    // 起動時に古い波形キャッシュを清掃する（mtime キー命名のため自然に肥大化していくのを抑える）
-    QTimer::singleShot(0, this, []() { purgeOldWaveformCache(); });
+    QThreadPool::globalInstance()->start([]() { purgeOldWaveformCache(); });
 
     // BT 機器のアイドル復帰時プチノイズ抑制用に、不可聴トーンを常時出力する
     // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ。
@@ -421,8 +391,8 @@ MainWindow::~MainWindow()
     stopWaveformProcess(true);
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
 
-    // ffprobe 残存プロセスを停止する。disconnect で deleteLater 内ラムダから this 参照を断ち、
-    // QProcess の dtor が kill+wait してプロセスを確実に終わらせる
+    // ffprobe 残存プロセスを停止する
+    // disconnect でコールバックラムダからの this 参照を断ち、kill+waitForFinished で確実に終わらせる
     if (m_probeProc) {
         disconnect(m_probeProc, nullptr, this, nullptr);
         m_probeProc->kill();
@@ -658,6 +628,8 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
 void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
 {
+    if (m_loadInhibited) return;
+
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
 
@@ -678,12 +650,16 @@ void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
 
         if (!result.ok) {
             m_videoView->clear();
+            m_loadInhibited = true;
             QMessageBox::critical(this, "エラー", "動画情報を取得できませんでした：\n" + result.err);
+            m_loadInhibited = false;
             return;
         }
         if (!info.valid || info.duration <= 0.0) {
             m_videoView->clear();
+            m_loadInhibited = true;
             QMessageBox::critical(this, "エラー", "有効なメディアファイルではありません。");
+            m_loadInhibited = false;
             return;
         }
         onProbeFinished(path, info, centerOnMonitor);
@@ -1174,6 +1150,21 @@ void MainWindow::changeVolume(qreal delta)
 void MainWindow::updateVolumeDisplay()
 {
     m_volumeLabel->setText(kVolumePrefix + QString::asprintf("%.0f%%", m_volume * 100.0));
+}
+
+void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
+{
+    if (m_runningOp != Operation::None) return;
+    if (ctrl) {
+        changePlaybackRate(forward ? 0.05 : -0.05);
+        return;
+    }
+    if (shift) {
+        changeVolume(forward ? 0.05 : -0.05);
+        return;
+    }
+    const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
+    if (ms > 0) seekRelative(forward ? ms : -ms);
 }
 
 QString MainWindow::openDialogStartDir() const

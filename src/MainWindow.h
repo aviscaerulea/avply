@@ -133,6 +133,11 @@ private:
     // 音量を相対変更してラベル表示と VideoView へ反映する（delta は 0.05 単位想定）
     void changeVolume(qreal delta);
 
+    // ホイール入力を修飾子に応じてシーク／音量／再生速度に振り分ける
+    // VideoView と RangeSlider の両 wheelScrolled 経路で共通使用する。
+    // Ctrl 優先 → Shift → 修飾子なしシークの順。変換中はすべて抑止
+    void handleWheelInput(bool forward, bool shift, bool ctrl);
+
     // 音量ラベルの表示を現在値で更新する
     void updateVolumeDisplay();
 
@@ -250,6 +255,10 @@ private:
 
     // 実行中の操作種別。None ならアイドル
     Operation m_runningOp = Operation::None;
+
+    // probe 失敗ダイアログ表示中の loadFile 再入抑止フラグ
+    // QMessageBox::critical のネストイベントループ中に D&D 等で loadFile が呼ばれても無視する
+    bool m_loadInhibited = false;
 
     // シーク要求のスロットル（連続 valueChanged を間引く）
     QTimer  m_seekTimer;

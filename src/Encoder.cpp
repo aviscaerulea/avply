@@ -141,9 +141,7 @@ void Encoder::onReadyReadOutput()
     }
 
     if (latestSec >= 0.0) {
-        // 進捗を 99% で頭打ちにする。
-        // 100% は onProcessFinished 内で出力ファイルの確定後に明示的に emit する
-        // ため、進捗段階での 100% を抑止して「完了直前で 100%」の誤表示を避ける
+        // 100% は onProcessFinished で出力ファイル確定後に emit するため、進捗段階は 99% で頭打ち
         const int pct = static_cast<int>(latestSec / m_totalDuration * 100.0);
         emit progressChanged(qBound(0, pct, 99));
     }
@@ -179,15 +177,15 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
         return;
     }
 
-    // 一時ファイルを本来の出力パスへ移動する。
-    // %TEMP% と出力先が別ボリュームのとき QFile::rename はクロスボリューム移動に失敗する。
-    // rename を試みてから失敗時に copy + remove へフォールバックする。
-    // この順により同一ボリュームでは高速 rename、別ボリュームでは低速だが確実な copy で確実に届ける
+    // 一時ファイルを本来の出力パスへ移動する
+    // %TEMP% が出力先と別ボリュームだと QFile::rename が失敗するため copy + remove にフォールバックする
     if (QFile::exists(m_params.outputPath)) {
         QFile::remove(m_params.outputPath);
     }
     if (!QFile::rename(m_tempPath, m_params.outputPath)) {
         if (!QFile::copy(m_tempPath, m_params.outputPath)) {
+            // 部分書き込みで生じた壊れた出力ファイルを除去してから失敗を通知する
+            QFile::remove(m_params.outputPath);
             cleanupTemp();
             emit finished(false, m_params.outputPath,
                           "一時ファイルから出力先への移動に失敗しました");
