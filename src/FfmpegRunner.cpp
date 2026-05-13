@@ -111,16 +111,24 @@ QProcess* probeAsync(
 
 bool checkAv1Nvenc(const QString& ffmpegPath)
 {
+    // 結果をプロセス内でキャッシュする
+    // -encoders 列挙の結果は ffmpeg バイナリ固定の機能なので変換ボタン押下のたびに呼ぶ必要はない。
+    // タイムアウトも 5 秒に短縮して AV ソフト等で ffmpeg が応答しない場合の UI 凍結を抑える
+    static QString cachedPath;
+    static bool cachedResult = false;
+    if (cachedPath == ffmpegPath) return cachedResult;
+
     QProcess proc;
     proc.setProcessChannelMode(QProcess::MergedChannels);
     proc.start(ffmpegPath, {"-hide_banner", "-encoders"});
-    if (!proc.waitForFinished(10000)) return false;
-    return proc.readAllStandardOutput().contains("av1_nvenc");
+    const bool finished = proc.waitForFinished(5000);
+    cachedResult = finished && proc.readAllStandardOutput().contains("av1_nvenc");
+    cachedPath = ffmpegPath;
+    return cachedResult;
 }
 
 QString ffprobePath(const QString& ffmpegPath)
 {
-    // ffmpeg.exe と同ディレクトリの ffprobe.exe を返す
     const QFileInfo fi(ffmpegPath);
     return fi.absoluteDir().filePath("ffprobe.exe");
 }

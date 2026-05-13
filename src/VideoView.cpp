@@ -43,14 +43,16 @@ VideoView::VideoView(QWidget* parent)
             m_player->setVideoSink(sink);
         }
         // QML シグナルを C++ スロットに接続する。
-        // SIGNAL/SLOT マクロは文字列照合のためビルド時の型チェックが効かない。
-        // QObject::connect の戻り値（QMetaObject::Connection）を検査し、
-        // QML 側のシグネチャと不一致になっていれば起動時に警告ログを出す
+        // QML 側のシグネチャと不一致になっていれば connect が失敗するため警告ログで通知する
         const std::pair<const char*, const char*> qmlConns[] = {
-            { "2clicked()",                        "1onQmlClicked()" },
-            { "2contextMenuRequested(qreal,qreal)","1onQmlContextMenuRequested(qreal,qreal)" },
-            { "2wheelScrolled(bool,bool,bool)",     "1onQmlWheelScrolled(bool,bool,bool)" },
-            { "2fileDropped(QString)",             "1onQmlFileDropped(QString)" },
+            { SIGNAL(clicked()),
+              SLOT(onQmlClicked()) },
+            { SIGNAL(contextMenuRequested(qreal,qreal)),
+              SLOT(onQmlContextMenuRequested(qreal,qreal)) },
+            { SIGNAL(wheelScrolled(bool,bool,bool)),
+              SLOT(onQmlWheelScrolled(bool,bool,bool)) },
+            { SIGNAL(fileDropped(QString)),
+              SLOT(onQmlFileDropped(QString)) },
         };
         for (const auto& [sig, slot] : qmlConns) {
             if (!connect(root, sig, this, slot)) {
@@ -103,7 +105,8 @@ VideoView::VideoView(QWidget* parent)
 
     connect(m_player, &QMediaPlayer::playbackStateChanged,
             this, [this](QMediaPlayer::PlaybackState state) {
-        // 再生中以外への遷移時に末尾自動 pause フラグを解除する
+        // PausedState 以外への遷移時に末尾自動 pause フラグを解除する
+        // Playing / Stopped どちらでも解除する（末尾 pause 状態の維持は Paused のみ）
         if (state != QMediaPlayer::PausedState) m_pausingAtEnd = false;
         emit playbackStateChanged(state == QMediaPlayer::PlayingState);
     });

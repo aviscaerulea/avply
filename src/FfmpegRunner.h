@@ -7,17 +7,18 @@ class QObject;
 class QProcess;
 
 // メディアファイル（動画・音声）の基本情報
+// 取得できない数値フィールドは 0、文字列フィールドは空文字となる
 struct VideoInfo {
-    double duration = 0.0; // 総再生時間（秒）
+    double duration = 0.0;     // 総再生時間（秒）
     int width = 0;
     int height = 0;
-    double frameRate = 0.0;  // 映像フレームレート（fps）。取得できない場合は 0
-    QString codec;           // 映像コーデック名（例: av1, h264）
-    double videoBitrate = 0.0; // 映像ビットレート（bps）。取得できない場合は 0
-    QString audioCodec;      // 音声コーデック名（例: aac, opus）。取得できない場合は空文字
-    double audioBitrate = 0.0; // 音声ビットレート（bps）。取得できない場合は 0
-    int audioSampleRate = 0;   // 音声サンプリングレート（Hz）。取得できない場合は 0
-    int audioChannels = 0;     // 音声チャンネル数。取得できない場合は 0
+    double frameRate = 0.0;    // 映像フレームレート（fps）
+    QString codec;             // 映像コーデック名（例: av1, h264）
+    double videoBitrate = 0.0; // 映像ビットレート（bps）
+    QString audioCodec;        // 音声コーデック名（例: aac, opus）
+    double audioBitrate = 0.0; // 音声ビットレート（bps）
+    int audioSampleRate = 0;   // 音声サンプリングレート（Hz）
+    int audioChannels = 0;     // 音声チャンネル数
     bool valid = false;
 
     // 音声ストリームの有無
@@ -52,7 +53,9 @@ namespace Ffmpeg {
     // showwavespic フィルタで全長分の波形を 1 枚の PNG に出力する。完了時に callback を呼び出す。
     // 失敗時（無音動画・ffmpeg 不在など）は callback(false, "") で通知する。
     // QProcess は parent の子オブジェクトとして生成され、finished 後に deleteLater される。
-    // 戻り値の QProcess* は途中キャンセル用（kill 呼び出し）として保持できる
+    // 戻り値の QProcess* は途中キャンセル用（kill 呼び出し）として保持できる。
+    // -hwaccel は意図的に渡さない。showwavespic は CPU パスで十分高速なため、
+    // ThumbnailExtractor と非対称になるが GPU 初期化オーバーヘッドを避ける
     QProcess* generateWaveform(
         const QString& ffmpegPath,
         const QString& inputPath,

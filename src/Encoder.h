@@ -26,6 +26,7 @@ class Encoder : public QObject {
     Q_OBJECT
 public:
     explicit Encoder(const QString& ffmpegPath, QObject* parent = nullptr);
+    ~Encoder() override;
 
     // 変換を開始する
     void encode(const EncodeParams& params);

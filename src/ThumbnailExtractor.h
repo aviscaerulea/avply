@@ -41,7 +41,7 @@ public:
     // キャッシュヒット時は同期的に callback(true, pix) を呼ぶ
     // ミス時は ffmpeg を起動し、終了時に callback を呼ぶ
     // 抽出抑止中（thumbSize 空）は callback(false, {}) を即時呼ぶ
-    // 走行中の前要求がある場合は kill + disconnect で旧 callback を封殺してから上書きする
+    // 走行中の前要求がある場合は完走優先で新規要求を即 callback(false, {}) で破棄する
     // 注意：callback はミス時に非同期発火するため、参照キャプチャは寿命に注意すること
     void request(int seconds,
                  std::function<void(bool ok, const QPixmap& pix)> callback);

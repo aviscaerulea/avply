@@ -4,8 +4,8 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
-#include <QDateTime>
 #include <QStandardPaths>
+#include <QUuid>
 
 namespace {
 
@@ -19,6 +19,19 @@ Encoder::Encoder(const QString& ffmpegPath, QObject* parent)
     : QObject(parent)
     , m_ffmpegPath(ffmpegPath)
 {}
+
+Encoder::~Encoder()
+{
+    // MainWindow デストラクタの waitForFinished 後でも tempfile が残るケースに備える。
+    // QProcess は親子破棄で kill+wait されるが、QFile::remove は明示的に呼ぶ必要がある
+    if (m_process && m_process->state() != QProcess::NotRunning) {
+        m_process->kill();
+        m_process->waitForFinished(3000);
+    }
+    if (!m_tempPath.isEmpty() && QFile::exists(m_tempPath)) {
+        QFile::remove(m_tempPath);
+    }
+}
 
 bool Encoder::isRunning() const
 {
@@ -40,12 +53,13 @@ void Encoder::encode(const EncodeParams& params)
     // %TEMP% に一時出力ファイルパスを生成する
     // 完了後に本来の出力パスへ移動する設計
     // 一時ファイルの拡張子は出力パスと一致させる（ffmpeg のコンテナ判定が拡張子依存のため）
+    // 複数 avply プロセス同時実行時の衝突を避けるため UUID を使う
     const QString outExt = QFileInfo(params.outputPath).suffix().toLower();
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     m_tempPath = QString("%1/avply_%2.%3")
-        .arg(tempDir)
-        .arg(QDateTime::currentMSecsSinceEpoch())
-        .arg(outExt);
+        .arg(tempDir,
+             QUuid::createUuid().toString(QUuid::WithoutBraces),
+             outExt);
 
     QStringList args;
     args << "-y"
@@ -104,6 +118,18 @@ void Encoder::encode(const EncodeParams& params)
     connect(m_process,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &Encoder::onProcessFinished);
+
+    // FailedToStart のとき finished は発火しないため errorOccurred で捕捉する。
+    // ここで通知しないと UI が「変換中 0%」のまま無限待機となる
+    connect(m_process, &QProcess::errorOccurred, this,
+        [this](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart) return;
+        if (!m_process) return;
+        disconnect(m_process, nullptr, this, nullptr);
+        m_process->deleteLater();
+        m_process = nullptr;
+        emit finished(false, m_params.outputPath, "ffmpeg の起動に失敗しました");
+    });
 
     m_process->start(m_ffmpegPath, args);
 }

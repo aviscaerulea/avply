@@ -41,6 +41,8 @@
 #define NOMINMAX
 #include <windows.h>
 
+// シークスライダーの分解能
+// 0〜10000 で 0.01% 刻み相当。フレーム単位より十分細かく int 範囲で完結する
 static constexpr int kSliderMax = 10000;
 
 // 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
@@ -287,8 +289,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_seekWheelForwardMs   = cfg.wheelForwardMs;
     m_seekWheelBackMs      = cfg.wheelBackMs;
     m_initialScreenRatio   = cfg.initialScreenRatio;
-    m_playbackRate = cfg.playbackSpeed;
-    m_volume = cfg.audioVolume;
+    m_playbackRate         = cfg.playbackSpeed;
+    m_volume               = cfg.audioVolume;
     m_videoView->setVolume(m_volume);
     updateSpeedDisplay();
     updateVolumeDisplay();
@@ -1062,54 +1064,54 @@ QString MainWindow::formatSec(double sec)
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
-    if (event->type() == QEvent::KeyPress) {
-        // モーダルダイアログ表示中は素通しする（ファイル選択や警告ダイアログを誤動作させない）
-        if (QApplication::activeModalWidget()) {
-            return QMainWindow::eventFilter(watched, event);
-        }
-        // 実行中（変換またはトリム）はシーク・再生トグル・速度変更を全て無効化する
-        // （Space / ←→ / ↑↓ いずれも処理負荷の増加と誤操作要因になる）
-        if (m_runningOp != Operation::None) return true;
-
-        const auto* ke = static_cast<QKeyEvent*>(event);
-        switch (ke->key()) {
-        case Qt::Key_Left:
-            seekRelative(-m_seekLeftMs);
-            return true;
-        case Qt::Key_Right:
-            seekRelative(m_seekRightMs);
-            return true;
-        case Qt::Key_Space:
-            if (m_info.duration > 0.0) m_videoView->togglePlay();
-            return true;
-        case Qt::Key_Up:
-        case Qt::Key_Down: {
-            // Shift 単独併用時は音量、修飾子なしのときは再生速度を ±0.05 単位で増減する。
-            // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する。
-            // KeypadModifier はテンキー押下時に付与される修飾子で意味的中立のためマスクから除外する
-            // （テンキーの ↑↓ も同じ動作で扱う）
-            const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-            const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
-            if      (mods == Qt::ShiftModifier) changeVolume(sign);
-            else if (mods == Qt::NoModifier)    changePlaybackRate(sign);
-            return true;
-        }
-        case Qt::Key_R:
-            // 区間マーカーのみクリア（再生位置・再生状態は維持する）
-            // onStop は再生位置を 0 に戻すため別実装
-            if (m_info.valid) {
-                m_inSet  = false;
-                m_outSet = false;
-                m_inSec  = 0.0;
-                m_outSec = m_info.duration;
-                updateRangeMarkers();
-            }
-            return true;
-        default:
-            break;
-        }
+    if (event->type() != QEvent::KeyPress) {
+        return QMainWindow::eventFilter(watched, event);
     }
-    return QMainWindow::eventFilter(watched, event);
+    // モーダルダイアログ表示中は素通しする（ファイル選択や警告ダイアログを誤動作させない）
+    if (QApplication::activeModalWidget()) {
+        return QMainWindow::eventFilter(watched, event);
+    }
+    // 実行中（変換またはトリム）はシーク・再生トグル・速度変更を全て無効化する
+    // （Space / ←→ / ↑↓ いずれも処理負荷の増加と誤操作要因になる）
+    if (m_runningOp != Operation::None) return true;
+
+    const auto* ke = static_cast<QKeyEvent*>(event);
+    switch (ke->key()) {
+    case Qt::Key_Left:
+        seekRelative(-m_seekLeftMs);
+        return true;
+    case Qt::Key_Right:
+        seekRelative(m_seekRightMs);
+        return true;
+    case Qt::Key_Space:
+        if (m_info.duration > 0.0) m_videoView->togglePlay();
+        return true;
+    case Qt::Key_Up:
+    case Qt::Key_Down: {
+        // Shift 単独併用時は音量、修飾子なしのときは再生速度を ±0.05 単位で増減する。
+        // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する。
+        // KeypadModifier はテンキー押下時に付与される修飾子で意味的中立のためマスクから除外する
+        // （テンキーの ↑↓ も同じ動作で扱う）
+        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
+        if      (mods == Qt::ShiftModifier) changeVolume(sign);
+        else if (mods == Qt::NoModifier)    changePlaybackRate(sign);
+        return true;
+    }
+    case Qt::Key_R:
+        // 区間マーカーのみクリア（再生位置・再生状態は維持する）
+        // onStop は再生位置を 0 に戻すため別実装
+        if (m_info.valid) {
+            m_inSet  = false;
+            m_outSet = false;
+            m_inSec  = 0.0;
+            m_outSec = m_info.duration;
+            updateRangeMarkers();
+        }
+        return true;
+    default:
+        return QMainWindow::eventFilter(watched, event);
+    }
 }
 
 void MainWindow::seekRelative(int deltaMs)
@@ -1138,10 +1140,7 @@ void MainWindow::updateSpeedDisplay()
 void MainWindow::changeVolume(qreal delta)
 {
     // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
-    // NaN ガード：std::round が NaN を返すと qBound でも NaN がそのまま伝搬し、
-    // 以降のラベル表示・QAudioOutput への伝達まで腐らせるため初期値へ戻す
-    qreal next = std::round((m_volume + delta) * 100.0) / 100.0;
-    if (std::isnan(next)) next = 0.0;
+    const qreal next = std::round((m_volume + delta) * 100.0) / 100.0;
     m_volume = qBound(qreal(0.0), next, qreal(1.0));
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
@@ -1339,6 +1338,13 @@ void MainWindow::stopWaveformProcess(bool synchronous)
     // disconnect でコールバック経路を切ってから kill する
     // 同スレッド DirectConnection 想定だが、disconnect により受信側に二度と届かないことを保証する
     disconnect(m_waveformProc, nullptr, this, nullptr);
+
+    // 削除対象パスをローカルに退避して即時クリアする
+    // waitForFinished 中にイベントループが回り別経路で startWaveformGeneration が走った場合、
+    // m_waveformProcOutPath を新値で上書きされる前に旧値を確保しておく
+    const QString stalePath = m_waveformProcOutPath;
+    m_waveformProcOutPath.clear();
+
     m_waveformProc->kill();
 
     // kill 後にプロセス終端を短時間待つ
@@ -1356,9 +1362,8 @@ void MainWindow::stopWaveformProcess(bool synchronous)
 
     // 中途まで書かれた可能性のある PNG を削除する
     // 次回起動時に QFile::exists ヒット → QPixmap が破損ファイルを読み込む事故を防ぐ
-    if (!m_waveformProcOutPath.isEmpty()) {
-        QFile::remove(m_waveformProcOutPath);
-        m_waveformProcOutPath.clear();
+    if (!stalePath.isEmpty()) {
+        QFile::remove(stalePath);
     }
 }
 

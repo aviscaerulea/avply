@@ -107,13 +107,11 @@ SilenceTone::~SilenceTone()
     stop();
 }
 
-// 周波数を設定する
 void SilenceTone::setFrequency(double hz)
 {
     m_freq = hz;
 }
 
-// 振幅を設定する
 void SilenceTone::setAmplitude(double amp)
 {
     m_amp = amp;

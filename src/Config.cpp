@@ -8,6 +8,7 @@
 #include <QTextStream>
 #include <QStringConverter>
 #include <algorithm>
+#include <vector>
 
 namespace {
 
@@ -105,12 +106,15 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "playback" && key == "hw_decoder_priority") cfg.hwDecoderPriority = value;
         if (section == "playback" && key == "thumbnail_hwaccel")   cfg.thumbnailHwaccel  = value;
     }
+}
 
+// 設定値を安全範囲にクランプする
+// 全 toml ファイル読込後に一度だけ呼ぶ。範囲外の入力が QMediaPlayer や QAudioOutput に渡るのを防ぐ
+void clampConfig(AppConfig& cfg)
+{
     // 再生速度は MainWindow の上下キー操作と同じ範囲（0.05〜4.0）に丸める
-    // 0 以下や極端な値が直接 setPlaybackRate に渡らないようにする
     cfg.playbackSpeed = std::clamp(cfg.playbackSpeed, 0.05, 4.0);
-    // モニタ比率は 0.1〜1.0 にクランプする
-    // 0 以下では初期サイズが破綻し、1.0 超ではタスクバーやマルチモニタ境界を侵す
+    // モニタ比率は 0.1〜1.0 にクランプ（0 以下で初期サイズ破綻、1.0 超でタスクバー侵入）
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
     // 音量は QAudioOutput::setVolume の有効範囲（0.0〜1.0）にクランプ
     cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 1.0);
@@ -128,14 +132,19 @@ QString scoopFallback()
 
 // 実行ファイルのあるディレクトリを返す
 // QCoreApplication が未構築でも動くよう Win32 API を直接使う。
-// main.cpp の qputenv 経路から QApplication 構築前に呼ばれる
+// main.cpp の qputenv 経路から QApplication 構築前に呼ばれる。
+// ロングパス（MAX_PATH 超）に対応するためバッファを動的拡張する
 QString exeDirectory()
 {
-    wchar_t buf[MAX_PATH];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return QString();
+    std::vector<wchar_t> buf(MAX_PATH);
+    DWORD n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
+    while (n != 0 && n >= buf.size()) {
+        buf.resize(buf.size() * 2);
+        n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
+    }
+    if (n == 0) return QString();
 
-    QString path = QString::fromWCharArray(buf, static_cast<int>(n));
+    QString path = QString::fromWCharArray(buf.data(), static_cast<int>(n));
     const int slash = path.lastIndexOf('/');
     const int back  = path.lastIndexOf('\\');
     const int sep   = std::max(slash, back);
@@ -161,5 +170,7 @@ AppConfig Config::load()
         const QString resolved = QStandardPaths::findExecutable("ffmpeg");
         if (!resolved.isEmpty()) cfg.ffmpegPath = resolved;
     }
+
+    clampConfig(cfg);
     return cfg;
 }

@@ -166,14 +166,16 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
         return;
     }
 
-    // 非同期モード：UI スレッドをブロックしないため終端待ちは行わない。
-    // 連続ホバーで request が連発するため waitForFinished で 100ms でも待つと UI が固まる。
+    // 非同期モード：setSource からのファイル切替時のみ呼ばれる（連続ホバーでは呼ばれない）。
+    // 旧プロセスの kill が Windows 上で遅延すると新規 ffmpeg と並走して GPU/I/O 競合を招くため、
+    // 50ms だけ終端を待って新規プロセスとの並走を緩和する。
     // 終了時に自動で解放されるよう finished から自身の deleteLater を直結する。
     // disconnect で this 受信は切ってあるので旧 callback は呼ばれない。
     QObject::connect(proc,
                      QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                      proc, &QProcess::deleteLater);
     proc->kill();
+    proc->waitForFinished(50);
 }
 
 void ThumbnailExtractor::putCache(int key, const QPixmap& pix)

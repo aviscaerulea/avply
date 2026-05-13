@@ -265,7 +265,7 @@ private:
     qint64  m_pendingSeekMs = -1;
 
     // BT ヘッドセットのアイドル復帰時プチノイズ抑制用の常時不可聴トーン出力
-    // QMediaPlayer とは独立した QAudioSink で 1 kHz / -72 dB を流し続け、
+    // QMediaPlayer とは独立した QAudioSink で 1 kHz / 約 -80 dBFS を流し続け、
     // 出力デバイスが省電力状態に落ちて再エンゲージするときの音切れを防ぐ
     SilenceTone* m_silenceTone = nullptr;
 };
