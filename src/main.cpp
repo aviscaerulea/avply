@@ -6,7 +6,11 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QDateTime>
+#include <QFile>
 #include <QIcon>
+#include <QMessageLogContext>
+#include <QMutex>
 #include <QString>
 #include <QTimer>
 #include "Config.h"
@@ -15,6 +19,56 @@
 #include "SingleInstance.h"
 
 namespace {
+
+// ログハンドラ
+// Qt メッセージを exe と同フォルダの avply.log に書き出す。起動ごとにファイルを上書きリセットし、
+// QMutex で複数スレッドからの同時書き込みを直列化する。
+// OutputDebugString 経路（VS デバッガ表示）は Qt デフォルトのまま温存する
+void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
+{
+    static QMutex s_mutex;
+    static QFile  s_logFile;
+
+    {
+        QMutexLocker locker(&s_mutex);
+
+        if (!s_logFile.isOpen()) {
+            wchar_t exePath[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            QString dir = QString::fromWCharArray(exePath);
+            const int sep = dir.lastIndexOf('\\');
+            if (sep >= 0) dir.truncate(sep + 1);
+            s_logFile.setFileName(dir + "avply.log");
+            // 開けなかった場合は isOpen() が false のまま。次の if で書き込みをスキップする
+            (void)s_logFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+        }
+
+        if (s_logFile.isOpen()) {
+            const char* level = [type]() -> const char* {
+                switch (type) {
+                case QtDebugMsg:    return "DBG";
+                case QtInfoMsg:     return "INF";
+                case QtWarningMsg:  return "WRN";
+                case QtCriticalMsg: return "ERR";
+                case QtFatalMsg:    return "FTL";
+                default:            return "UNK";
+                }
+            }();
+            const QString line = QString("[%1] [%2] %3:%4 - %5\n")
+                .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz"))
+                .arg(QLatin1String(level))
+                .arg(ctx.file ? QLatin1String(ctx.file) : QLatin1String("?"))
+                .arg(ctx.line)
+                .arg(msg);
+            s_logFile.write(line.toUtf8());
+            s_logFile.flush();
+        }
+    }
+
+    // Qt デフォルト経路（OutputDebugString）も継続して呼ぶ
+    const QString formatted = qFormatLogMessage(type, ctx, msg);
+    OutputDebugStringW(reinterpret_cast<const wchar_t*>(formatted.utf16()));
+}
 
 // QApplication 構築前にコマンドライン第 1 引数を Unicode 安全に取得する
 // argv は MSVCRT が CP932 でナロー化したものなので、CP932 範囲外の文字
@@ -64,6 +118,9 @@ int main(int argc, char* argv[])
     }
 
     QApplication app(argc, argv);
+
+    // Qt メッセージを avply.log に書き出すハンドラを登録する
+    qInstallMessageHandler(avplyMessageHandler);
 
     // ウィンドウアイコンを設定する
     // QRC 経由のアイコンは実行時のタイトルバー・タスクバー・Alt+Tab 表示用。
