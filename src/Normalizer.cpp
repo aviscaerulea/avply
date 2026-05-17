@@ -1,0 +1,112 @@
+#include "Normalizer.h"
+#include <cmath>
+#include <algorithm>
+
+// v3 ファイルテスト（acompressor + loudnorm）と同一パラメータ
+static constexpr float kThresholdDb = -25.0f;
+static constexpr float kRatio       = 6.0f;
+static constexpr float kMakeupDb    = +10.0f;
+static constexpr float kLimiterCeil = 0.97f;
+static constexpr float kRmsWindowMs = 10.0f;   // RMS 検出窓長
+static constexpr float kAttackMs    = 20.0f;   // ゲイン低下速度（大声検出時）
+static constexpr float kReleaseMs   = 250.0f;  // ゲイン回復速度（無音・小声移行時）
+static constexpr float kRampMs      = 50.0f;   // ON/OFF トグル時の遷移時間
+
+// 1-pole IIR フィルタ係数
+// 時定数 timeMs で指数的に追従する係数。
+// alpha = exp(-1 / (rate * T)) を使い、update: y = alpha*y + (1-alpha)*x で時定数 T を実現する
+static float iirCoeff(float rate, float timeMs)
+{
+    return std::exp(-1.0f / (rate * timeMs * 0.001f));
+}
+
+Normalizer::Normalizer(int sampleRate, int channels, bool initialEnabled)
+    : m_channels(channels)
+    , m_enabled(initialEnabled)
+    , m_applyRatio(initialEnabled ? 1.0f : 0.0f)
+    , m_rmsState(0.0f)
+    , m_currentGain(1.0f)
+    , m_targetGain(1.0f)
+{
+    // フレームレート（チャンネルあたりのサンプル数/秒）で各係数を初期化する。
+    // インターリーブ stereo を 1 フレーム単位で処理するため rate = sampleRate / channels とする
+    const float frameRate = static_cast<float>(sampleRate) / channels;
+    m_rmsCoeff    = iirCoeff(frameRate, kRmsWindowMs);
+    m_attackCoeff = iirCoeff(frameRate, kAttackMs);
+    m_releaseCoeff = iirCoeff(frameRate, kReleaseMs);
+    m_rampStep    = 1.0f / (frameRate * kRampMs * 0.001f);
+
+    // 再計算インターバル = RMS 窓相当のフレーム数（最低 1）
+    // 48kHz stereo の場合 24000 fps × 0.01s = 240 フレームに 1 回
+    m_gainRecalcInterval = std::max(1, static_cast<int>(frameRate * kRmsWindowMs * 0.001f));
+    // 初回フレームで即座にターゲットゲインを計算するためカウンタを満タンで開始する
+    m_frameCounter = m_gainRecalcInterval;
+}
+
+void Normalizer::setEnabled(bool enabled)
+{
+    m_enabled = enabled;
+}
+
+void Normalizer::reset()
+{
+    // シーク後に古いコンプレッサ状態が残らないようリセットする。
+    // 再生再開後、gainCurrent は 1.0 → 適正値へ約 kReleaseMs で収束する
+    m_rmsState     = 0.0f;
+    m_currentGain  = 1.0f;
+    m_targetGain   = 1.0f;
+    // reset 後の最初のフレームで即時再計算するためカウンタを満タンに戻す
+    m_frameCounter = m_gainRecalcInterval;
+}
+
+void Normalizer::process(float* samples, std::ptrdiff_t n)
+{
+    const std::ptrdiff_t frames = n / m_channels;
+
+    for (std::ptrdiff_t f = 0; f < frames; ++f) {
+        float* frame = samples + f * m_channels;
+
+        // チャンネル平均二乗値で RMS レベルを追跡する（ステレオは L+R 平均）
+        float sumSq = 0.0f;
+        for (int ch = 0; ch < m_channels; ++ch) {
+            sumSq += frame[ch] * frame[ch];
+        }
+        m_rmsState = m_rmsCoeff * m_rmsState
+                   + (1.0f - m_rmsCoeff) * (sumSq / m_channels);
+
+        // ターゲットゲインの再計算（sqrt/log10/pow を含む重処理は RMS 窓周期に間引く）
+        // 間引いた合間はアタック/リリース IIR が前回ターゲットへ追従するため、
+        // 平滑時定数（20〜250ms）に対し 10ms の階段更新は聴感上知覚されない
+        if (++m_frameCounter >= m_gainRecalcInterval) {
+            m_frameCounter = 0;
+            const float rmsLevel = std::sqrt(std::max(m_rmsState, 1e-12f));
+            const float levelDb  = 20.0f * std::log10(rmsLevel);
+            const float comprDb  = (levelDb > kThresholdDb)
+                                 ? -(levelDb - kThresholdDb) * (1.0f - 1.0f / kRatio)
+                                 : 0.0f;
+            m_targetGain = std::pow(10.0f, (comprDb + kMakeupDb) / 20.0f);
+        }
+
+        // アタック/リリース平滑（ゲイン低下方向はアタック、回復方向はリリース）
+        const float coeff = (m_targetGain < m_currentGain) ? m_attackCoeff : m_releaseCoeff;
+        m_currentGain = coeff * m_currentGain + (1.0f - coeff) * m_targetGain;
+
+        // バイパスランプ更新（ON→OFF / OFF→ON を 50ms かけて線形補間する）
+        if (m_enabled) {
+            m_applyRatio = std::min(1.0f, m_applyRatio + m_rampStep);
+        }
+        else {
+            m_applyRatio = std::max(0.0f, m_applyRatio - m_rampStep);
+        }
+
+        // 各チャンネルに適用: DSP 出力とバイパスをランプ比率で補間しリミッタで上限保証
+        // 補間後にもリミッタを掛けることで raw が ±1.0 超の入力でもピーク保証を維持する
+        for (int ch = 0; ch < m_channels; ++ch) {
+            const float raw = frame[ch];
+            float processed = raw * m_currentGain;
+            processed = std::clamp(processed, -kLimiterCeil, kLimiterCeil);
+            const float blended = m_applyRatio * processed + (1.0f - m_applyRatio) * raw;
+            frame[ch] = std::clamp(blended, -kLimiterCeil, kLimiterCeil);
+        }
+    }
+}

@@ -4,6 +4,7 @@ namespace {
 constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
 constexpr const char* kKeyPriority       = "aboveNormalPriority";
+constexpr const char* kKeyNormalize      = "normalizeEnabled";
 } // namespace
 
 Settings::Settings()
@@ -47,6 +48,16 @@ bool Settings::aboveNormalPriority() const
 void Settings::setAboveNormalPriority(bool value)
 {
     writeBool(kKeyPriority, value);
+}
+
+bool Settings::normalizeEnabled() const
+{
+    return readBool(kKeyNormalize, true);
+}
+
+void Settings::setNormalizeEnabled(bool value)
+{
+    writeBool(kKeyNormalize, value);
 }
 
 bool Settings::readBool(const char* key, bool defaultValue) const

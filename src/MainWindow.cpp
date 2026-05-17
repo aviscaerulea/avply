@@ -60,8 +60,9 @@ namespace {
 
 // ステータスバーラベル先頭の絵文字プレフィックス
 // 🎬 = 再生速度、🔊 = 音量。MSVC の文字リテラル経路を避けるため UTF-8 バイト列で直書きする
-const QString kSpeedPrefix  = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
-const QString kVolumePrefix = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
+const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
+const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
+const QString kNormalizePrefix = QString::fromUtf8("  \xf0\x9f\x8e\x9a ");
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -145,6 +146,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 初期値は avply.toml の [audio].volume から取得し、Shift+カーソルキーで動的に変更する
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
+
+    // --- ノーマライズラベル（音量ラベルの右に配置、ON 時のみ表示） ---
+    // 先頭の 🎚 はラベル種別の視覚的区別のため付与する
+    m_normalizeLabel = new QLabel(kNormalizePrefix + "ノーマライズ");
+    m_normalizeLabel->hide();
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -270,6 +276,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addPermanentWidget(m_posLabel);
     statusBar()->addPermanentWidget(m_speedLabel);
     statusBar()->addPermanentWidget(m_volumeLabel);
+    statusBar()->addPermanentWidget(m_normalizeLabel);
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
     m_seekTimer.setSingleShot(true);
@@ -324,6 +331,15 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actPriority->setCheckable(true);
     m_actPriority->setChecked(Settings::instance().aboveNormalPriority());
     connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
+
+    m_actNormalize = new QAction("ノーマライズで音量差を縮小する", this);
+    m_actNormalize->setCheckable(true);
+    m_actNormalize->setChecked(Settings::instance().normalizeEnabled());
+    connect(m_actNormalize, &QAction::toggled, this, &MainWindow::onToggleNormalize);
+
+    // 起動時のノーマライズ状態を VideoView（AudioWorker）に反映し、ラベルも初期化する
+    m_videoView->setNormalizeEnabled(Settings::instance().normalizeEnabled());
+    updateNormalizeDisplay();
 
     updateMenuActionEnabled();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
@@ -1109,6 +1125,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             updateRangeMarkers();
         }
         return true;
+    case Qt::Key_N:
+        if (m_actNormalize) m_actNormalize->toggle();
+        return true;
     default:
         return QMainWindow::eventFilter(watched, event);
     }
@@ -1149,6 +1168,19 @@ void MainWindow::changeVolume(qreal delta)
 void MainWindow::updateVolumeDisplay()
 {
     m_volumeLabel->setText(kVolumePrefix + QString::asprintf("%.0f%%", m_volume * 100.0));
+}
+
+void MainWindow::onToggleNormalize(bool checked)
+{
+    Settings::instance().setNormalizeEnabled(checked);
+    m_videoView->setNormalizeEnabled(checked);
+    updateNormalizeDisplay();
+}
+
+void MainWindow::updateNormalizeDisplay()
+{
+    // ON 時のみラベルを表示し、OFF 時は非表示にして省スペース化する
+    m_normalizeLabel->setVisible(Settings::instance().normalizeEnabled());
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
@@ -1265,6 +1297,8 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     settings->addAction(m_actTopmost);
     settings->addAction(m_actSingleInst);
     settings->addAction(m_actPriority);
+    settings->addSeparator();
+    settings->addAction(m_actNormalize);
 
     // tooltip をメニュー項目に表示するため明示有効化する
     settings->setToolTipsVisible(true);

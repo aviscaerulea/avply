@@ -20,6 +20,10 @@ public:
     bool aboveNormalPriority() const;
     void setAboveNormalPriority(bool value);
 
+    // 再生時に RMS コンプレッサによるノーマライズを有効にするか（デフォルト true）
+    bool normalizeEnabled() const;
+    void setNormalizeEnabled(bool value);
+
 private:
     Settings();
 

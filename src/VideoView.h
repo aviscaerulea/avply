@@ -4,7 +4,9 @@
 
 class QQuickView;
 class QMediaPlayer;
-class QAudioOutput;
+class QAudioBufferOutput;
+class QThread;
+class AudioWorker;
 class QWheelEvent;
 
 // QMediaPlayer + QQuickView (VideoOutput) + QAudioOutput を束ねた動画プレビュー
@@ -54,6 +56,10 @@ public:
     // ユーザリサイズで極端に小さくならないようにする
     QSize minimumSizeHint() const override;
 
+    // ノーマライズ（RMS コンプレッサ）の ON/OFF を設定する
+    // 変更は AudioWorker に QueuedConnection で転送され、50ms ゲインランプで滑らかに遷移する
+    void setNormalizeEnabled(bool enabled);
+
 protected:
     void wheelEvent(QWheelEvent* event) override;
 
@@ -89,10 +95,12 @@ private slots:
     void onQmlFileDropped(const QString& url);
 
 private:
-    QQuickView*   m_quickView;
-    QWidget*      m_videoContainer = nullptr;
-    QMediaPlayer* m_player;
-    QAudioOutput* m_audioOutput;
+    QQuickView*         m_quickView;
+    QWidget*            m_videoContainer = nullptr;
+    QMediaPlayer*       m_player;
+    QAudioBufferOutput* m_audioBuf    = nullptr;
+    QThread*            m_audioThread = nullptr;
+    AudioWorker*        m_audioWorker = nullptr;
 
     // 読み込み完了後に 1 フレームだけ描画するためのフラグ
     bool m_primeFirstFrame = false;

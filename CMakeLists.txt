@@ -9,6 +9,20 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets Network Quick)
 
+# SoundTouch: WSOLA による pitch 保持の時間圧縮 / 伸長ライブラリ（LGPL）
+# QAudioBufferOutput が pitchCompensation を無視するため、AudioWorker 側で
+# playback rate に応じた time-stretch を行うために導入する
+include(FetchContent)
+set(SOUNDTOUCH_DLL OFF CACHE BOOL "" FORCE)
+set(INTEGER_SAMPLES OFF CACHE BOOL "" FORCE)
+set(SOUNDSTRETCH OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    SoundTouch
+    GIT_REPOSITORY https://codeberg.org/soundtouch/soundtouch.git
+    GIT_TAG 2.4.0
+)
+FetchContent_MakeAvailable(SoundTouch)
+
 qt_add_executable(avply WIN32
     src/main.cpp
     src/MainWindow.h
@@ -35,6 +49,10 @@ qt_add_executable(avply WIN32
     src/SingleInstance.cpp
     src/SilenceTone.h
     src/SilenceTone.cpp
+    src/Normalizer.h
+    src/Normalizer.cpp
+    src/AudioWorker.h
+    src/AudioWorker.cpp
     src/icons.qrc
     src/app.rc
 )
@@ -56,6 +74,7 @@ target_link_libraries(avply PRIVATE
     Qt6::MultimediaWidgets
     Qt6::Network
     Qt6::Quick
+    SoundTouch
 )
 
 # Qt DLL を実行ファイルと同じディレクトリに配置する

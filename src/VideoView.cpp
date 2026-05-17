@@ -1,22 +1,40 @@
 #include "VideoView.h"
+#include "AudioWorker.h"
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QQuickView>
 #include <QQuickItem>
 #include <QVideoSink>
 #include <QMediaPlayer>
-#include <QAudioOutput>
+#include <QAudioBufferOutput>
+#include <QAudioFormat>
+#include <QThread>
+#include <QMetaObject>
 #include <QEvent>
 #include <QWheelEvent>
 #include <QUrl>
 #include <QDebug>
 #include <algorithm>
 
+namespace {
+
+// QAudioBufferOutput / QAudioSink で共通使用する固定オーディオフォーマット
+// 48000Hz / ステレオ / Float に固定することでサンプル処理（DSP）が単純化される
+QAudioFormat makeAudioFormat()
+{
+    QAudioFormat fmt;
+    fmt.setSampleRate(48000);
+    fmt.setChannelCount(2);
+    fmt.setSampleFormat(QAudioFormat::Float);
+    return fmt;
+}
+
+} // namespace
+
 VideoView::VideoView(QWidget* parent)
     : QWidget(parent)
     , m_quickView(new QQuickView)
     , m_player(new QMediaPlayer(this))
-    , m_audioOutput(new QAudioOutput(this))
 {
     // VideoView 本体の背景を即時に黒系に設定する。
     // QQuickView のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
@@ -74,7 +92,27 @@ VideoView::VideoView(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_videoContainer);
 
-    m_player->setAudioOutput(m_audioOutput);
+    // 音声経路を QAudioBufferOutput + 専用スレッド AudioWorker + QAudioSink で構成する。
+    // decoder thread → audio thread の QueuedConnection 経路により、
+    // GUI thread が modal loop でブロックされても音声経路が独立稼働する。
+    // 初期ノーマライズ状態はデフォルト（true）で設定し、MainWindow から setNormalizeEnabled で上書きする
+    const QAudioFormat audioFmt = makeAudioFormat();
+    m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
+    m_audioThread = new QThread(this);
+    m_audioWorker = new AudioWorker(audioFmt, /* initialNormalize= */ true);
+    m_audioWorker->moveToThread(m_audioThread);
+
+    connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
+    connect(m_audioBuf, &QAudioBufferOutput::audioBufferReceived,
+            m_audioWorker, &AudioWorker::onAudioBuffer,
+            Qt::QueuedConnection);
+
+    m_player->setAudioBufferOutput(m_audioBuf);
+    // audio thread を HighPriority で起動する
+    // 高速再生時の DSP 負荷で QAudioSink::write が間に合わず underrun が出ていたため、
+    // GUI/decoder thread に対し audio sink 書き込みを優先させる。
+    // TimeCriticalPriority は OS スケジューラ独占リスクがあるため避ける
+    m_audioThread->start(QThread::HighPriority);
 
     // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
     qDebug() << "pitchCompensationAvailability:"
@@ -134,6 +172,22 @@ VideoView::~VideoView()
     // QQuickView 側の VideoOutput より QMediaPlayer のほうが寿命が長いケースに備え、
     // 明示的に nullptr を設定してフレーム転送経路を断つ
     if (m_player) m_player->setVideoSink(nullptr);
+
+    // audio thread の停止と worker の破棄。
+    // QAudioSink は audio thread で生成しているため、quit() より前に teardown を
+    // BlockingQueuedConnection で呼んで audio thread 上で sink を解放する。
+    // GUI thread で sink を破棄すると thread affinity 違反になるため、この順序が必須
+    if (m_audioThread) {
+        if (m_audioWorker) {
+            QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
+        }
+        m_audioThread->quit();
+        m_audioThread->wait();
+    }
+    if (m_audioWorker) {
+        delete m_audioWorker;
+        m_audioWorker = nullptr;
+    }
 }
 
 void VideoView::setSource(const QString& filePath)
@@ -141,6 +195,10 @@ void VideoView::setSource(const QString& filePath)
     m_player->stop();
     m_primeFirstFrame = true;
     m_pausingAtEnd = false;
+    // ソース切替時に sink の積み残しサンプルと Normalizer 状態をリセットする
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+    }
     m_player->setSource(QUrl::fromLocalFile(filePath));
 }
 
@@ -149,6 +207,9 @@ void VideoView::clear()
     m_primeFirstFrame = false;
     m_pausingAtEnd = false;
     m_player->stop();
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+    }
     m_player->setSource(QUrl());
     m_videoContainer->hide();
 }
@@ -160,19 +221,40 @@ qint64 VideoView::position() const
 
 void VideoView::setPosition(qint64 ms)
 {
-    // 手動シークで末尾自動 pause フラグを解除する
+    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと Normalizer 状態をリセットする
     m_pausingAtEnd = false;
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+    }
     m_player->setPosition(ms);
 }
 
 void VideoView::setPlaybackRate(qreal rate)
 {
     m_player->setPlaybackRate(rate);
+    // AudioWorker 側にも rate を伝える。
+    // QAudioBufferOutput が pitchCompensation を無視するため、AudioWorker 内 SoundTouch で
+    // 同じ rate ぶんの時間圧縮 / 伸長を行わないと sink 流入と消費がミスマッチを起こす
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "setPlaybackRate", Qt::QueuedConnection,
+                                  Q_ARG(double, static_cast<double>(rate)));
+    }
 }
 
 void VideoView::setVolume(double volume)
 {
-    m_audioOutput->setVolume(qBound(0.0, volume, 1.0));
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "setVolume", Qt::QueuedConnection,
+                                  Q_ARG(double, qBound(0.0, volume, 1.0)));
+    }
+}
+
+void VideoView::setNormalizeEnabled(bool enabled)
+{
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "setNormalizeEnabled", Qt::QueuedConnection,
+                                  Q_ARG(bool, enabled));
+    }
 }
 
 void VideoView::togglePlay()
