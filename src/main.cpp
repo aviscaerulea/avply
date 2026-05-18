@@ -6,12 +6,14 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
 #include <QIcon>
 #include <QMessageLogContext>
 #include <QMutex>
 #include <QString>
+#include <QThread>
 #include <QTimer>
 #include "Config.h"
 #include "MainWindow.h"
@@ -67,9 +69,17 @@ void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QS
         }
     }
 
-    // Qt デフォルト経路（OutputDebugString）は全レベル継続
-    const QString formatted = qFormatLogMessage(type, ctx, msg);
-    OutputDebugStringW(reinterpret_cast<const wchar_t*>(formatted.utf16()));
+    // Qt デフォルト経路（OutputDebugString）への出力。
+    // GUI thread からの呼び出しは全レベル継続するが、非 GUI thread（特に HighPriority な
+    // AudioWorker の audio thread）からの Debug / Info は OutputDebugString の同期 I/O が
+    // 数 ms ブロックして sink underrun の引き金になり得るため、Warning 以上のみ通す
+    const QCoreApplication* coreApp = QCoreApplication::instance();
+    const bool isMainThread = coreApp && (QThread::currentThread() == coreApp->thread());
+    const bool isVerbose = (type == QtDebugMsg || type == QtInfoMsg);
+    if (isMainThread || !isVerbose) {
+        const QString formatted = qFormatLogMessage(type, ctx, msg);
+        OutputDebugStringW(reinterpret_cast<const wchar_t*>(formatted.utf16()));
+    }
 }
 
 // QApplication 構築前にコマンドライン第 1 引数を Unicode 安全に取得する

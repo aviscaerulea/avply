@@ -5,6 +5,8 @@
 #include <QDateTime>
 #include <QDebug>
 #include <SoundTouch.h>
+#include <algorithm>
+#include <cmath>
 
 AudioWorker::AudioWorker(const QAudioFormat& format, bool initialNormalize, QObject* parent)
     : QObject(parent)
@@ -34,34 +36,50 @@ void AudioWorker::start()
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed:" << m_sink->error();
     }
-    qInfo() << "AudioWorker: QAudioSink bufferSize="
-            << m_sink->bufferSize()
-            << "bytes (requested" << (bytesPerSec / 5) << ")";
+    // 起動時情報は qDebug 経由とする。HighPriority audio thread からの周期 qInfo は
+    // OutputDebugString 同期 I/O で数 ms ブロックし sink underrun の引き金になり得るため、
+    // audio thread からのログは原則 Debug 出力に抑える
+    qDebug() << "AudioWorker: QAudioSink bufferSize="
+             << m_sink->bufferSize()
+             << "bytes (requested" << (bytesPerSec / 5) << ")";
 
     // SoundTouch を所属スレッドで生成する。
     // QAudioBufferOutput が pitchCompensation を無視するため、AudioWorker 側で
-    // playback rate に応じた時間圧縮 / 伸長を行う。setTempo は setPlaybackRate スロット経由で更新する
+    // playback rate に応じた時間圧縮 / 伸長を行う。setTempo は onAudioBuffer 冒頭で
+    // m_pendingRate を読み取って適用する（GUI thread から DirectConnection で呼ばれても安全にするため）
     m_stretch = std::make_unique<soundtouch::SoundTouch>();
     m_stretch->setSampleRate(static_cast<uint>(m_format.sampleRate()));
     m_stretch->setChannels(static_cast<uint>(m_format.channelCount()));
-    m_stretch->setTempo(1.0);
+    const double initialRate = m_pendingRate.load(std::memory_order_relaxed);
+    m_stretch->setTempo(initialRate);
+    m_appliedRate = initialRate;
 }
 
 void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 {
-    if (!m_sinkDev || !m_stretch) return;
+    if (!m_sinkDev || !m_stretch || !m_sink) return;
+
+    // GUI thread から要求された再生速度を audio thread 上で SoundTouch に反映する。
+    // setTempo はスレッド安全ではないため、必ずこの経路（onAudioBuffer = audio thread）でのみ呼ぶ。
+    // decoder の rate 変更が反映されたバッファが届く前に tempo を合わせることで、
+    // 旧 tempo 前提で受け取った入力が SoundTouch 内に滞留し partial write の引き金になるのを防ぐ
+    const double pendingRate = m_pendingRate.load(std::memory_order_relaxed);
+    if (std::abs(pendingRate - m_appliedRate) > 1e-9) {
+        m_stretch->setTempo(pendingRate);
+        m_appliedRate = pendingRate;
+    }
 
     // 診断ログ：初回バッファのフォーマットを記録する（format mismatch 検出用）
     static bool s_firstReported = false;
     if (!s_firstReported) {
         s_firstReported = true;
         const auto& f = buf.format();
-        qInfo() << "AudioWorker: first buffer format:"
-                << "rate=" << f.sampleRate()
-                << "ch=" << f.channelCount()
-                << "fmt=" << static_cast<int>(f.sampleFormat())
-                << "frames=" << buf.frameCount()
-                << "bytes=" << buf.byteCount();
+        qDebug() << "AudioWorker: first buffer format:"
+                 << "rate=" << f.sampleRate()
+                 << "ch=" << f.channelCount()
+                 << "fmt=" << static_cast<int>(f.sampleFormat())
+                 << "frames=" << buf.frameCount()
+                 << "bytes=" << buf.byteCount();
     }
 
     if (buf.format().sampleFormat() != QAudioFormat::Float) return;
@@ -70,9 +88,79 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     const qsizetype inFrames = buf.frameCount();
     if (inFrames <= 0) return;
 
+    // フェールセーフ：連続 underrun 時の蓄積暴走を抑止する
+    // sink への書き戻し失敗が続くと SoundTouch 内出力キュー (numSamples) と m_pendingTail が
+    // 入力レート分だけ際限なく膨らみ、再生レイテンシが秒単位で増大する。
+    // 約 2 秒相当を超えた時点で両方破棄して即時回復させる。聴感上は一瞬の音飛びになるが
+    // 持続的なレイテンシ膨張に比べ復帰コストが圧倒的に低い
+    constexpr qint64 kOverflowSeconds = 2;
+    const qint64 sampleRate    = m_format.sampleRate();
+    const qint64 bytesPerSec   = static_cast<qint64>(m_format.bytesForDuration(1000 * 1000));
+    const qint64 maxStretchFrames = sampleRate  * kOverflowSeconds;
+    const qint64 maxTailBytes     = bytesPerSec * kOverflowSeconds;
+    const qint64 stretchFrames    = static_cast<qint64>(m_stretch->numSamples());
+    if (stretchFrames > maxStretchFrames || m_pendingTail.size() > maxTailBytes) {
+        qWarning() << "AudioWorker: overflow guard triggered."
+                   << "stretchFrames=" << stretchFrames
+                   << "pendingTail=" << m_pendingTail.size()
+                   << "— clearing both to recover";
+        m_stretch->clear();
+        m_pendingTail.clear();
+    }
+
     // SoundTouch に入力サンプル（interleaved float）を投入する
     // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる
     m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
+
+    // 統計集計用ローカル変数
+    qint64 totalInBytes  = 0;
+    qint64 totalOutBytes = 0;
+    int    underruns     = 0;
+    int    writes        = 0;
+
+    // 音量適用のラムダ
+    // m_pendingTail / receiveSamples 出力のいずれも pre-volume（post-normalizer）として保持し、
+    // sink への書き込み直前にここで最新 m_volume を適用する。退避から書き戻しの間に
+    // ユーザが音量を変更しても旧音量で出力されない
+    auto applyVolume = [this](const char* src, qint64 bytes) -> const char* {
+        if (m_volumeWork.size() < bytes) {
+            m_volumeWork.resize(bytes);
+        }
+        const float     vol     = static_cast<float>(m_volume);
+        const float*    in      = reinterpret_cast<const float*>(src);
+        float*          out     = reinterpret_cast<float*>(m_volumeWork.data());
+        const qsizetype samples = bytes / static_cast<qsizetype>(sizeof(float));
+        for (qsizetype i = 0; i < samples; ++i) {
+            out[i] = in[i] * vol;
+        }
+        return m_volumeWork.constData();
+    };
+
+    // sink の partial write 残量を最優先で flush する。
+    // 前回 onAudioBuffer で bytesFree() 不足により書ききれなかった末尾サンプルを保持しており、
+    // ここで書き戻すことでサンプル不連続点（プチノイズ）の発生を防ぐ
+    if (!m_pendingTail.isEmpty()) {
+        const qint64 free = m_sink->bytesFree();
+        if (free <= 0) {
+            // sink が満タンなので receiveSamples せず次回まで待つ（SoundTouch 側で滞留させる）
+            return;
+        }
+        const qint64 toWrite = std::min<qint64>(free, m_pendingTail.size());
+        const char*  outPtr  = applyVolume(m_pendingTail.constData(), toWrite);
+        const qint64 written = m_sinkDev->write(outPtr, toWrite);
+        totalInBytes  += toWrite;
+        totalOutBytes += (written > 0 ? written : 0);
+        ++writes;
+        const qint64 consumed = (written > 0) ? written : 0;
+        if (consumed < m_pendingTail.size()) {
+            // 一部しか書けなかった分を先頭から除去して保持し、receiveSamples は次回まで持ち越す
+            // pendingTail は pre-volume のまま remove するので、次回も最新音量が適用される
+            m_pendingTail.remove(0, consumed);
+            ++underruns;
+            return;
+        }
+        m_pendingTail.clear();
+    }
 
     // SoundTouch から time-stretched サンプルを取り出して DSP・音量・sink への書き込みを行う
     // 1 回の receiveSamples で全部出ない場合があるため received == 0 までループする
@@ -84,11 +172,13 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     }
     float* recv = reinterpret_cast<float*>(m_workBuf.data());
 
-    qint64 totalInBytes  = 0;
-    qint64 totalOutBytes = 0;
-    int    underruns     = 0;
-    int    writes        = 0;
     for (;;) {
+        // sink の空きを見て書ける見込みがなければ receiveSamples せず終了する
+        // （SoundTouch 内に蓄積させ、次回 onAudioBuffer で消化する。
+        // 1.20 倍など消費レート＜流入レートの局面では蓄積が逆圧力として機能する）
+        const qint64 free = m_sink->bytesFree();
+        if (free <= 0) break;
+
         const uint received = m_stretch->receiveSamples(recv, kRecvBatchFrames);
         if (received == 0) break;
 
@@ -97,44 +187,59 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
         m_normalizer.process(recv, outSamples);
 
-        // 音量を線形乗算する（vol は setVolume で 0.0〜1.0 にクランプ済みのため追加クリップは不要）
-        const float vol = static_cast<float>(m_volume);
-        for (qsizetype i = 0; i < outSamples; ++i) {
-            recv[i] *= vol;
-        }
-
-        const qint64 written = m_sinkDev->write(m_workBuf.constData(), outBytes);
-        if (written < outBytes) ++underruns;
-        totalInBytes  += outBytes;
+        // sink の空きに収まる分のみ即時書き込み、残量は pre-volume のまま退避する。
+        // m_workBuf は pre-volume（post-normalizer）状態のままで、音量は applyVolume 内でコピー適用する
+        const qint64 toWrite = std::min<qint64>(free, outBytes);
+        const char*  outPtr  = applyVolume(m_workBuf.constData(), toWrite);
+        const qint64 written = m_sinkDev->write(outPtr, toWrite);
+        totalInBytes  += toWrite;
         totalOutBytes += (written > 0 ? written : 0);
         ++writes;
+        const qint64 consumed = (written > 0) ? written : 0;
+
+        // toWrite を超える残量は pre-volume のまま pendingTail に退避する
+        if (toWrite < outBytes) {
+            const char*     tailSrc   = m_workBuf.constData() + toWrite;
+            const qsizetype tailBytes = outBytes - toWrite;
+            m_pendingTail.append(tailSrc, tailBytes);
+            ++underruns;
+            break;
+        }
+        // bytesFree() 制約下で write < toWrite はまれ。さらに不足した分も pre-volume で退避する
+        if (consumed < toWrite) {
+            const char*     tailSrc   = m_workBuf.constData() + consumed;
+            const qsizetype tailBytes = toWrite - consumed;
+            m_pendingTail.append(tailSrc, tailBytes);
+            ++underruns;
+            break;
+        }
     }
 
-    // 診断ログ：1 秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）
-    static qint64 s_winStart = 0;
-    static qint64 s_inBytes  = 0;
-    static qint64 s_outBytes = 0;
-    static qint64 s_writes   = 0;
-    static qint64 s_under    = 0;
-    s_inBytes  += totalInBytes;
-    s_outBytes += totalOutBytes;
-    s_writes   += writes;
-    s_under    += underruns;
+    // 診断ログ：1 秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）。
+    // 周期 qInfo は OutputDebugString 同期 I/O で audio thread を数 ms ブロックするため
+    // qDebug に格下げし、リリースビルドでは QT_NO_DEBUG_OUTPUT で完全抑止できる位置付けにする。
+    // 集計変数はメンバ化し reset() でリセットすることで、シーク直後の集計区間が不正な長さに
+    // ならないようにする
+    m_statsInBytes   += totalInBytes;
+    m_statsOutBytes  += totalOutBytes;
+    m_statsWrites    += writes;
+    m_statsUnderruns += underruns;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (s_winStart == 0) s_winStart = now;
-    if (now - s_winStart >= 1000) {
-        qInfo() << "AudioWorker: 1s stats"
-                << "in=" << (s_inBytes / 1024) << "KB"
-                << "out=" << (s_outBytes / 1024) << "KB"
-                << "writes=" << s_writes
-                << "underruns=" << s_under
-                << "bytesFree=" << (m_sink ? m_sink->bytesFree() : -1)
-                << "tempo=" << m_stretch->getInputOutputSampleRatio();
-        s_winStart = now;
-        s_inBytes  = 0;
-        s_outBytes = 0;
-        s_writes   = 0;
-        s_under    = 0;
+    if (m_statsWinStart == 0) m_statsWinStart = now;
+    if (now - m_statsWinStart >= 1000) {
+        qDebug() << "AudioWorker: 1s stats"
+                 << "in=" << (m_statsInBytes / 1024) << "KB"
+                 << "out=" << (m_statsOutBytes / 1024) << "KB"
+                 << "writes=" << m_statsWrites
+                 << "underruns=" << m_statsUnderruns
+                 << "pendingTail=" << m_pendingTail.size()
+                 << "bytesFree=" << m_sink->bytesFree()
+                 << "tempo=" << m_stretch->getInputOutputSampleRatio();
+        m_statsWinStart  = now;
+        m_statsInBytes   = 0;
+        m_statsOutBytes  = 0;
+        m_statsWrites    = 0;
+        m_statsUnderruns = 0;
     }
 }
 
@@ -147,6 +252,15 @@ void AudioWorker::reset()
     if (m_stretch) m_stretch->clear();
     // ソース切替時にバッファを解放する（次の onAudioBuffer で必要サイズに再確保される）
     m_workBuf.clear();
+    m_volumeWork.clear();
+    // sink を捨てるため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）
+    m_pendingTail.clear();
+    // 1 秒集計ウィンドウもリセットする。リセット直後の集計区間が 1 秒超 / 未満で出ないようにする
+    m_statsWinStart  = 0;
+    m_statsInBytes   = 0;
+    m_statsOutBytes  = 0;
+    m_statsWrites    = 0;
+    m_statsUnderruns = 0;
     if (!m_sink) return;
     m_sink->stop();
     m_sinkDev = m_sink->start();
@@ -167,12 +281,14 @@ void AudioWorker::setNormalizeEnabled(bool enabled)
 
 void AudioWorker::setPlaybackRate(double rate)
 {
-    // SoundTouch の tempo に再生速度を反映する。
+    // 再生速度を atomic に受け取り、実際の SoundTouch::setTempo は
+    // onAudioBuffer 冒頭（audio thread 上）で適用する。
+    // この slot は VideoView から DirectConnection で GUI thread から直接呼ばれる場合があり、
+    // SoundTouch がスレッド安全でないため、ここでは触らない。
     // tempo=1.5 → 入力 1.5 秒分を出力 1 秒分に時間圧縮（ピッチ保持）
     // 範囲外 / 不正値は無視する（0 や負値は SoundTouch の前提を破る）
-    if (!m_stretch) return;
     if (rate <= 0.0) return;
-    m_stretch->setTempo(rate);
+    m_pendingRate.store(rate, std::memory_order_relaxed);
 }
 
 void AudioWorker::teardown()

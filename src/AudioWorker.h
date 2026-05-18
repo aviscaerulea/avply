@@ -4,6 +4,7 @@
 #include <QAudioFormat>
 #include <QAudioBuffer>
 #include <QByteArray>
+#include <atomic>
 #include <memory>
 
 class QAudioSink;
@@ -60,6 +61,34 @@ private:
     // 毎呼び出しの QByteArray 確保は new/delete スパイクを招くため再利用する。
     // 必要サイズに足りないときだけ resize で拡張する
     QByteArray   m_workBuf;
+    // QAudioSink への partial write 残量バッファ（pre-volume / post-normalizer の状態で保持）
+    // sink の bytesFree() 不足で書ききれなかった末尾サンプルを保持し、
+    // 次回 onAudioBuffer 冒頭で最優先に書き戻す。サンプル欠落（プチノイズ）を防ぐ。
+    // 音量は書き込み直前に最新値を適用するため、書き込み失敗から書き戻しの間に
+    // ユーザが音量を変更しても旧音量のまま出力されることを避ける
+    QByteArray   m_pendingTail;
+    // 音量適用用の作業バッファ
+    // pre-volume のサンプル列に最新音量を乗じてコピーする一時領域。
+    // pendingTail を in-place で書き換えると未書き込み残量が post-volume になり
+    // 「次回再書き込み時にさらに音量が変わったら旧値が反映される」連鎖が生じるため別領域で扱う
+    QByteArray   m_volumeWork;
+    // GUI thread からの再生速度更新を受け取る atomic
+    // SoundTouch::setTempo はスレッド安全ではないため、setPlaybackRate slot では本変数だけ更新し、
+    // 実際の setTempo は onAudioBuffer 冒頭（audio thread 上）で適用する。
+    // decoder の rate 変更で流入レートが変わる前に SoundTouch tempo を合わせることで、
+    // SoundTouch 内の蓄積急増による sink underrun を防ぐ
+    std::atomic<double> m_pendingRate{1.0};
+    // audio thread 上で最後に適用済みの SoundTouch tempo
+    // m_pendingRate との差分検知に使う（毎回 setTempo を呼ばない最適化）
+    double       m_appliedRate = 1.0;
+    // 1 秒集計の診断ログ用カウンタ群
+    // function-local static にすると reset() / シーク跨ぎで初期化されず、
+    // リセット直後の集計窓が 1 秒超 / 未満となり診断ログの誤読を招くためメンバ化する
+    qint64       m_statsWinStart  = 0;
+    qint64       m_statsInBytes   = 0;
+    qint64       m_statsOutBytes  = 0;
+    qint64       m_statsWrites    = 0;
+    qint64       m_statsUnderruns = 0;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;

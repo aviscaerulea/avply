@@ -231,14 +231,18 @@ void VideoView::setPosition(qint64 ms)
 
 void VideoView::setPlaybackRate(qreal rate)
 {
-    m_player->setPlaybackRate(rate);
-    // AudioWorker 側にも rate を伝える。
+    // AudioWorker 側の SoundTouch tempo を先に更新する。
     // QAudioBufferOutput が pitchCompensation を無視するため、AudioWorker 内 SoundTouch で
-    // 同じ rate ぶんの時間圧縮 / 伸長を行わないと sink 流入と消費がミスマッチを起こす
+    // 同じ rate ぶんの時間圧縮 / 伸長を行わないと sink 流入と消費がミスマッチを起こす。
+    // QMediaPlayer の rate 変更で decoder の流入レートが変わる前に tempo を合わせることで、
+    // 旧 tempo 前提の入力が SoundTouch 内に滞留して sink underrun を引き起こすのを防ぐ。
+    // DirectConnection で呼び出すが、setPlaybackRate 側は atomic 経由で受け取るため
+    // GUI thread から直接呼んでもスレッド安全
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setPlaybackRate", Qt::QueuedConnection,
+        QMetaObject::invokeMethod(m_audioWorker, "setPlaybackRate", Qt::DirectConnection,
                                   Q_ARG(double, static_cast<double>(rate)));
     }
+    m_player->setPlaybackRate(rate);
 }
 
 void VideoView::setVolume(double volume)
