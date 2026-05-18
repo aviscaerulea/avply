@@ -14,7 +14,10 @@ public:
     void setEnabled(bool enabled);
 
     // シーク時の内部状態リセット（enabled 状態・applyRatio は維持する）
-    // reset 後は gainCurrent が 1.0 から再追従し、約 250ms でコンプレッサが定常状態に収束する
+    // reset 直後は kRmsWindowMs（10ms）相当の warmup として currentGain=1.0 を据え置き、
+    // 経過後に初回 recalc で targetGain を確定し、以降は kAttackMs/kReleaseMs で追従する。
+    // warmup の目的はシーク直後に RMS 追跡器が真値に収束する前のターゲットゲイン算出を避け、
+    // currentGain=1.0 → 適正値への急峻な立ち上がり（ポップノイズ）を抑えることにある
     void reset();
 
     // Float サンプル列を in-place で処理する（インターリーブ形式）

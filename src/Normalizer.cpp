@@ -20,27 +20,41 @@ static float iirCoeff(float rate, float timeMs)
     return std::exp(-1.0f / (rate * timeMs * 0.001f));
 }
 
+// RMS 追跡器の初期値（mean square = amplitude^2）
+// 閾値 kThresholdDb 相当の振幅を二乗して与える。
+// 初回フレームで levelDb が -∞ に振れる事態を防ぎ、初回 recalc 時点で
+// 真の RMS への収束をより速く始められるよう、ありえそうな信号レベル付近に
+// プリセットしておく
+static const float kInitialRmsState = []() {
+    const float amp = std::pow(10.0f, kThresholdDb / 20.0f);
+    return amp * amp;
+}();
+
 Normalizer::Normalizer(int sampleRate, int channels, bool initialEnabled)
     : m_channels(channels)
     , m_enabled(initialEnabled)
     , m_applyRatio(initialEnabled ? 1.0f : 0.0f)
-    , m_rmsState(0.0f)
+    , m_rmsState(kInitialRmsState)
     , m_currentGain(1.0f)
     , m_targetGain(1.0f)
 {
-    // フレームレート（チャンネルあたりのサンプル数/秒）で各係数を初期化する。
-    // インターリーブ stereo を 1 フレーム単位で処理するため rate = sampleRate / channels とする
-    const float frameRate = static_cast<float>(sampleRate) / channels;
+    // フレームレートによる各係数の初期化
+    // インターリーブ形式でも 1 フレーム = 全チャンネル 1 組であり、
+    // フレームレートは sampleRate そのもの（stereo でも 48000 frames/sec）
+    const float frameRate = static_cast<float>(sampleRate);
     m_rmsCoeff    = iirCoeff(frameRate, kRmsWindowMs);
     m_attackCoeff = iirCoeff(frameRate, kAttackMs);
     m_releaseCoeff = iirCoeff(frameRate, kReleaseMs);
     m_rampStep    = 1.0f / (frameRate * kRampMs * 0.001f);
 
     // 再計算インターバル = RMS 窓相当のフレーム数（最低 1）
-    // 48kHz stereo の場合 24000 fps × 0.01s = 240 フレームに 1 回
+    // 48kHz の場合 48000 fps × 0.01s = 480 フレームに 1 回
     m_gainRecalcInterval = std::max(1, static_cast<int>(frameRate * kRmsWindowMs * 0.001f));
-    // 初回フレームで即座にターゲットゲインを計算するためカウンタを満タンで開始する
-    m_frameCounter = m_gainRecalcInterval;
+    // 初回 recalc を 1 窓分（kRmsWindowMs）遅らせるためカウンタを 0 から開始する。
+    // 即時 recalc にすると RMS 追跡器が真値に収束する前にターゲットゲインが算出され、
+    // currentGain=1.0 → makeup 適用後ゲインへ kAttackMs かけて急峻に立ち上がるため
+    // シーク直後にポップノイズとして体感される
+    m_frameCounter = 0;
 }
 
 void Normalizer::setEnabled(bool enabled)
@@ -51,12 +65,14 @@ void Normalizer::setEnabled(bool enabled)
 void Normalizer::reset()
 {
     // シーク後に古いコンプレッサ状態が残らないようリセットする。
-    // 再生再開後、gainCurrent は 1.0 → 適正値へ約 kReleaseMs で収束する
-    m_rmsState     = 0.0f;
+    // 再生再開直後は kRmsWindowMs（10ms）相当の warmup として currentGain=1.0 を据え置き、
+    // 経過後に初回 recalc で targetGain を確定して以降 kAttackMs/kReleaseMs で追従する
+    m_rmsState     = kInitialRmsState;
     m_currentGain  = 1.0f;
     m_targetGain   = 1.0f;
-    // reset 後の最初のフレームで即時再計算するためカウンタを満タンに戻す
-    m_frameCounter = m_gainRecalcInterval;
+    // reset 後 1 窓分（kRmsWindowMs）は再計算を待ち、その間 currentGain は 1.0 のまま据え置く。
+    // 即時再計算するとシーク直後にポップノイズが乗る（コンストラクタの該当コメント参照）
+    m_frameCounter = 0;
 }
 
 void Normalizer::process(float* samples, std::ptrdiff_t n)

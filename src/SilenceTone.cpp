@@ -153,6 +153,9 @@ void SilenceTone::openSink()
 
     QAudioDevice dev = QMediaDevices::defaultAudioOutput();
     if (dev.isNull() || !dev.isFormatSupported(fmt)) {
+        // BT 過渡状態でのデバイス不在時のログ抑制
+        // 切断・再接続中はデバイス不在が頻発するため qDebug に留める。
+        // 永続的な互換性問題と一時的な過渡状態を区別できない以上、警告昇格はログ過多を招く
         qDebug() << "SilenceTone: skipped (device unavailable or unsupported format)";
         return;
     }

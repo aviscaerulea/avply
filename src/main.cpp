@@ -21,15 +21,19 @@
 namespace {
 
 // ログハンドラ
-// Qt メッセージを exe と同フォルダの avply.log に書き出す。起動ごとにファイルを上書きリセットし、
+// Qt メッセージのうち Warning / Critical / Fatal のみを exe と同フォルダの avply.log に書き出す。
+// Debug / Info はログ膨張を避けて除外する。起動ごとにファイルを上書きリセットし、
 // QMutex で複数スレッドからの同時書き込みを直列化する。
-// OutputDebugString 経路（VS デバッガ表示）は Qt デフォルトのまま温存する
+// OutputDebugString 経路（VS デバッガ表示）は全レベル温存する。
 void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
-    static QMutex s_mutex;
-    static QFile  s_logFile;
+    // QtMsgType は連番ではない（QtInfoMsg=4 が QtFatalMsg=3 より大きい）ため明示列挙する
+    const bool shouldLog = (type == QtWarningMsg || type == QtCriticalMsg || type == QtFatalMsg);
 
-    {
+    if (shouldLog) {
+        static QMutex s_mutex;
+        static QFile  s_logFile;
+
         QMutexLocker locker(&s_mutex);
 
         if (!s_logFile.isOpen()) {
@@ -46,8 +50,6 @@ void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QS
         if (s_logFile.isOpen()) {
             const char* level = [type]() -> const char* {
                 switch (type) {
-                case QtDebugMsg:    return "DBG";
-                case QtInfoMsg:     return "INF";
                 case QtWarningMsg:  return "WRN";
                 case QtCriticalMsg: return "ERR";
                 case QtFatalMsg:    return "FTL";
@@ -65,7 +67,7 @@ void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QS
         }
     }
 
-    // Qt デフォルト経路（OutputDebugString）も継続して呼ぶ
+    // Qt デフォルト経路（OutputDebugString）は全レベル継続
     const QString formatted = qFormatLogMessage(type, ctx, msg);
     OutputDebugStringW(reinterpret_cast<const wchar_t*>(formatted.utf16()));
 }
@@ -119,7 +121,7 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
 
-    // Qt メッセージを avply.log に書き出すハンドラを登録する
+    // Warning 以上の Qt メッセージを avply.log に書き出すハンドラを登録する
     qInstallMessageHandler(avplyMessageHandler);
 
     // ウィンドウアイコンを設定する

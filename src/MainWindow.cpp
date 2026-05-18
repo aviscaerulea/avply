@@ -105,7 +105,6 @@ void purgeOldWaveformCache()
 
 MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     : QMainWindow(parent)
-    , m_encoder(nullptr)
 {
     setWindowTitle("avply");
     setAcceptDrops(true);
@@ -398,23 +397,46 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    // 子プロセスとシグナル経路の安全終了
     // デストラクタ実行中にコールバックが発火すると this が破棄済みとなり未定義動作になるため、
-    // synchronous=true で waitForFinished を挟んで確実に終わらせる。
+    // waitForFinished を挟んで確実に終わらせる。
     // Encoder は親子破棄でも QProcess の dtor が kill+wait するが、
-    // av1_nvenc が長く残るケースを考慮して先制 cancel を入れて終了応答性を確保する
-    if (m_encoder && m_encoder->isRunning()) {
-        m_encoder->cancel();
-        m_encoder->waitForFinished(3000);
-    }
+    // av1_nvenc が長く残るケースを考慮して先制 cancel を入れて終了応答性を確保する。
+
+    // Encoder 以外の子 QObject を先に静止させる
+    // m_encoder->waitForFinished はネストイベントループ相当の挙動となり、
+    // その間に他の子 QObject から queued/auto signal が MainWindow へ届くと
+    // 「メンバ破棄進行中の this にスロット呼び出し」という半壊状態が生じる。
+    // これを防ぐため、Encoder 待機より先にそれらの disconnect / cancel を済ませる
     stopWaveformProcess(true);
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
-
-    // ffprobe 残存プロセスを停止する
-    // disconnect でコールバックラムダからの this 参照を断ち、kill+waitForFinished で確実に終わらせる
     if (m_probeProc) {
         disconnect(m_probeProc, nullptr, this, nullptr);
         m_probeProc->kill();
         m_probeProc->waitForFinished(1000);
+    }
+
+    // Encoder の cancel+wait
+    // disconnect で finished / progress 等のシグナルがデストラクタ進行中に発火して
+    // 半壊状態の this を触らないようにしてから cancel+wait する
+    if (m_encoder) {
+        disconnect(m_encoder, nullptr, this, nullptr);
+        if (m_encoder->isRunning()) {
+            m_encoder->cancel();
+            if (!m_encoder->waitForFinished(3000)) {
+                qWarning("MainWindow: Encoder の終了待ちが 3 秒でタイムアウトしました（プロセス終了で OS が回収します）");
+                // タイムアウト時は QObject 親子破棄経路から外して破棄自体を諦める
+                // 親子破棄ルートだと QProcess::~QProcess() の kill+waitForFinished(30000) が
+                // ここに上乗せされ MainWindow デストラクタが最長 33 秒ブロックする。
+                // setParent(nullptr) で親子破棄を切り離せばウィンドウ閉鎖は即時化できる。
+                // ~MainWindow() は app.exec() リターン後に走るため deleteLater は発火せず Encoder は
+                // 孤立リークするが、QApplication 終了直後にプロセスが exit するため OS が回収する。
+                // 走行中の ffmpeg 子プロセスも親 Windows プロセス終了で OS により kill される
+                m_encoder->setParent(nullptr);
+                m_encoder->deleteLater();
+                m_encoder = nullptr;
+            }
+        }
     }
 }
 
@@ -1321,10 +1343,18 @@ void MainWindow::onToggleSingleInstance(bool checked)
 
 void MainWindow::onTogglePriority(bool checked)
 {
-    // プロセス優先度はトグルと同時に即時反映する
-    Settings::instance().setAboveNormalPriority(checked);
-    SetPriorityClass(GetCurrentProcess(),
-                     checked ? ABOVE_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+    // プロセス優先度のトグル即時反映
+    // SetPriorityClass はジョブオブジェクト制限やポリシーで失敗することがあるため、
+    // 戻り値を確認し失敗時は Settings に保存しない（UI チェックは次回起動時にレジストリ値で整合する）。
+    // ※ 失敗時の UI 即時巻き戻しは codereview-issue.local.md に「現状維持」判断で持ち越し
+    const DWORD priority = checked ? ABOVE_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
+    if (SetPriorityClass(GetCurrentProcess(), priority)) {
+        Settings::instance().setAboveNormalPriority(checked);
+    }
+    else {
+        qWarning("MainWindow: SetPriorityClass(%lu) に失敗しました（GetLastError=%lu）",
+                 priority, GetLastError());
+    }
 }
 
 void MainWindow::applyTopmostState()
@@ -1335,6 +1365,7 @@ void MainWindow::applyTopmostState()
     // の不一致を防ぐため SetWindowPos を直接呼ぶより安定する
     const bool wantTopmost = Settings::instance().topmostWhilePlaying() && m_isPlaying;
 
+    // QWindow 未作成時のガード
     QWindow* w = windowHandle();
     if (w) {
         w->setFlag(Qt::WindowStaysOnTopHint, wantTopmost);

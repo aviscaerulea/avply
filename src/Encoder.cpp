@@ -29,7 +29,13 @@ Encoder::~Encoder()
         m_process->waitForFinished(3000);
     }
     if (!m_tempPath.isEmpty() && QFile::exists(m_tempPath)) {
-        QFile::remove(m_tempPath);
+        // dtor 経路での temp 削除失敗も警告ログを残す
+        // 中止 / MainWindow 終了経由で AV ソフトに temp ハンドルを掴まれていた場合の
+        // %TEMP% リークを可視化する（onProcessFinished 側と対称）
+        if (!QFile::remove(m_tempPath)) {
+            qWarning("Encoder: 一時ファイル %s の削除に失敗しました（%%TEMP%% に残存します）",
+                     qUtf8Printable(m_tempPath));
+        }
     }
 }
 
@@ -217,7 +223,12 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
                           "一時ファイルから出力先への移動に失敗しました");
             return;
         }
-        QFile::remove(m_tempPath);
+        // copy 後の temp 削除失敗時は警告ログを残す
+        // AV ソフトが temp ハンドルを掴んだままだと remove が失敗し、%TEMP% に大容量ファイルがリークする
+        if (!QFile::remove(m_tempPath)) {
+            qWarning("Encoder: 一時ファイル %s の削除に失敗しました（%%TEMP%% に残存します）",
+                     qUtf8Printable(m_tempPath));
+        }
     }
 
     emit progressChanged(100);

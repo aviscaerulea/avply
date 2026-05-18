@@ -122,7 +122,21 @@ bool checkAv1Nvenc(const QString& ffmpegPath)
     proc.setProcessChannelMode(QProcess::MergedChannels);
     proc.start(ffmpegPath, {"-hide_banner", "-encoders"});
     const bool finished = proc.waitForFinished(5000);
-    cachedResult = finished && proc.readAllStandardOutput().contains("av1_nvenc");
+
+    // タイムアウト時はキャッシュ汚染を避けるため結果を確定せず返す
+    // 一時的な AV ソフト介入による遅延で false が永続キャッシュされると、
+    // 以降のセッション全体で NVENC が使えないと誤判定される。
+    // 副作用：cachedPath も更新しないため次回呼び出し時に再 spawn する。
+    // AV ソフトが ffmpeg を常時掴む環境では変換ボタン押下のたびに 5〜6 秒のブロックが繰り返される。
+    // 更に proc.kill() 後の waitForFinished(1000) もタイムアウトした場合、
+    // スコープ抜けの ~QProcess() 内 waitForFinished(30000) が走り GUI thread が最長 30 秒固まる
+    if (!finished) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        return false;
+    }
+
+    cachedResult = proc.readAllStandardOutput().contains("av1_nvenc");
     cachedPath = ffmpegPath;
     return cachedResult;
 }

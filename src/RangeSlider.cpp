@@ -199,7 +199,9 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
 
     if (m_hasRange && m_outRatio > m_inRatio) {
         const int x1 = static_cast<int>(width() * m_inRatio);
-        const int x2 = static_cast<int>(width() * m_outRatio);
+        // 微小区間（IN/OUT が同 px に丸まるケース）でも視認可能とするため幅 1px を保証する
+        // 丸め結果 x2 == x1 だと QRect 幅が 0 になり区間ハイライトが消える
+        const int x2 = std::max(static_cast<int>(width() * m_outRatio), x1 + 1);
         painter.fillRect(QRect(x1, rangeRect.y(), x2 - x1, kRangeBarH), kRangeColor);
 
         // 進捗オーバーレイ（青）を区間内に重ねる。100% で区間全体が青に見える

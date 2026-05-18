@@ -51,7 +51,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 {
     if (!m_sinkDev || !m_stretch) return;
 
-    // 診断ログ: 初回バッファのフォーマットを記録する（format mismatch 検出用）
+    // 診断ログ：初回バッファのフォーマットを記録する（format mismatch 検出用）
     static bool s_firstReported = false;
     if (!s_firstReported) {
         s_firstReported = true;
@@ -110,7 +110,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         ++writes;
     }
 
-    // 診断ログ: 1秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）
+    // 診断ログ：1 秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）
     static qint64 s_winStart = 0;
     static qint64 s_inBytes  = 0;
     static qint64 s_outBytes = 0;
