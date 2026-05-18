@@ -44,6 +44,8 @@ namespace Ffmpeg {
         std::function<void(const VideoInfo& info, const FfmpegResult& result)> callback);
 
     // av1_nvenc エンコーダが利用可能か確認する
+    // ffmpegPath を `-encoders` で同期実行し、結果をプロセス内でキャッシュする。
+    // タイムアウト（5 秒）時はキャッシュ汚染を避けるため false を返すのみでキャッシュしない
     bool checkAv1Nvenc(const QString& ffmpegPath);
 
     // ffmpeg パスから ffprobe パスを生成する（同一ディレクトリを想定）

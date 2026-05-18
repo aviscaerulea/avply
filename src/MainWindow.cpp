@@ -414,6 +414,11 @@ MainWindow::~MainWindow()
         disconnect(m_probeProc, nullptr, this, nullptr);
         m_probeProc->kill();
         m_probeProc->waitForFinished(1000);
+        // 親子破棄経路に乗せると ~QProcess() の waitForFinished(30000) が
+        // ここで上乗せされ最長 31 秒ブロックする。setParent(nullptr) + deleteLater で切り離す
+        m_probeProc->setParent(nullptr);
+        m_probeProc->deleteLater();
+        m_probeProc = nullptr;
     }
 
     // Encoder の cancel+wait
@@ -497,7 +502,8 @@ void MainWindow::onPlayerPositionChanged(qint64 ms)
     m_posLabel->setText("  " + formatSec(sec) + " / " + formatSec(m_info.duration));
 
     if (m_info.duration <= 0.0) return;
-    const int value = static_cast<int>(sec / m_info.duration * kSliderMax);
+    // ffprobe の duration と QMediaPlayer の duration がわずかにずれて末尾で kSliderMax 超になることがあるため明示クランプする
+    const int value = std::clamp(static_cast<int>(sec / m_info.duration * kSliderMax), 0, kSliderMax);
     QSignalBlocker block(m_seekSlider);
     m_seekSlider->setValue(value);
 }
@@ -666,9 +672,22 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
 // ---- 内部ユーティリティ ----
 
-void MainWindow::loadFile(const QString& path, bool centerOnMonitor)
+void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
 {
     if (m_loadInhibited) return;
+
+    // 空パス・空白のみパスの早期 return
+    // IPC 経由で空ペイロードが渡ると QFileInfo("").absoluteFilePath() が cwd を返してしまい、
+    // 下流の setSource / ffprobe に意味のないパスが渡って追跡困難なエラーになる。
+    // 半角スペース・タブのみのゴミ入力も isEmpty() では false になるため trimmed() で同時に弾く
+    if (rawPath.trimmed().isEmpty()) return;
+
+    // 入口で絶対パスに正規化する
+    // CLI 引数経由でハイフン始まりの相対パス（"-bad.mp4" 等）が渡ると、
+    // 下流の ffmpeg/ffprobe で `-i` 直後のトークンがオプションとして誤解釈される。
+    // Windows では絶対パスは必ずドライブレター（"C:\..."）または UNC（"\\..."）で始まるため、
+    // 正規化するだけでハイフン誤解釈リスクを構造的に排除できる
+    const QString path = QFileInfo(rawPath).absoluteFilePath();
 
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);

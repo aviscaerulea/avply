@@ -69,10 +69,11 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         m_appliedRate = pendingRate;
     }
 
-    // 診断ログ：初回バッファのフォーマットを記録する（format mismatch 検出用）
-    static bool s_firstReported = false;
-    if (!s_firstReported) {
-        s_firstReported = true;
+    // 初回バッファのフォーマット記録
+    // format mismatch 検出用の診断ログ。m_firstBufferReported は reset() で false に戻すため、
+    // ファイル切替・シーク後の最初のバッファでも再出力される
+    if (!m_firstBufferReported) {
+        m_firstBufferReported = true;
         const auto& f = buf.format();
         qDebug() << "AudioWorker: first buffer format:"
                  << "rate=" << f.sampleRate()
@@ -164,6 +165,8 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
     // SoundTouch から time-stretched サンプルを取り出して DSP・音量・sink への書き込みを行う
     // 1 回の receiveSamples で全部出ない場合があるため received == 0 までループする
+    // receiveSamples 1 回あたりの取り出し上限フレーム数
+    // 4096 ≒ 85ms@48kHz。大きすぎると 1 ループが長くなり sink bytesFree チェック粒度が落ちる
     constexpr uint kRecvBatchFrames = 4096;
     const qsizetype batchBytes =
         static_cast<qsizetype>(kRecvBatchFrames) * channels * static_cast<qsizetype>(sizeof(float));
@@ -261,6 +264,7 @@ void AudioWorker::reset()
     m_statsOutBytes  = 0;
     m_statsWrites    = 0;
     m_statsUnderruns = 0;
+    m_firstBufferReported = false;
     if (!m_sink) return;
     m_sink->stop();
     m_sinkDev = m_sink->start();

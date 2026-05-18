@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QUuid>
+#include <algorithm>
 
 namespace {
 
@@ -161,6 +162,8 @@ void Encoder::onReadyReadOutput()
     const QString text = m_process->readAllStandardOutput();
 
     // ffmpeg 進捗行の time=HH:MM:SS.nn から経過時間を抽出
+    // 先頭の `-` は \d+ に一致しないため、ffmpeg がシーク直後に出力する負値（time=-00:00:01.500 等）は
+    // そのまま skip される。NaN / 異常値の侵入経路を構造的に断つ
     static const QRegularExpression re(R"(time=(\d+):(\d{2}):(\d{2}\.\d+))");
     auto it = re.globalMatch(text);
     double latestSec = -1.0;
@@ -172,7 +175,16 @@ void Encoder::onReadyReadOutput()
         latestSec = sec;
     }
 
-    if (latestSec >= 0.0) {
+    // 進捗の上限ガード
+    // 通常 latestSec は 0〜totalDuration 内に収まるが、ffmpeg のバグ・破損ストリーム解析で
+    // 異常な大きい値が混入し progressChanged が暴れるのを防ぐ。
+    // 短い区間（例：100ms 切り出し）では m_totalDuration*2.0 が極小になり、ffmpeg 初期の
+    // 「00:00:00.50」等の進捗が上限を超えて以降の emit が全部抑制されるため、最低 10 秒の下限フロアを設ける。
+    // 短区間で latestSec が m_totalDuration を超えうるが、下流の qBound(0, pct, 99) が
+    // 100% 化を吸収するため UI への悪影響はない（ffmpeg 初期異常値の遮断と短区間進捗の両立を優先）。
+    // 0 未満は捕捉漏れ（初期値の -1.0）として下流に流さない
+    const double upperBound = std::max(m_totalDuration * 2.0, 10.0);
+    if (latestSec >= 0.0 && latestSec <= upperBound) {
         // 100% は onProcessFinished で出力ファイル確定後に emit するため、進捗段階は 99% で頭打ち
         const int pct = static_cast<int>(latestSec / m_totalDuration * 100.0);
         emit progressChanged(qBound(0, pct, 99));
@@ -210,10 +222,16 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     }
 
     // 一時ファイルを本来の出力パスへ移動する
-    // %TEMP% が出力先と別ボリュームだと QFile::rename が失敗するため copy + remove にフォールバックする
+    // OutputNamer がユニーク名を生成してから本処理までの間に同名ファイルが現れた場合は
+    // TOCTOU で他プロセス・他ユーザ操作の成果物を上書きしてしまうため、ここで明示的にエラー終了させる。
+    // 既存ファイルを silent overwrite して破壊するより、ユーザに失敗を伝える方が安全
     if (QFile::exists(m_params.outputPath)) {
-        QFile::remove(m_params.outputPath);
+        cleanupTemp();
+        emit finished(false, m_params.outputPath,
+                      "出力先に同名ファイルが存在します。別の avply プロセスや外部操作の可能性があります。競合ファイルを移動または削除してから再実行してください。");
+        return;
     }
+    // %TEMP% が出力先と別ボリュームだと QFile::rename が失敗するため copy + remove にフォールバックする
     if (!QFile::rename(m_tempPath, m_params.outputPath)) {
         if (!QFile::copy(m_tempPath, m_params.outputPath)) {
             // 部分書き込みで生じた壊れた出力ファイルを除去してから失敗を通知する

@@ -12,6 +12,26 @@ namespace Ffmpeg {
 
 namespace {
 
+// JSON 値を double として取り出す
+// ffprobe は通常 bit_rate / sample_rate 等を文字列で返すが、
+// 一部のソース・コーデックでは数値型で返ることがある。
+// どちらの型でも欠落（0.0）と本来 0 を区別せずに扱う
+double jsonToDouble(const QJsonValue& v)
+{
+    if (v.isDouble()) return v.toDouble();
+    if (v.isString()) return v.toString().toDouble();
+    return 0.0;
+}
+
+// JSON 値を int として取り出す
+// jsonToDouble と同じく、ffprobe のフィールド型ゆらぎを吸収する
+int jsonToInt(const QJsonValue& v)
+{
+    if (v.isDouble()) return v.toInt();
+    if (v.isString()) return v.toString().toInt();
+    return 0;
+}
+
 // ffprobe の JSON 出力から VideoInfo を組み立てる
 // probeAsync 内のラムダから呼ぶ純粋関数。Qt 依存は QJson* に限る
 VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
@@ -26,7 +46,7 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
 
     const QJsonObject root = doc.object();
     const QJsonObject fmt = root["format"].toObject();
-    info.duration = fmt["duration"].toString("0").toDouble();
+    info.duration = jsonToDouble(fmt["duration"]);
 
     // 映像・音声ストリームの情報を取得（最初に見つかったものを採用）
     const QJsonArray streams = root["streams"].toArray();
@@ -39,8 +59,7 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
             info.codec = s["codec_name"].toString();
             info.width = s["width"].toInt();
             info.height = s["height"].toInt();
-            const QString br = s["bit_rate"].toString();
-            if (!br.isEmpty()) info.videoBitrate = br.toDouble();
+            info.videoBitrate = jsonToDouble(s["bit_rate"]);
             // フレームレートは "num/den" 形式の文字列で格納されている
             const QString fr = s["avg_frame_rate"].toString();
             const auto parts = fr.split('/');
@@ -53,11 +72,9 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
         }
         else if (!gotAudio && type == "audio") {
             info.audioCodec = s["codec_name"].toString();
-            const QString abr = s["bit_rate"].toString();
-            if (!abr.isEmpty()) info.audioBitrate = abr.toDouble();
-            const QString sr = s["sample_rate"].toString();
-            if (!sr.isEmpty()) info.audioSampleRate = sr.toInt();
-            info.audioChannels = s["channels"].toInt();
+            info.audioBitrate = jsonToDouble(s["bit_rate"]);
+            info.audioSampleRate = jsonToInt(s["sample_rate"]);
+            info.audioChannels = jsonToInt(s["channels"]);
             gotAudio = true;
         }
         if (gotVideo && gotAudio) break;
@@ -118,26 +135,31 @@ bool checkAv1Nvenc(const QString& ffmpegPath)
     static bool cachedResult = false;
     if (cachedPath == ffmpegPath) return cachedResult;
 
-    QProcess proc;
-    proc.setProcessChannelMode(QProcess::MergedChannels);
-    proc.start(ffmpegPath, {"-hide_banner", "-encoders"});
-    const bool finished = proc.waitForFinished(5000);
+    // ヒープ確保で ~QProcess() による GUI 連鎖ブロックを回避する。
+    // ローカル QProcess だと kill→wait タイムアウト時にスコープ抜けの ~QProcess() 内
+    // waitForFinished(30000) が同 thread で連鎖発火し、最長 5+1+30=36 秒 GUI がフリーズする。
+    // ヒープ確保 + deleteLater でプロセス削除を次イベントループに先送りすれば
+    // kill 後の終了確定までの待ちは関数を抜けたあと非同期に吸収される
+    auto* proc = new QProcess;
+    proc->setProcessChannelMode(QProcess::MergedChannels);
+    proc->start(ffmpegPath, {"-hide_banner", "-encoders"});
+    const bool finished = proc->waitForFinished(5000);
 
     // タイムアウト時はキャッシュ汚染を避けるため結果を確定せず返す
     // 一時的な AV ソフト介入による遅延で false が永続キャッシュされると、
     // 以降のセッション全体で NVENC が使えないと誤判定される。
     // 副作用：cachedPath も更新しないため次回呼び出し時に再 spawn する。
-    // AV ソフトが ffmpeg を常時掴む環境では変換ボタン押下のたびに 5〜6 秒のブロックが繰り返される。
-    // 更に proc.kill() 後の waitForFinished(1000) もタイムアウトした場合、
-    // スコープ抜けの ~QProcess() 内 waitForFinished(30000) が走り GUI thread が最長 30 秒固まる
+    // AV ソフトが ffmpeg を常時掴む環境では変換ボタン押下のたびに 5〜6 秒のブロックが繰り返される
     if (!finished) {
-        proc.kill();
-        proc.waitForFinished(1000);
+        proc->kill();
+        proc->waitForFinished(1000);
+        proc->deleteLater();
         return false;
     }
 
-    cachedResult = proc.readAllStandardOutput().contains("av1_nvenc");
+    cachedResult = proc->readAllStandardOutput().contains("av1_nvenc");
     cachedPath = ffmpegPath;
+    proc->deleteLater();
     return cachedResult;
 }
 

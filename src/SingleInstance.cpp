@@ -6,6 +6,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QFileInfo>
+#include <QDebug>
 
 namespace {
 // パイプ名（ユーザスコープで一意）
@@ -112,10 +113,29 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
                 buf->mid(magic.size(), nl - magic.size()));
 
             // ack を返してから loadFileFromIpc を呼ぶ
-            // 相手側は ack 受信で「avply に転送成功」と判定して exit する
-            s->write(kAckMagic);
-            s->flush();
-            s->waitForBytesWritten(kWriteTimeoutMs);
+            // 相手側は ack 受信で「avply に転送成功」と判定して exit する。
+            // 通常経路は flush + disconnectFromServer による非同期ドレイン
+            // （QLocalSocket::disconnectFromServer は書き込み中データ送出後に切断する仕様）。
+            // flush が pending データを送り切れない場合のみ最大 50ms の同期待ちでドレインを試みる
+            const QByteArray ack(kAckMagic);
+            if (s->write(ack) != ack.size()) {
+                // write 失敗時は ack 送れないため即時 abort
+                // 後追跡のためログを残す（相手側 readAll は空となり「ack 失敗 → forward 失敗」になる）
+                qWarning("SingleInstance: ack write failed (state=%d, error=%d)",
+                         static_cast<int>(s->state()), static_cast<int>(s->error()));
+                s->abort();
+                return;
+            }
+            // flush 戻り値確認
+            // Windows パイプの非同期書き込みが pending のまま disconnect すると相手側 readAll が空を返すため、
+            // false なら短時間の同期待ちでドレインを試みる
+            if (!s->flush()) {
+                if (!s->waitForBytesWritten(50)) {
+                    qWarning("SingleInstance: ack flush incomplete (state=%d, error=%d, pending=%lld)",
+                             static_cast<int>(s->state()), static_cast<int>(s->error()),
+                             s->bytesToWrite());
+                }
+            }
             s->disconnectFromServer();
 
             win->loadFileFromIpc(path);

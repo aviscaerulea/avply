@@ -2,15 +2,30 @@
 #include <cmath>
 #include <algorithm>
 
-// v3 ファイルテスト（acompressor + loudnorm）と同一パラメータ
+// 圧縮開始の RMS 閾値（dBFS）
+// この値を超えた帯域が圧縮対象。-25 dBFS は通常の発話・楽音より上に置き、暗騒音は素通しにする狙い
 static constexpr float kThresholdDb = -25.0f;
+// 圧縮比（threshold 超過分を 1/N にする）
+// 6:1 は強めのダウンワード圧縮。大声側を確実に押し込むためにライブ放送系の典型値より深めに取る
 static constexpr float kRatio       = 6.0f;
+// コンプレッサ後のメイクアップゲイン（dB）
+// 小声側の持ち上げ量。+10 dB で threshold 未満の信号は素通しのまま +10 dB 増幅される
 static constexpr float kMakeupDb    = +10.0f;
+// ハードリミッタの絶対上限（線形振幅、1.0=フルスケール）
+// 0.97 は -0.26 dBFS。後段の resampler overshoot（最大 ~2%）を見込んでも 0.99 で頭打ちになる安全係数
 static constexpr float kLimiterCeil = 0.97f;
-static constexpr float kRmsWindowMs = 10.0f;   // RMS 検出窓長
-static constexpr float kAttackMs    = 20.0f;   // ゲイン低下速度（大声検出時）
-static constexpr float kReleaseMs   = 250.0f;  // ゲイン回復速度（無音・小声移行時）
-static constexpr float kRampMs      = 50.0f;   // ON/OFF トグル時の遷移時間
+// RMS 検出窓長（ms）
+// 入力信号の実効値追跡に使う移動平均長。短すぎると発話の母音切れ目に過剰反応し、長すぎると応答が鈍る
+static constexpr float kRmsWindowMs = 10.0f;
+// ゲイン低下速度（ms）
+// Attack 時定数。大声検出から目標ゲインへ収束するまでの IIR 時定数
+static constexpr float kAttackMs    = 20.0f;
+// ゲイン回復速度（ms）
+// Release 時定数。無音・小声移行から目標ゲインへ戻るまでの IIR 時定数。聴感上のポンピング抑制のため Attack より長く取る
+static constexpr float kReleaseMs   = 250.0f;
+// ON/OFF トグル時の遷移時間（ms）
+// raw 信号と processed 信号のブレンド比を線形に切り替える時間。短すぎるとクリック音が出る
+static constexpr float kRampMs      = 50.0f;
 
 // 1-pole IIR フィルタ係数
 // 時定数 timeMs で指数的に追従する係数。
@@ -31,7 +46,7 @@ static const float kInitialRmsState = []() {
 }();
 
 Normalizer::Normalizer(int sampleRate, int channels, bool initialEnabled)
-    : m_channels(channels)
+    : m_channels(std::max(1, channels))
     , m_enabled(initialEnabled)
     , m_applyRatio(initialEnabled ? 1.0f : 0.0f)
     , m_rmsState(kInitialRmsState)

@@ -89,6 +89,9 @@ private:
     qint64       m_statsOutBytes  = 0;
     qint64       m_statsWrites    = 0;
     qint64       m_statsUnderruns = 0;
+    // 初回バッファのフォーマット記録フラグ
+    // reset() で false に戻し、ファイル切替・シーク後の最初のバッファでも診断ログを再出力する
+    bool         m_firstBufferReported = false;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;

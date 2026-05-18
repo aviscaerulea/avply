@@ -100,6 +100,16 @@ SilenceTone::SilenceTone(QObject* parent)
             this, &SilenceTone::onAudioOutputsChanged);
     connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged,
             this, [this]() { m_restartDebounce.start(); });
+
+    // 詳細は SilenceTone.h の m_healthCheck コメント参照
+    // 30 秒は BT 機器の再接続シーケンス（通常数秒〜十数秒）が完了する想定時間より十分長く、
+    // かつユーザがアプリ起動後に音声を流し始めるまでの典型的猶予内に収まる値として設定する
+    m_healthCheck.setInterval(30000);
+    connect(&m_healthCheck, &QTimer::timeout, this, [this]() {
+        if (m_started && !m_sink) {
+            onAudioOutputsChanged();
+        }
+    });
 }
 
 SilenceTone::~SilenceTone()
@@ -122,6 +132,7 @@ void SilenceTone::start()
     if (m_started) return;
     m_started = true;
     openSink();
+    m_healthCheck.start();
 }
 
 void SilenceTone::stop()
@@ -130,6 +141,7 @@ void SilenceTone::stop()
     // pending 中のデバイス変更通知を確実に握り潰し、stop 後の openSink 起動を防ぐ
     m_started = false;
     m_restartDebounce.stop();
+    m_healthCheck.stop();
     closeSink();
 }
 
