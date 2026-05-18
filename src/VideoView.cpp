@@ -160,7 +160,7 @@ VideoView::VideoView(QWidget* parent)
         if (m_primeFirstFrame) return;
         const qint64 dur = m_player->duration();
         // 末尾自動 pause の閾値を再生速度に応じて動的に伸ばす。
-        // playbackRate が大きいと positionChanged の発火間隔が wall-clock 上縮まる代わりに
+        // playbackRate が大きいと positionChanged の発火間隔が実時間軸上縮まる代わりに
         // メディア時間軸上は粗くなり、固定 50ms では末尾を踏み越える。
         // max(50, 100*rate) で 1.0x は 100ms、4.0x なら 400ms 手前で確実に pause する。
         // rate を qMax で 1.0 にクランプすることで、想定外の負値・0 でも下限 50ms を維持する
