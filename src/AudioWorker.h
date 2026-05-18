@@ -22,10 +22,11 @@ class AudioWorker : public QObject {
     Q_OBJECT
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // initialNormalize / initialVoiceClarity で起動時の各 DSP 状態を確定する
+    // initialNormalize で起動時の Normalizer 状態、initialVoiceClarityLevel で音声明瞭化強度を確定する
+    // （VoiceClarity::Level 値そのまま：0=Off / 1=Small / 2=Medium / 3=Large）
     explicit AudioWorker(const QAudioFormat& format,
                          bool initialNormalize,
-                         bool initialVoiceClarity,
+                         int  initialVoiceClarityLevel,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -46,8 +47,10 @@ public slots:
     // ノーマライズ ON/OFF を切り替える（50ms ゲインランプで滑らかに遷移する）
     void setNormalizeEnabled(bool enabled);
 
-    // 音声明瞭化（Biquad EQ）ON/OFF を切り替える（50ms ランプでクロスフェードする）
-    void setVoiceClarityEnabled(bool enabled);
+    // 音声明瞭化（Biquad EQ）の強度を切り替える
+    // 値は VoiceClarity::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）
+    // Off ↔ ON 遷移は 50ms ランプでクロスフェード、強度変更時は係数のみ差し替える
+    void setVoiceClarityLevel(int level);
 
     // 再生速度を SoundTouch に設定する（音程を保ったまま時間圧縮 / 伸長する）
     // QAudioBufferOutput が pitchCompensation を無視するため AudioWorker 側で時間圧縮する

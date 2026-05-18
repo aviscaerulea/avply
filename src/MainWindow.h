@@ -153,12 +153,16 @@ private:
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
     void onToggleNormalize(bool checked);
-    void onToggleVoiceClarity(bool checked);
+
+    // 音声明瞭化の強度を 1 段階進める（Off → 小 → 中 → 大 → Off の 4 状態循環）
+    // V キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
+    void cycleVoiceClarity();
 
     // ノーマライズラベルの表示/非表示を現在の設定に応じて更新する
     void updateNormalizeDisplay();
 
-    // 音声明瞭化ラベルの表示/非表示を現在の設定に応じて更新する
+    // 音声明瞭化ラベルの表示/非表示と強度表記を現在の設定に応じて更新する
+    // Off の場合は非表示、それ以外は「🎤 音声明瞭化 (小/中/大)」を表示する
     void updateVoiceClarityDisplay();
 
     // 再生状態に応じてウィンドウの最前面表示を切り替える
@@ -239,7 +243,6 @@ private:
     QAction*      m_actSingleInst    = nullptr;
     QAction*      m_actPriority      = nullptr;
     QAction*      m_actNormalize     = nullptr;
-    QAction*      m_actVoiceClarity  = nullptr;
 
     // 現在の再生状態（applyTopmostState で参照）
     bool m_isPlaying = false;

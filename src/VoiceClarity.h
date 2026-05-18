@@ -8,13 +8,28 @@
 // チャネル独立に状態を持ち、ON/OFF は 50ms ランプでブレンドして段差ノイズを回避する
 class VoiceClarity {
 public:
-    // initialEnabled で起動時の適用状態を確定する（ランプなし即時反映）
-    explicit VoiceClarity(int sampleRate = 48000, int channels = 2, bool initialEnabled = true);
+    // 適用強度
+    // Off は完全バイパス（applyRatio→0）、Small/Medium/Large はピーク・シェルフのゲインを段階的に増やす。
+    // HPF カットオフは強度に依らず一定（低域カブリ除去は常に同じ効果でよい）
+    enum class Level {
+        Off    = 0,
+        Small  = 1,
+        Medium = 2,
+        Large  = 3,
+    };
 
-    // enabled 状態を変更する。実際の反映は 50ms の線形ランプでブレンド比率を遷移させる
-    void setEnabled(bool enabled);
+    // initialLevel で起動時の適用強度を確定する（ランプなし即時反映）
+    explicit VoiceClarity(int sampleRate = 48000, int channels = 2, Level initialLevel = Level::Medium);
 
-    // シーク・ソース切替時の状態リセット（enabled / applyRatio は維持）
+    // 適用強度を変更する
+    // Off ↔ ON 遷移は 50ms ランプで applyRatio をブレンドする。
+    // ON 状態間の強度変更（小↔中↔大）は係数のみ差し替え、フィルタ内部状態は維持する
+    void setLevel(Level level);
+
+    // 現在の適用強度を返す
+    Level level() const { return m_level; }
+
+    // シーク・ソース切替時の状態リセット（level / applyRatio は維持）
     // 各 Biquad 段のフィルタ遅延状態をゼロクリアし、シーク直後の不連続点を防ぐ
     void reset();
 
@@ -43,12 +58,17 @@ private:
         float y2 = 0.0f;
     };
 
+    // 指定強度に対応する Biquad 係数を再計算して m_coeffs に書き込む
+    // Off の場合は何もしない（係数は維持、process 側でバイパス処理する）
+    void recomputeCoeffs(Level level);
+
+    float m_sampleRate;
     int   m_channels;
-    bool  m_enabled;
+    Level m_level;
     float m_applyRatio;  // 0.0=バイパス, 1.0=DSP 完全適用
     float m_rampStep;    // 1 フレームあたりの applyRatio 変化量（50ms 相当）
 
-    // 3 段の係数（全チャンネル共通、起動時に算出）
+    // 3 段の係数（全チャンネル共通、強度変更時に再算出）
     std::array<BiquadCoeff, 3> m_coeffs;
 
     // チャンネル × 段の状態。最大 2 チャンネル × 3 段。

@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "OutputNamer.h"
 #include "Settings.h"
+#include "VoiceClarity.h"
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -65,6 +66,20 @@ const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 const QString kNormalizePrefix = QString::fromUtf8("  \xf0\x9f\x8e\x9a ");
 // 🎤 (U+1F3A4) = 音声明瞭化（Voice Clarity）
 const QString kVoiceClarityPrefix = QString::fromUtf8("  \xf0\x9f\x8e\xa4 ");
+
+// 音声明瞭化の強度ラベル表記
+// VoiceClarity::Level 値（1=Small / 2=Medium / 3=Large）に対応する表示文字を返す。
+// Off の場合はラベル自体を非表示にするため呼ばない前提
+const char* voiceClarityLevelLabel(int level)
+{
+    switch (level) {
+    case static_cast<int>(VoiceClarity::Level::Off):    Q_ASSERT_X(false, "voiceClarityLevelLabel", "Off must not be passed"); return nullptr;
+    case static_cast<int>(VoiceClarity::Level::Small):  return "小";
+    case static_cast<int>(VoiceClarity::Level::Large):  return "大";
+    case static_cast<int>(VoiceClarity::Level::Medium):
+    default:                                            return "中";
+    }
+}
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -344,17 +359,13 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actNormalize->setChecked(Settings::instance().normalizeEnabled());
     connect(m_actNormalize, &QAction::toggled, this, &MainWindow::onToggleNormalize);
 
-    m_actVoiceClarity = new QAction("音声明瞭化で人声を聞きやすくする", this);
-    m_actVoiceClarity->setCheckable(true);
-    m_actVoiceClarity->setChecked(Settings::instance().voiceClarityEnabled());
-    connect(m_actVoiceClarity, &QAction::toggled, this, &MainWindow::onToggleVoiceClarity);
-
     // 起動時のノーマライズ状態を VideoView（AudioWorker）に反映し、ラベルも初期化する
     m_videoView->setNormalizeEnabled(Settings::instance().normalizeEnabled());
     updateNormalizeDisplay();
 
-    // 音声明瞭化も同様に起動時状態を反映し、ラベル表示を初期化する
-    m_videoView->setVoiceClarityEnabled(Settings::instance().voiceClarityEnabled());
+    // 音声明瞭化の起動時強度を VideoView（AudioWorker）に反映し、ラベル表示を初期化する
+    // QAction は持たず V キー押下のみで循環するため、コンテキストメニュー項目は作らない
+    m_videoView->setVoiceClarityLevel(Settings::instance().voiceClarityLevel());
     updateVoiceClarityDisplay();
 
     updateMenuActionEnabled();
@@ -1187,7 +1198,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         if (m_actNormalize) m_actNormalize->toggle();
         return true;
     case Qt::Key_V:
-        if (m_actVoiceClarity) m_actVoiceClarity->toggle();
+        cycleVoiceClarity();
         return true;
     default:
         return QMainWindow::eventFilter(watched, event);
@@ -1244,20 +1255,33 @@ void MainWindow::updateNormalizeDisplay()
     m_normalizeLabel->setVisible(Settings::instance().normalizeEnabled());
 }
 
-// 音声明瞭化 ON/OFF トグルハンドラ
-// QAction（V キー・右クリックメニュー双方）の toggled シグナルから呼ばれる。
-// レジストリへ永続化し、再生中の AudioWorker へ反映し、ステータスバー表示を更新する
-void MainWindow::onToggleVoiceClarity(bool checked)
+void MainWindow::cycleVoiceClarity()
 {
-    Settings::instance().setVoiceClarityEnabled(checked);
-    m_videoView->setVoiceClarityEnabled(checked);
+    // 4 状態循環：Off → Small → Medium → Large → Off ...
+    // VoiceClarity::Level の数値（0〜3）の剰余で素直に表現する。
+    // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
+    constexpr int kLevelCount = 4;
+    const int next = (Settings::instance().voiceClarityLevel() + 1) % kLevelCount;
+    Settings::instance().setVoiceClarityLevel(next);
+    m_videoView->setVoiceClarityLevel(next);
     updateVoiceClarityDisplay();
 }
 
 void MainWindow::updateVoiceClarityDisplay()
 {
-    // ON 時のみラベルを表示し、OFF 時は非表示にして省スペース化する
-    m_voiceClarityLabel->setVisible(Settings::instance().voiceClarityEnabled());
+    // Off の場合は非表示にして省スペース化する。
+    // ON 時は強度（小/中/大）を末尾に括弧表記で添える
+    const int level = Settings::instance().voiceClarityLevel();
+    if (level == static_cast<int>(VoiceClarity::Level::Off)) {
+        m_voiceClarityLabel->hide();
+        return;
+    }
+    m_voiceClarityLabel->setText(
+        kVoiceClarityPrefix
+        + QString::fromUtf8("音声明瞭化 (")
+        + QString::fromUtf8(voiceClarityLevelLabel(level))
+        + QString::fromUtf8(")"));
+    m_voiceClarityLabel->show();
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
@@ -1376,7 +1400,6 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     settings->addAction(m_actPriority);
     settings->addSeparator();
     settings->addAction(m_actNormalize);
-    settings->addAction(m_actVoiceClarity);
 
     // tooltip をメニュー項目に表示するため明示有効化する
     settings->setToolTipsVisible(true);

@@ -102,7 +102,7 @@ VideoView::VideoView(QWidget* parent)
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(audioFmt,
                                     Settings::instance().normalizeEnabled(),
-                                    Settings::instance().voiceClarityEnabled());
+                                    Settings::instance().voiceClarityLevel());
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
@@ -264,11 +264,11 @@ void VideoView::setNormalizeEnabled(bool enabled)
     }
 }
 
-void VideoView::setVoiceClarityEnabled(bool enabled)
+void VideoView::setVoiceClarityLevel(int level)
 {
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setVoiceClarityEnabled", Qt::QueuedConnection,
-                                  Q_ARG(bool, enabled));
+        QMetaObject::invokeMethod(m_audioWorker, "setVoiceClarityLevel", Qt::QueuedConnection,
+                                  Q_ARG(int, level));
     }
 }
 

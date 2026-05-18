@@ -24,9 +24,12 @@ public:
     bool normalizeEnabled() const;
     void setNormalizeEnabled(bool value);
 
-    // 再生時に Biquad EQ による音声明瞭化を有効にするか（デフォルト true）
-    bool voiceClarityEnabled() const;
-    void setVoiceClarityEnabled(bool value);
+    // 再生時の音声明瞭化（Biquad EQ）強度
+    // 0=Off / 1=Small / 2=Medium / 3=Large（デフォルト 2=Medium）
+    // 値は VoiceClarity::Level と 1:1 対応する。enum を直接公開しないのは
+    // QSettings の永続化が int で完結するため、依存の方向性を Settings → VoiceClarity 単方向に保つため
+    int  voiceClarityLevel() const;
+    void setVoiceClarityLevel(int value);
 
 private:
     Settings();
@@ -34,6 +37,8 @@ private:
     // setValue 直後に sync() で flush し、レジストリへ即時反映する
     void writeBool(const char* key, bool value);
     bool readBool(const char* key, bool defaultValue) const;
+    void writeInt(const char* key, int value);
+    int  readInt(const char* key, int defaultValue) const;
 
     mutable QSettings m_settings;
 };

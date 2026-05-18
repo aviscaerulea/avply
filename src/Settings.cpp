@@ -5,7 +5,13 @@ constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
 constexpr const char* kKeyPriority       = "aboveNormalPriority";
 constexpr const char* kKeyNormalize      = "normalizeEnabled";
-constexpr const char* kKeyVoiceClarity   = "voiceClarityEnabled";
+constexpr const char* kKeyVoiceClarity   = "voiceClarityLevel";
+
+// 音声明瞭化の強度範囲（VoiceClarity::Level と対応）
+// 0=Off / 1=Small / 2=Medium / 3=Large。Settings 単独でクランプするため数値定義する
+constexpr int kVoiceClarityMin     = 0;
+constexpr int kVoiceClarityMax     = 3;
+constexpr int kVoiceClarityDefault = 2;
 } // namespace
 
 Settings::Settings()
@@ -61,14 +67,19 @@ void Settings::setNormalizeEnabled(bool value)
     writeBool(kKeyNormalize, value);
 }
 
-bool Settings::voiceClarityEnabled() const
+int Settings::voiceClarityLevel() const
 {
-    return readBool(kKeyVoiceClarity, true);
+    const int v = readInt(kKeyVoiceClarity, kVoiceClarityDefault);
+    if (v < kVoiceClarityMin) return kVoiceClarityMin;
+    if (v > kVoiceClarityMax) return kVoiceClarityMax;
+    return v;
 }
 
-void Settings::setVoiceClarityEnabled(bool value)
+void Settings::setVoiceClarityLevel(int value)
 {
-    writeBool(kKeyVoiceClarity, value);
+    if (value < kVoiceClarityMin) value = kVoiceClarityMin;
+    if (value > kVoiceClarityMax) value = kVoiceClarityMax;
+    writeInt(kKeyVoiceClarity, value);
 }
 
 bool Settings::readBool(const char* key, bool defaultValue) const
@@ -77,6 +88,17 @@ bool Settings::readBool(const char* key, bool defaultValue) const
 }
 
 void Settings::writeBool(const char* key, bool value)
+{
+    m_settings.setValue(key, value);
+    m_settings.sync();
+}
+
+int Settings::readInt(const char* key, int defaultValue) const
+{
+    return m_settings.value(key, defaultValue).toInt();
+}
+
+void Settings::writeInt(const char* key, int value)
 {
     m_settings.setValue(key, value);
     m_settings.sync();

@@ -10,12 +10,16 @@
 
 AudioWorker::AudioWorker(const QAudioFormat& format,
                          bool initialNormalize,
-                         bool initialVoiceClarity,
+                         int  initialVoiceClarityLevel,
                          QObject* parent)
     : QObject(parent)
     , m_format(format)
     , m_normalizer(format.sampleRate(), format.channelCount(), initialNormalize)
-    , m_voiceClarity(format.sampleRate(), format.channelCount(), initialVoiceClarity)
+    , m_voiceClarity(format.sampleRate(), format.channelCount(),
+                     static_cast<VoiceClarity::Level>(
+                         std::clamp(initialVoiceClarityLevel,
+                                    static_cast<int>(VoiceClarity::Level::Off),
+                                    static_cast<int>(VoiceClarity::Level::Large))))
 {
 }
 
@@ -292,9 +296,12 @@ void AudioWorker::setNormalizeEnabled(bool enabled)
     m_normalizer.setEnabled(enabled);
 }
 
-void AudioWorker::setVoiceClarityEnabled(bool enabled)
+void AudioWorker::setVoiceClarityLevel(int level)
 {
-    m_voiceClarity.setEnabled(enabled);
+    const int clamped = std::clamp(level,
+                                   static_cast<int>(VoiceClarity::Level::Off),
+                                   static_cast<int>(VoiceClarity::Level::Large));
+    m_voiceClarity.setLevel(static_cast<VoiceClarity::Level>(clamped));
 }
 
 void AudioWorker::setPlaybackRate(double rate)
