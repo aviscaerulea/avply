@@ -2,6 +2,7 @@
 #include <QProcess>
 #include <QImage>
 #include <QByteArray>
+#include <algorithm>
 #include <cmath>
 
 ThumbnailExtractor::ThumbnailExtractor(QObject* parent)
@@ -25,11 +26,19 @@ void ThumbnailExtractor::setSource(const QString& ffmpegPath,
     m_ffmpegPath = ffmpegPath;
     m_inputPath  = inputPath;
     m_thumbSize  = thumbSize;
+    // setSource 時点では framerate 未取得のためリセットする
+    // probe 完了後に setFramerate() を呼んで上書きする
+    m_framerate = 0.0;
 }
 
 void ThumbnailExtractor::setHwaccel(const QString& hwaccel)
 {
     m_hwaccel = hwaccel;
+}
+
+void ThumbnailExtractor::setFramerate(double fps)
+{
+    m_framerate = fps;
 }
 
 void ThumbnailExtractor::request(int seconds,
@@ -71,13 +80,19 @@ void ThumbnailExtractor::request(int seconds,
         "scale=%1:%2:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=rgb24")
         .arg(m_thumbSize.width()).arg(m_thumbSize.height());
 
-    // input seek + output seek の組み合わせで GOP 単位のずれを抑える
-    // -ss を -i の前に置く（input seek）と高速にスキップできるが、最寄りの前方キーフレームまで
-    // しか戻れず、GOP=120 frame（4 秒@30fps）想定では実測位置が要求位置から最大数秒ずれる。
-    // 要求位置の少し手前へ input seek で粗く飛び、続く -ss（output seek）でフレーム正確に追い込む。
-    // pre が 0 になる短い動画でも、out 側 -ss seconds で要求位置に到達できる
-    constexpr int kPreSeekSec = 5;
-    const int preSeek  = std::max(0, seconds - kPreSeekSec);
+    // input seek + output seek を組み合わせて GOP 単位のずれを吸収する。
+    // 要求位置の少し手前へ input seek で粗く飛び、output seek でフレーム正確に追い込む。
+    // preSeek 秒数は 2 GOP（240 frames）を framerate で秒換算した値（30fps=8s, 60fps=4s）。
+    // framerate 不明時は kPreSeekSecDefault にフォールバックする
+    constexpr int kPreSeekSecDefault       = 5;
+    constexpr int kAssumedInputGopFrames   = 120;
+    constexpr int kPreSeekMaxSec           = 15;
+    int preSeekSec = kPreSeekSecDefault;
+    if (std::isfinite(m_framerate) && m_framerate > 0.0) {
+        const double sec = static_cast<double>(kAssumedInputGopFrames) * 2.0 / m_framerate;
+        preSeekSec = std::clamp(static_cast<int>(std::ceil(sec)), 2, kPreSeekMaxSec);
+    }
+    const int preSeek  = std::max(0, seconds - preSeekSec);
     const int fineSeek = seconds - preSeek;
 
     QStringList args = { "-hide_banner", "-loglevel", "error" };

@@ -46,8 +46,14 @@ public slots:
     // 受信したバッファに DSP・音量を適用して sink に書き込む
     void onAudioBuffer(const QAudioBuffer& buf);
 
-    // ソース切替・シーク時の sink 積み残し破棄と Normalizer 状態リセット
+    // シーク時の sink 積み残し破棄と DSP 状態リセット
+    // 50ms スロットリングが効くため、短時間の連続呼び出しでは sink restart が間引かれる
     void reset();
+
+    // ソース切替時の強制リセット
+    // 前ソースのサンプルが WASAPI バッファに残らないよう必ず sink stop()→start() を実行する。
+    // throttle 適用外。reset() と異なり m_workBuf / m_volumeWork も解放する
+    void forceReset();
 
     // 再生音量を更新する（0.0〜1.0）
     void setVolume(double volume);
@@ -115,8 +121,9 @@ private:
     // QAudioSink の stop()→start() スロットリング用タイムスタンプ
     // シーク連打で reset() が短時間に複数回キューイングされた際、毎回 WASAPI の
     // 完全再起動（〜30ms ブロック）を走らせると audio thread の HighPriority 占有時間が
-    // 加算されて GUI 体感が劣化する。直近 50ms 以内の再 reset では sink->reset() のみで
-    // バッファ破棄に留め、状態機械リセットは間引く
+    // 加算されて GUI 体感が劣化する。直近 50ms 以内の再 reset では sink への操作を
+    // 一切スキップし、上位 DSP リセットのみで応答する。WASAPI バッファに残る旧サンプルは
+    // 新規入力で上書きされるに任せる
     qint64       m_lastSinkRestartMs = 0;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する

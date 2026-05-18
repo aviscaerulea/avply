@@ -37,6 +37,12 @@ public:
     // setSource の前後どちらで呼んでもよい
     void setHwaccel(const QString& hwaccel);
 
+    // 入力動画のフレームレートを設定する
+    // request() の input seek 量（preSeek）を可変化するために使う。
+    // 0 以下を渡すと固定値（kPreSeekSecDefault）にフォールバックする。
+    // setSource 後に probe 結果が得られた段階で呼ぶ
+    void setFramerate(double fps);
+
     // 量子化済みの秒数キーでサムネイル取得を要求する
     // キャッシュヒット時は同期的に callback(true, pix) を呼ぶ
     // ミス時は ffmpeg を起動し、終了時に callback を呼ぶ
@@ -65,6 +71,9 @@ private:
     QString m_inputPath;
     QSize   m_thumbSize;
     QString m_hwaccel = "auto";
+    // 入力動画フレームレート（fps）
+    // 0 以下なら preSeek は固定値（kPreSeekSecDefault）にフォールバック
+    double  m_framerate = 0.0;
 
     QHash<int, QPixmap> m_cache;
     // LRU 順序：先頭が最新、末尾が古い。容量超過時に末尾を捨てる

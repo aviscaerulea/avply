@@ -251,9 +251,18 @@ void VideoView::setSource(const QString& filePath)
     m_player->stop();
     m_primeFirstFrame = true;
     m_pausingAtEnd = false;
-    // ソース切替時に sink の積み残しサンプルと Normalizer 状態をリセットする
+    // ソース切替時に sink の積み残しサンプルと Normalizer 状態を強制リセットする。
+    // forceReset は throttle 適用外で必ず sink stop()→start() を実行するため、
+    // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ。
+    // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する。
+    // BlockingQueuedConnection は GUI thread を audio thread の DSP リセット完了まで
+    // 数 ms 程度ブロックする。直後の m_player->setSource() で新ソースのデコードが
+    // 開始される前に audio worker 側の状態リセットを完了させ、decoder thread から
+    // audio thread への audioBufferReceived（QueuedConnection）が
+    // forceReset 完了より先に処理される順序 race を排除する
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->forceReset(); }, Qt::BlockingQueuedConnection);
     }
     // 同一 URL 再投入時の強制再ロード
     // QMediaPlayer::setSource は同一 URL を渡すと再ロードを省略し、
@@ -270,8 +279,11 @@ void VideoView::clear()
     m_primeFirstFrame = false;
     m_pausingAtEnd = false;
     m_player->stop();
+    // クリアもソース切替と同等の扱いとし、WASAPI バッファに前ソースの残響を残さない。
+    // BlockingQueuedConnection で audio thread のリセット完了を待つ（setSource と同じ理由）
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->forceReset(); }, Qt::BlockingQueuedConnection);
     }
     m_player->setSource(QUrl());
     m_videoContainer->hide();
@@ -287,7 +299,8 @@ void VideoView::setPosition(qint64 ms)
     // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと Normalizer 状態をリセットする
     m_pausingAtEnd = false;
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->reset(); }, Qt::QueuedConnection);
     }
     m_player->setPosition(ms);
 }

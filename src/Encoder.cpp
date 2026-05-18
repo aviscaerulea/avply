@@ -52,7 +52,9 @@ void Encoder::encode(const EncodeParams& params)
     // 必ず finished(false, ...) を emit して進捗ダイアログを閉じる経路を確保する
     if (isRunning()) {
         qWarning() << "Encoder: 既存の変換処理が完了していないため新規要求を拒否しました";
-        emit finished(false, params.outputPath,
+        // 受理しなかった要求の outputPath を渡すと、呼び出し側で「失敗したが出力ファイルあり」と
+        // 誤解されかねないため空文字で発火する（受理した要求の進捗・後始末とは独立した経路）
+        emit finished(false, QString(),
                       QStringLiteral("前の変換処理が完了していないため、新規要求を受け付けられません"));
         return;
     }

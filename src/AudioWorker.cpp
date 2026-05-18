@@ -120,17 +120,13 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     const qsizetype inFrames = buf.frameCount();
     if (inFrames <= 0) return;
 
-    // SoundTouch に入力サンプル（interleaved float）を投入する
-    // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる
-    m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
-
     // フェールセーフ：連続 underrun 時の蓄積暴走を抑止する
     // sink への書き戻し失敗が続くと SoundTouch 内出力キュー (numSamples) と m_pendingTail が
     // 入力レート分だけ際限なく膨らみ、再生レイテンシが秒単位で増大する。
     // 約 2 秒相当を超えた時点で両方破棄して即時回復させる。聴感上は一瞬の音飛びになるが
     // 持続的なレイテンシ膨張に比べ復帰コストが圧倒的に低い。
-    // putSamples 後にチェックすることで、当該バッファ投入により閾値を踏み越えたケースも
-    // 同一フレーム内で検出して即時クリアできる（putSamples 前チェックでは検出が 1 フレーム遅れる）
+    // チェックは putSamples の前に行う。後置きにすると当該バッファ投入分が即捨てされ、
+    // overflow 復旧後の最初の出力が空となって音切れが連鎖する
     constexpr qint64 kOverflowSeconds = 2;
     const qint64 sampleRate    = m_format.sampleRate();
     const qint64 bytesPerSec   = static_cast<qint64>(m_format.bytesForDuration(1000 * 1000));
@@ -144,12 +140,18 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
                    << "— clearing both to recover";
         m_stretch->clear();
         m_pendingTail.clear();
-        // 統計に underrun として 1 件計上して 1 秒ログから可視化する。
-        // overflow は持続的な書き戻し失敗の結果として発生するため、
-        // underrun カウンタの増加と同種の異常として記録するのが妥当
+        // 統計に underrun として 1 件計上して 1 秒ログから可視化する
         ++m_statsUnderruns;
-        return;
+        // 異常時はフォーマット診断ログを再出力する。
+        // overflow が連発する局面こそ「直前まで何を受けていたか」の記録が重要なため、
+        // 次バッファで first-buffer 経路の qDebug を再走させる
+        m_firstBufferReported = false;
     }
+
+    // SoundTouch に入力サンプル（interleaved float）を投入する
+    // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる。
+    // overflow 復旧後も同経路で当該バッファ分を投入する（捨てると復旧冒頭で空出力になる）
+    m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
 
     // 統計集計用ローカル変数
     qint64 totalInBytes  = 0;
@@ -290,16 +292,14 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
 void AudioWorker::reset()
 {
-    // ソース切替・シーク時に sink のバッファを破棄して Normalizer・SoundTouch 状態もリセットする。
-    // QAudioSink::reset() のみでは停止状態への遷移が保証されないため
-    // stop() → start() で状態機械を確実にリセットする
+    // シーク時の sink 積み残し破棄と DSP 状態リセット。
+    // 50ms 以内の連打ではスロットリング側に流し、sink stop()→start() を間引く
     m_normalizer.reset();
     m_voiceClarity.reset();
     if (m_stretch) m_stretch->clear();
-    // ソース切替時にバッファを解放する（次の onAudioBuffer で必要サイズに再確保される）
-    m_workBuf.clear();
-    m_volumeWork.clear();
-    // sink を捨てるため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）
+    // sink を捨てるため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）。
+    // m_workBuf / m_volumeWork はシーク連打中の audio thread malloc/free スパイクを避けるため
+    // ここでは解放せず保持する（解放は teardown / forceReset でのみ行う）
     m_pendingTail.clear();
     // 1 秒集計ウィンドウもリセットする。リセット直後の集計区間が 1 秒超 / 未満で出ないようにする
     m_statsWinStart  = 0;
@@ -310,19 +310,13 @@ void AudioWorker::reset()
     m_firstBufferReported = false;
     if (!m_sink) return;
     // シーク連打スロットリング
-    // 直近 50ms 以内の再 reset では sink の stop()→start() をスキップする。
-    // stop()→start() は WASAPI の完全再起動で約 30ms ブロックし、連打すると
-    // audio thread に蓄積して GUI 体感が劣化するため間引く。
-    // QAudioSink::reset() は StoppedState に遷移して sinkDev の write が
-    // 無効化されるリスクがあるため呼ばず、WASAPI バッファ（最大 200ms）に
-    // 残った旧サンプルは一瞬鳴ってから新規入力で上書きされるに任せる。
-    // 上の DSP リセット（Normalizer / VoiceClarity / SoundTouch / pendingTail）は
-    // 既に完了しているため、シーク連打中の聴感悪化は限定的。
-    // スロットリング窓は「最後の reset 呼び出し」から 50ms とし、連打が継続する
-    // 限り常にスロットリング側へ流すことで sink restart の蓄積を抑える
+    // 直近 50ms 以内の再 reset では sink stop()→start() をスキップする。WASAPI 完全再起動の
+    // 約 30ms ブロックが audio thread に蓄積するのを防ぐ。スロットリング窓は「最後に実際に
+    // restart した時刻」から 50ms とし、throttle 側 return では m_lastSinkRestartMs を
+    // 更新しない。これにより 49ms 間隔の連打中でも 50ms ごとに一度は sink restart が走り、
+    // WASAPI バッファに残った旧サンプルが定期的に flush される
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - m_lastSinkRestartMs < 50) {
-        m_lastSinkRestartMs = now;
         return;
     }
     m_lastSinkRestartMs = now;
@@ -330,6 +324,31 @@ void AudioWorker::reset()
     m_sinkDev = m_sink->start();
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed (after reset):" << m_sink->error();
+    }
+}
+
+void AudioWorker::forceReset()
+{
+    // ソース切替時の強制リセット。throttle を無視して必ず sink を stop→start し、
+    // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ
+    m_normalizer.reset();
+    m_voiceClarity.reset();
+    if (m_stretch) m_stretch->clear();
+    m_workBuf.clear();
+    m_volumeWork.clear();
+    m_pendingTail.clear();
+    m_statsWinStart  = 0;
+    m_statsInBytes   = 0;
+    m_statsOutBytes  = 0;
+    m_statsWrites    = 0;
+    m_statsUnderruns = 0;
+    m_firstBufferReported = false;
+    if (!m_sink) return;
+    m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();
+    m_sink->stop();
+    m_sinkDev = m_sink->start();
+    if (!m_sinkDev) {
+        qWarning() << "AudioWorker: QAudioSink::start() failed (after forceReset):" << m_sink->error();
     }
 }
 

@@ -146,13 +146,15 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
             s->disconnectFromServer();
 
             // MainWindow への呼び出しは GUI thread へキューイングする
-            // QLocalServer の newConnection は GUI thread で発火するため通常は同 thread だが、
-            // QPointer の null チェックと dereference 間のアトミック性は保証されない。
-            // QueuedConnection 経由とすることで receiver 破棄後のイベントは Qt 側で安全に破棄される
+            // functor 型 invokeMethod を使うことで MainWindow::loadFileFromIpc の
+            // シグネチャ変更をコンパイル時に検知できる（string-based の "loadFileFromIpc" 解決は
+            // メタオブジェクトに該当 slot がない場合 silent fail するため避ける）。
+            // QueuedConnection 経由とすることで receiver 破棄後にディスパッチされる
+            // invokeMethod イベントを Qt 側で安全に破棄させる
             if (winSafe) {
-                QMetaObject::invokeMethod(winSafe, "loadFileFromIpc",
-                                          Qt::QueuedConnection,
-                                          Q_ARG(QString, path));
+                QMetaObject::invokeMethod(winSafe.data(), [winSafe, path]() {
+                    if (winSafe) winSafe->loadFileFromIpc(path);
+                }, Qt::QueuedConnection);
             }
         };
 

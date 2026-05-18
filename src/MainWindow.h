@@ -80,7 +80,9 @@ private:
     static bool isAudioByExtension(const QString& path);
 
     // ffprobe 結果が音声のみ（映像ストリーム未検出）であるかを返す
-    bool isAudioOnly() const { return m_info.codec.isEmpty() || m_info.width <= 0; }
+    // probe 未完了時は false（動画扱い）を返す。
+    // VideoInfo メンバを probe 完了前に参照すると、設定済みの旧情報を流用してフリッカ要因になるため
+    bool isAudioOnly() const { return m_info.valid && (m_info.codec.isEmpty() || m_info.width <= 0); }
 
     // UI 有効/無効を切り替える（変換中は無効化）
     void setUiEnabled(bool enabled);
@@ -117,10 +119,11 @@ private:
     QString waveformCachePath(const QString& inputPath) const;
 
     // 実行中の波形生成プロセスを停止し m_waveformProc を解放する
-    // synchronous=true で waitForFinished + delete（デストラクタ向け）、
-    // false で deleteLater（ファイル切替時向け）。kill した中途生成 PNG は QFile::remove で削除し
+    // disconnect → kill → 短時間 waitForFinished → setParent(nullptr) + deleteLater の順で
+    // 解放することで、~QProcess() の waitForFinished(30000) ブロックを回避しつつ
+    // ハンドルが解放されるのを待つ。kill した中途生成 PNG は QFile::remove で削除し
     // 次回起動時に破損キャッシュをヒットさせない
-    void stopWaveformProcess(bool synchronous);
+    void stopWaveformProcess();
 
     // カーソルキーによる相対シーク（delta > 0 で早送り、< 0 で巻き戻し）
     void seekRelative(int deltaMs);

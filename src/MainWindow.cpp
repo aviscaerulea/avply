@@ -438,7 +438,7 @@ MainWindow::~MainWindow()
     // その間に他の子 QObject から queued/auto signal が MainWindow へ届くと
     // 「メンバ破棄進行中の this にスロット呼び出し」という半壊状態が生じる。
     // これを防ぐため、Encoder 待機より先にそれらの disconnect / cancel を済ませる
-    stopWaveformProcess(true);
+    stopWaveformProcess();
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
     if (m_probeProc) {
         disconnect(m_probeProc, nullptr, this, nullptr);
@@ -725,15 +725,16 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     // 正規化するだけでハイフン誤解釈リスクを構造的に排除できる
     const QString path = QFileInfo(rawPath).absoluteFilePath();
 
+    // probe 完了までファイル依存 UI を一旦無効化する。
+    // setSource() より前に invalidate しておくことで、setSource 経由で発火し得る
+    // mediaStatusChanged 等の同期コールバックでも旧 m_info / m_filePath が参照されない
+    m_info = VideoInfo();
+    m_filePath.clear();
+    setWindowTitle(QStringLiteral("avply"));
+    setUiEnabled(false);
+
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
-
-    // probe 完了までファイル依存 UI を一旦無効化する
-    // m_videoView は既に新ソースへ切替済みだが、m_filePath / m_info は probe 完了まで旧値のまま。
-    // この間トリム/変換ボタンが活性のままだと「再生中の動画」と「実際に処理される旧ファイル」が
-    // 乖離するため、m_info を invalidate して setUiEnabled で UI を確実に止める
-    m_info = VideoInfo();
-    setUiEnabled(false);
 
     // 旧 probe を破棄してから新規発行する。
     // 連続 D&D などで前ファイルの probe 結果が遅れて到着し、新ファイルの状態を上書きするのを防ぐ
@@ -846,6 +847,9 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     if (m_thumbExtractor) {
         const QSize thumbSize = isAudioOnly() ? QSize() : QSize(240, 135);
         m_thumbExtractor->setSource(m_ffmpegPath, path, thumbSize);
+        // probe で得た framerate を渡して preSeek を可変化する
+        // 0 を渡しても ThumbnailExtractor 側で固定値フォールバックに切り替わる
+        m_thumbExtractor->setFramerate(info.frameRate);
     }
     m_hoverPendingSec = -1;
 
@@ -1428,7 +1432,7 @@ void MainWindow::startWaveformGeneration(const QString& inputPath)
 {
     // 短時間でファイルを切り替えた際に古いプロセスのコールバックが新ファイルへ
     // 誤反映するのを防ぐため、新規生成前に旧プロセスを停止する
-    stopWaveformProcess(false);
+    stopWaveformProcess();
 
     // ffmpeg パスが無効なら波形生成は諦める。シークバーは波形なしのまま
     if (m_ffmpegPath.isEmpty() || !QFile::exists(m_ffmpegPath)) return;
@@ -1560,7 +1564,7 @@ void MainWindow::loadFileFromIpc(const QString& path)
     activateWindow();
 }
 
-void MainWindow::stopWaveformProcess(bool synchronous)
+void MainWindow::stopWaveformProcess()
 {
     if (!m_waveformProc) return;
 
@@ -1578,8 +1582,9 @@ void MainWindow::stopWaveformProcess(bool synchronous)
 
     // kill 後にプロセス終端を短時間待つ
     // Windows の DeleteFile は ffmpeg のファイルハンドルが残った状態では失敗するため、
-    // QFile::remove より先に確実にプロセスを終了させる必要がある
-    m_waveformProc->waitForFinished(synchronous ? 3000 : 1000);
+    // QFile::remove より先に確実にプロセスを終了させる必要がある。
+    // タイムアウト 1000ms は ffmpeg が SIGKILL 相当を受けて終了するのに十分な実測値
+    m_waveformProc->waitForFinished(1000);
 
     // 親子破棄経路に乗せると ~QProcess() の waitForFinished(30000) が
     // ここで上乗せされ最長 33 秒ブロックする。setParent(nullptr) + deleteLater で切り離す
@@ -1630,7 +1635,9 @@ void MainWindow::onSeekHoverMoved(int x, int sliderValue)
     // サムネ未取得（音声 or キャッシュミス）：時刻のみ即更新する
     m_seekPreview->setTimeOnly(timeText);
 
-    if (isAudioOnly() || !m_thumbExtractor) return;
+    // probe 未完了時（!m_info.valid）は isAudioOnly() が動画扱いの false を返すため、
+    // 旧情報のサムネ抽出が走らないよう valid ガードを併記する
+    if (!m_info.valid || isAudioOnly() || !m_thumbExtractor) return;
 
     // 走行中なら request() 内で破棄される（完走優先）。
     // 走行中ジョブの finished で connect された callback がここを再帰呼びして最新位置を取りに行く
@@ -1639,7 +1646,8 @@ void MainWindow::onSeekHoverMoved(int x, int sliderValue)
 
 void MainWindow::requestHoverThumbnail()
 {
-    if (m_hoverPendingSec < 0 || isAudioOnly()) return;
+    // onSeekHoverMoved と同じ理由で probe 完了前は弾く
+    if (m_hoverPendingSec < 0 || !m_info.valid || isAudioOnly()) return;
     if (!m_thumbExtractor || !m_seekPreview) return;
     if (!m_seekPreview->isVisible()) return;
 

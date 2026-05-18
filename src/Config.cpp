@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QStringConverter>
+#include <QDebug>
 #include <algorithm>
 #include <vector>
 
@@ -24,18 +25,31 @@ bool parseSection(const QString& line, QString& section)
 
 // 値文字列からクォート外の行末コメントを切り捨てる
 // TOML 慣習で `speed = 1.25  # コメント` を許容する。
-// クォート内の `#` はリテラルとして保持する（パス等での誤切断を防ぐ）
+// クォート内の `#` はリテラルとして保持する（パス等での誤切断を防ぐ）。
+// `\"` のエスケープに対応する。直前の連続バックスラッシュ個数が奇数なら `"` はエスケープ済みとして
+// 扱い、偶数（0 含む）なら通常の閉じクォートとして扱う。これにより Windows パス
+// `"C:\\Tools\\ffmpeg.exe"` のように `\\` が連続するケースでも、最後の `"` が誤って
+// エスケープ判定されない。クォート未閉じの場合は qWarning で警告する
 QString stripInlineComment(const QString& raw)
 {
     bool inQuote = false;
     for (int i = 0; i < raw.size(); ++i) {
         const QChar c = raw.at(i);
         if (c == '"') {
-            inQuote = !inQuote;
+            int backslashes = 0;
+            for (int j = i - 1; j >= 0 && raw.at(j) == '\\'; --j) {
+                ++backslashes;
+            }
+            if ((backslashes % 2) == 0) {
+                inQuote = !inQuote;
+            }
         }
         else if (c == '#' && !inQuote) {
             return raw.left(i).trimmed();
         }
+    }
+    if (inQuote) {
+        qWarning() << "Config: unclosed quote detected in value:" << raw;
     }
     return raw;
 }
