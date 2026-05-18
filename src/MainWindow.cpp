@@ -63,6 +63,8 @@ namespace {
 const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 const QString kNormalizePrefix = QString::fromUtf8("  \xf0\x9f\x8e\x9a ");
+// 🎤 (U+1F3A4) = 音声明瞭化（Voice Clarity）
+const QString kVoiceClarityPrefix = QString::fromUtf8("  \xf0\x9f\x8e\xa4 ");
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -150,6 +152,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🎚 はラベル種別の視覚的区別のため付与する
     m_normalizeLabel = new QLabel(kNormalizePrefix + "ノーマライズ");
     m_normalizeLabel->hide();
+
+    // --- 音声明瞭化ラベル（ノーマライズラベルの右に配置、ON 時のみ表示） ---
+    // 先頭の 🎤 はラベル種別の視覚的区別のため付与する
+    m_voiceClarityLabel = new QLabel(kVoiceClarityPrefix + "音声明瞭化");
+    m_voiceClarityLabel->hide();
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -276,6 +283,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addPermanentWidget(m_speedLabel);
     statusBar()->addPermanentWidget(m_volumeLabel);
     statusBar()->addPermanentWidget(m_normalizeLabel);
+    statusBar()->addPermanentWidget(m_voiceClarityLabel);
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
     m_seekTimer.setSingleShot(true);
@@ -336,9 +344,18 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actNormalize->setChecked(Settings::instance().normalizeEnabled());
     connect(m_actNormalize, &QAction::toggled, this, &MainWindow::onToggleNormalize);
 
+    m_actVoiceClarity = new QAction("音声明瞭化で人声を聞きやすくする", this);
+    m_actVoiceClarity->setCheckable(true);
+    m_actVoiceClarity->setChecked(Settings::instance().voiceClarityEnabled());
+    connect(m_actVoiceClarity, &QAction::toggled, this, &MainWindow::onToggleVoiceClarity);
+
     // 起動時のノーマライズ状態を VideoView（AudioWorker）に反映し、ラベルも初期化する
     m_videoView->setNormalizeEnabled(Settings::instance().normalizeEnabled());
     updateNormalizeDisplay();
+
+    // 音声明瞭化も同様に起動時状態を反映し、ラベル表示を初期化する
+    m_videoView->setVoiceClarityEnabled(Settings::instance().voiceClarityEnabled());
+    updateVoiceClarityDisplay();
 
     updateMenuActionEnabled();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
@@ -1169,6 +1186,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     case Qt::Key_N:
         if (m_actNormalize) m_actNormalize->toggle();
         return true;
+    case Qt::Key_V:
+        if (m_actVoiceClarity) m_actVoiceClarity->toggle();
+        return true;
     default:
         return QMainWindow::eventFilter(watched, event);
     }
@@ -1222,6 +1242,22 @@ void MainWindow::updateNormalizeDisplay()
 {
     // ON 時のみラベルを表示し、OFF 時は非表示にして省スペース化する
     m_normalizeLabel->setVisible(Settings::instance().normalizeEnabled());
+}
+
+// 音声明瞭化 ON/OFF トグルハンドラ
+// QAction（V キー・右クリックメニュー双方）の toggled シグナルから呼ばれる。
+// レジストリへ永続化し、再生中の AudioWorker へ反映し、ステータスバー表示を更新する
+void MainWindow::onToggleVoiceClarity(bool checked)
+{
+    Settings::instance().setVoiceClarityEnabled(checked);
+    m_videoView->setVoiceClarityEnabled(checked);
+    updateVoiceClarityDisplay();
+}
+
+void MainWindow::updateVoiceClarityDisplay()
+{
+    // ON 時のみラベルを表示し、OFF 時は非表示にして省スペース化する
+    m_voiceClarityLabel->setVisible(Settings::instance().voiceClarityEnabled());
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
@@ -1340,6 +1376,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     settings->addAction(m_actPriority);
     settings->addSeparator();
     settings->addAction(m_actNormalize);
+    settings->addAction(m_actVoiceClarity);
 
     // tooltip をメニュー項目に表示するため明示有効化する
     settings->setToolTipsVisible(true);

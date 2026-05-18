@@ -24,6 +24,10 @@ public:
     bool normalizeEnabled() const;
     void setNormalizeEnabled(bool value);
 
+    // 再生時に Biquad EQ による音声明瞭化を有効にするか（デフォルト true）
+    bool voiceClarityEnabled() const;
+    void setVoiceClarityEnabled(bool value);
+
 private:
     Settings();
 

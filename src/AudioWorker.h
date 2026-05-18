@@ -1,5 +1,6 @@
 #pragma once
 #include "Normalizer.h"
+#include "VoiceClarity.h"
 #include <QObject>
 #include <QAudioFormat>
 #include <QAudioBuffer>
@@ -21,8 +22,10 @@ class AudioWorker : public QObject {
     Q_OBJECT
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // initialNormalize で起動時のノーマライズ状態を確定する
-    explicit AudioWorker(const QAudioFormat& format, bool initialNormalize,
+    // initialNormalize / initialVoiceClarity で起動時の各 DSP 状態を確定する
+    explicit AudioWorker(const QAudioFormat& format,
+                         bool initialNormalize,
+                         bool initialVoiceClarity,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -43,6 +46,9 @@ public slots:
     // ノーマライズ ON/OFF を切り替える（50ms ゲインランプで滑らかに遷移する）
     void setNormalizeEnabled(bool enabled);
 
+    // 音声明瞭化（Biquad EQ）ON/OFF を切り替える（50ms ランプでクロスフェードする）
+    void setVoiceClarityEnabled(bool enabled);
+
     // 再生速度を SoundTouch に設定する（音程を保ったまま時間圧縮 / 伸長する）
     // QAudioBufferOutput が pitchCompensation を無視するため AudioWorker 側で時間圧縮する
     void setPlaybackRate(double rate);
@@ -54,6 +60,7 @@ public slots:
 private:
     QAudioFormat m_format;
     Normalizer   m_normalizer;
+    VoiceClarity m_voiceClarity;
     QAudioSink*  m_sink    = nullptr;
     QIODevice*   m_sinkDev = nullptr;
     double       m_volume  = 1.0;

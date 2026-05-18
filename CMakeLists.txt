@@ -51,6 +51,8 @@ qt_add_executable(avply WIN32
     src/SilenceTone.cpp
     src/Normalizer.h
     src/Normalizer.cpp
+    src/VoiceClarity.h
+    src/VoiceClarity.cpp
     src/AudioWorker.h
     src/AudioWorker.cpp
     src/icons.qrc

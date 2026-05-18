@@ -153,9 +153,13 @@ private:
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
     void onToggleNormalize(bool checked);
+    void onToggleVoiceClarity(bool checked);
 
     // ノーマライズラベルの表示/非表示を現在の設定に応じて更新する
     void updateNormalizeDisplay();
+
+    // 音声明瞭化ラベルの表示/非表示を現在の設定に応じて更新する
+    void updateVoiceClarityDisplay();
 
     // 再生状態に応じてウィンドウの最前面表示を切り替える
     // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
@@ -218,6 +222,7 @@ private:
     QLabel*       m_speedLabel;
     QLabel*       m_volumeLabel;
     QLabel*       m_normalizeLabel;
+    QLabel*       m_voiceClarityLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;
@@ -234,6 +239,7 @@ private:
     QAction*      m_actSingleInst    = nullptr;
     QAction*      m_actPriority      = nullptr;
     QAction*      m_actNormalize     = nullptr;
+    QAction*      m_actVoiceClarity  = nullptr;
 
     // 現在の再生状態（applyTopmostState で参照）
     bool m_isPlaying = false;

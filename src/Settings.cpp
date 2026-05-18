@@ -5,6 +5,7 @@ constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
 constexpr const char* kKeyPriority       = "aboveNormalPriority";
 constexpr const char* kKeyNormalize      = "normalizeEnabled";
+constexpr const char* kKeyVoiceClarity   = "voiceClarityEnabled";
 } // namespace
 
 Settings::Settings()
@@ -58,6 +59,16 @@ bool Settings::normalizeEnabled() const
 void Settings::setNormalizeEnabled(bool value)
 {
     writeBool(kKeyNormalize, value);
+}
+
+bool Settings::voiceClarityEnabled() const
+{
+    return readBool(kKeyVoiceClarity, true);
+}
+
+void Settings::setVoiceClarityEnabled(bool value)
+{
+    writeBool(kKeyVoiceClarity, value);
 }
 
 bool Settings::readBool(const char* key, bool defaultValue) const

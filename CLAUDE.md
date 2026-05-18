@@ -41,7 +41,8 @@ src/
   Config.h/cpp        avply.toml 読み込み（ffmpeg_path 等）
   SilenceTone.h/cpp   BT アイドル復帰プチノイズ抑制用の常時不可聴トーン出力
   Normalizer.h/cpp    RMS コンプレッサ + メイクアップゲイン DSP（ノーマライズ）
-  AudioWorker.h/cpp   専用スレッドで Normalizer DSP と QAudioSink 書き込みを担うワーカ
+  VoiceClarity.h/cpp  Biquad EQ 3 段カスケード DSP（音声明瞭化、こもり除去）
+  AudioWorker.h/cpp   専用スレッドで Normalizer / VoiceClarity DSP と QAudioSink 書き込みを担うワーカ
 ```
 
 ## 実装上の注意点
@@ -145,6 +146,29 @@ DSP パラメータ（`Normalizer.cpp` の constexpr 定数）：
 | ON/OFF ramp | 50 ms |
 
 resampler overshoot（最大 ~2%）が乗っても `0.97 × 1.02 ≒ 0.99` でハードクリップに触れないため、過去の gain ブースト撤去と同じ地雷を踏まない設計になっている。
+
+### 音声明瞭化設定
+
+再生時の Biquad EQ による人声の聞き取りやすさ改善機能。こもり気味の音声の子音帯域を持ち上げ、低域カブリを抑える。
+DSP チェーン上は SoundTouch 出力直後・Normalizer 前段に挿入する。EQ のピーキングブーストで振幅が拡張されても、後段 Normalizer のリミッタ（±0.97）が自然に上限を保証する設計だ。
+
+- デフォルト：ON（`Settings::voiceClarityEnabled` の既定値 `true`）
+- トグル：`V` キー、または右クリック →「設定」→「音声明瞭化で人声を聞きやすくする」
+- 状態表示：ステータスバーに「🎤 音声明瞭化」（ON 時のみ）
+- 永続化：レジストリ（`HKEY_CURRENT_USER\Software\avply\avply\voiceClarityEnabled`）
+
+ON↔OFF 切替時は 50ms の線形ランプで raw 信号と processed 信号をクロスフェードしてクリックノイズを避ける。
+
+DSP パラメータ（`VoiceClarity.cpp` の constexpr 定数、RBJ Audio EQ Cookbook 準拠の Biquad 係数算出）：
+
+| 段 | フィルタ種別 | パラメータ |
+|----|-------------|-----------|
+| 1 | High-pass | fc=100Hz, Q=0.707（Butterworth） |
+| 2 | Peaking EQ | fc=3000Hz, Q=1.0, gain=+5dB |
+| 3 | High-shelf | fc=8000Hz, Q=0.707, gain=+2dB |
+
+各 Biquad は Direct Form I 実装で、チャンネル × 段ごとに独立した状態（x1, x2, y1, y2）を保持する。
+`reset()` でシーク・ファイル切替時に状態をゼロクリアし、旧サンプルの遅延が混入してインパルス的ポップが出るのを防ぐ。
 
 **高速再生時のサンプル欠落対策（SoundTouch WSOLA）**
 

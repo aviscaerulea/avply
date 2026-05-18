@@ -8,10 +8,14 @@
 #include <algorithm>
 #include <cmath>
 
-AudioWorker::AudioWorker(const QAudioFormat& format, bool initialNormalize, QObject* parent)
+AudioWorker::AudioWorker(const QAudioFormat& format,
+                         bool initialNormalize,
+                         bool initialVoiceClarity,
+                         QObject* parent)
     : QObject(parent)
     , m_format(format)
     , m_normalizer(format.sampleRate(), format.channelCount(), initialNormalize)
+    , m_voiceClarity(format.sampleRate(), format.channelCount(), initialVoiceClarity)
 {
 }
 
@@ -188,6 +192,10 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         const qsizetype outSamples = static_cast<qsizetype>(received) * channels;
         const qsizetype outBytes   = outSamples * static_cast<qsizetype>(sizeof(float));
 
+        // 音声明瞭化 → ノーマライズの順で処理する。
+        // EQ のピーキングブーストで振幅が拡張されても後段 Normalizer のリミッタ（±0.97）で
+        // 自然に上限を保証できる。順序を逆にすると EQ が limited 信号を再ブーストして clip するリスクがある
+        m_voiceClarity.process(recv, outSamples);
         m_normalizer.process(recv, outSamples);
 
         // sink の空きに収まる分のみ即時書き込み、残量は pre-volume のまま退避する。
@@ -252,6 +260,7 @@ void AudioWorker::reset()
     // QAudioSink::reset() のみでは停止状態への遷移が保証されないため
     // stop() → start() で状態機械を確実にリセットする
     m_normalizer.reset();
+    m_voiceClarity.reset();
     if (m_stretch) m_stretch->clear();
     // ソース切替時にバッファを解放する（次の onAudioBuffer で必要サイズに再確保される）
     m_workBuf.clear();
@@ -281,6 +290,11 @@ void AudioWorker::setVolume(double volume)
 void AudioWorker::setNormalizeEnabled(bool enabled)
 {
     m_normalizer.setEnabled(enabled);
+}
+
+void AudioWorker::setVoiceClarityEnabled(bool enabled)
+{
+    m_voiceClarity.setEnabled(enabled);
 }
 
 void AudioWorker::setPlaybackRate(double rate)

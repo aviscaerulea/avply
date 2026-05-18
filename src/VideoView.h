@@ -60,6 +60,10 @@ public:
     // 変更は AudioWorker に QueuedConnection で転送され、50ms ゲインランプで滑らかに遷移する
     void setNormalizeEnabled(bool enabled);
 
+    // 音声明瞭化（Biquad EQ）の ON/OFF を設定する
+    // 変更は AudioWorker に QueuedConnection で転送され、50ms ランプでクロスフェードする
+    void setVoiceClarityEnabled(bool enabled);
+
 protected:
     void wheelEvent(QWheelEvent* event) override;
 

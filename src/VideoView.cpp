@@ -1,5 +1,6 @@
 #include "VideoView.h"
 #include "AudioWorker.h"
+#include "Settings.h"
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QQuickView>
@@ -95,11 +96,13 @@ VideoView::VideoView(QWidget* parent)
     // 音声経路を QAudioBufferOutput + 専用スレッド AudioWorker + QAudioSink で構成する。
     // decoder thread → audio thread の QueuedConnection 経路により、
     // GUI thread が modal loop でブロックされても音声経路が独立稼働する。
-    // 初期ノーマライズ状態はデフォルト（true）で設定し、MainWindow から setNormalizeEnabled で上書きする
+    // 初期 DSP 状態は Settings から読み込む（MainWindow からも後段で上書き可能）
     const QAudioFormat audioFmt = makeAudioFormat();
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
-    m_audioWorker = new AudioWorker(audioFmt, /* initialNormalize= */ true);
+    m_audioWorker = new AudioWorker(audioFmt,
+                                    Settings::instance().normalizeEnabled(),
+                                    Settings::instance().voiceClarityEnabled());
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
@@ -257,6 +260,14 @@ void VideoView::setNormalizeEnabled(bool enabled)
 {
     if (m_audioWorker) {
         QMetaObject::invokeMethod(m_audioWorker, "setNormalizeEnabled", Qt::QueuedConnection,
+                                  Q_ARG(bool, enabled));
+    }
+}
+
+void VideoView::setVoiceClarityEnabled(bool enabled)
+{
+    if (m_audioWorker) {
+        QMetaObject::invokeMethod(m_audioWorker, "setVoiceClarityEnabled", Qt::QueuedConnection,
                                   Q_ARG(bool, enabled));
     }
 }
