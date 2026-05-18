@@ -2,8 +2,6 @@
 #include "Config.h"
 #include "OutputNamer.h"
 #include "Settings.h"
-#include "Normalizer.h"
-#include "VoiceClarity.h"
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -64,23 +62,10 @@ namespace {
 // 🎬 = 再生速度、🔊 = 音量。MSVC の文字リテラル経路を避けるため UTF-8 バイト列で直書きする
 const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
-const QString kNormalizePrefix = QString::fromUtf8("  \xf0\x9f\x8e\x9a ");
-// 🎤 (U+1F3A4) = 音声明瞭化（Voice Clarity）
-const QString kVoiceClarityPrefix = QString::fromUtf8("  \xf0\x9f\x8e\xa4 ");
-
-// 強度ラベル表記
-// Normalizer / VoiceClarity 共通の Level 値（1=Small / 2=Medium / 3=Large）を表示文字に変換する。
-// Off の場合はラベル自体を非表示にするため呼ばない前提
-const char* levelLabel(int level)
-{
-    switch (level) {
-    case 0:  Q_ASSERT_X(false, "levelLabel", "Off must not be passed"); return nullptr;
-    case 1:  return "小";
-    case 3:  return "大";
-    case 2:
-    default: return "中";
-    }
-}
+// ステータスバー常時表示ラベルのプレフィックス
+// 後ろに "0"（Off）/ "1"（Small）/ "2"（Medium）/ "3"（Large）を連結して表示する
+const QString kNormalizePrefix    = "  Normalize:";
+const QString kVoiceClarityPrefix = "  Clarity:";
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -164,15 +149,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
-    // --- ノーマライズラベル（音量ラベルの右に配置、ON 時のみ表示） ---
-    // 先頭の 🎚 はラベル種別の視覚的区別のため付与する
-    m_normalizeLabel = new QLabel(kNormalizePrefix + "ノーマライズ");
-    m_normalizeLabel->hide();
+    // --- ノーマライズラベル（常時表示。Off=-、Small=1、Medium=2、Large=3） ---
+    m_normalizeLabel = new QLabel(kNormalizePrefix + "0");
 
-    // --- 音声明瞭化ラベル（ノーマライズラベルの右に配置、ON 時のみ表示） ---
-    // 先頭の 🎤 はラベル種別の視覚的区別のため付与する
-    m_voiceClarityLabel = new QLabel(kVoiceClarityPrefix + "音声明瞭化");
-    m_voiceClarityLabel->hide();
+    // --- 音声明瞭化ラベル（常時表示。Off=-、Small=1、Medium=2、Large=3） ---
+    m_voiceClarityLabel = new QLabel(kVoiceClarityPrefix + "0");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -1242,7 +1223,7 @@ void MainWindow::updateVolumeDisplay()
 void MainWindow::cycleNormalize()
 {
     // 4 状態循環：Off → Small → Medium → Large → Off ...
-    // Normalizer::Level の数値（0〜3）の剰余で素直に表現する。
+    // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
     constexpr int kLevelCount = 4;
     const int next = (Settings::instance().normalizeLevel() + 1) % kLevelCount;
@@ -1253,25 +1234,16 @@ void MainWindow::cycleNormalize()
 
 void MainWindow::updateNormalizeDisplay()
 {
-    // Off の場合は非表示にして省スペース化する。
-    // ON 時は強度（小/中/大）を末尾に括弧表記で添える
-    const int level = Settings::instance().normalizeLevel();
-    if (level == static_cast<int>(Normalizer::Level::Off)) {
-        m_normalizeLabel->hide();
-        return;
-    }
-    m_normalizeLabel->setText(
-        kNormalizePrefix
-        + QString::fromUtf8("ノーマライズ (")
-        + QString::fromUtf8(levelLabel(level))
-        + QString::fromUtf8(")"));
-    m_normalizeLabel->show();
+    // Off=0、Small=1、Medium=2、Large=3 を常時表示する
+    // レジストリ改ざん等で 0〜3 外の値が来ても表示文字列が崩れないよう qBound でガードする
+    const int level = qBound(0, Settings::instance().normalizeLevel(), 3);
+    m_normalizeLabel->setText(kNormalizePrefix + QString::number(level));
 }
 
 void MainWindow::cycleVoiceClarity()
 {
     // 4 状態循環：Off → Small → Medium → Large → Off ...
-    // VoiceClarity::Level の数値（0〜3）の剰余で素直に表現する。
+    // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
     constexpr int kLevelCount = 4;
     const int next = (Settings::instance().voiceClarityLevel() + 1) % kLevelCount;
@@ -1282,19 +1254,10 @@ void MainWindow::cycleVoiceClarity()
 
 void MainWindow::updateVoiceClarityDisplay()
 {
-    // Off の場合は非表示にして省スペース化する。
-    // ON 時は強度（小/中/大）を末尾に括弧表記で添える
-    const int level = Settings::instance().voiceClarityLevel();
-    if (level == static_cast<int>(VoiceClarity::Level::Off)) {
-        m_voiceClarityLabel->hide();
-        return;
-    }
-    m_voiceClarityLabel->setText(
-        kVoiceClarityPrefix
-        + QString::fromUtf8("音声明瞭化 (")
-        + QString::fromUtf8(levelLabel(level))
-        + QString::fromUtf8(")"));
-    m_voiceClarityLabel->show();
+    // Off=0、Small=1、Medium=2、Large=3 を常時表示する
+    // レジストリ改ざん等で 0〜3 外の値が来ても表示文字列が崩れないよう qBound でガードする
+    const int level = qBound(0, Settings::instance().voiceClarityLevel(), 3);
+    m_voiceClarityLabel->setText(kVoiceClarityPrefix + QString::number(level));
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
