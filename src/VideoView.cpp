@@ -146,7 +146,11 @@ VideoView::VideoView(QWidget* parent)
     // TimeCriticalPriority は OS スケジューラ独占リスクがあるため避ける
     m_audioThread->start(QThread::HighPriority);
 
-    // 再生速度変更時に音程を保つ（Qt 6.10+ の機能、FFmpeg バックエンド必須）
+    // pitchCompensation の呼び出し（Qt 将来バージョン互換のための予約）
+    // Qt 6.10 の QAudioBufferOutput パスでは setPitchCompensation(true) は無視され、
+    // 実際のピッチ補正は AudioWorker 内の SoundTouch が担う。
+    // 将来 QAudioBufferOutput パスで Qt がピッチ補正を実装した場合の自動有効化を兼ねて呼ぶ。
+    // availability ログは「Qt 側で実装が入った時点を検知する診断」用に残す
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
@@ -316,10 +320,12 @@ void VideoView::togglePlay()
         m_player->pause();
     }
     else {
-        // 末尾到達 pause 状態からの再生要求は先頭から再生する
+        // 末尾到達 pause 状態からの再生要求は先頭から再生する。
+        // setPosition() 経由で AudioWorker::reset を発出し、前回再生末尾の
+        // partial-write 残量（SoundTouch 内部バッファと m_pendingTail）が
+        // 先頭区間に貼り付くプチノイズを防ぐ
         if (m_pausingAtEnd) {
-            m_pausingAtEnd = false;
-            m_player->setPosition(0);
+            setPosition(0);
         }
         m_player->play();
     }

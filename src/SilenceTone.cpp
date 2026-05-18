@@ -188,6 +188,14 @@ void SilenceTone::openSink()
                         * kSinkBufferMs / 1000);
     sink->start(tone.get());
 
+    // start() 失敗時はメンバへ移管せず破棄する。
+    // 移管してしまうと m_healthCheck の !m_sink 判定がすり抜けて永続的に
+    // 再生不能状態でロックインされるため、明示的に状態確認してから保持する
+    if (sink->error() != QAudio::NoError) {
+        qDebug() << "SilenceTone: sink->start failed, error =" << sink->error();
+        return;
+    }
+
     m_device = tone.release();
     m_sink   = sink.release();
 }

@@ -162,12 +162,12 @@ private:
     // V キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
     void cycleVoiceClarity();
 
-    // ノーマライズラベルの表示/非表示と強度表記を現在の設定に応じて更新する
-    // Off の場合は非表示、それ以外は「🎚 ノーマライズ (小/中/大)」を表示する
+    // ノーマライズラベルの強度表記を現在の設定に応じて更新する
+    // 常時表示で「Normalize:0/1/2/3」（0=Off / 1=小 / 2=中 / 3=大）の数値を表示する
     void updateNormalizeDisplay();
 
-    // 音声明瞭化ラベルの表示/非表示と強度表記を現在の設定に応じて更新する
-    // Off の場合は非表示、それ以外は「🎤 音声明瞭化 (小/中/大)」を表示する
+    // 音声明瞭化ラベルの強度表記を現在の設定に応じて更新する
+    // 常時表示で「Clarity:0/1/2/3」（0=Off / 1=小 / 2=中 / 3=大）の数値を表示する
     void updateVoiceClarityDisplay();
 
     // g キー押下時のトグル動作
@@ -235,7 +235,7 @@ private:
 
     // ウィンドウのアスペクト比連動用状態
     // m_videoAspect は WM_SIZING 中に参照する動画の基準比率（動画未読込時は 16:9）
-    // m_lowerUiH は下部 UI（filePathLabel + seekRow + statusBar + 余白）の自然高合計
+    // m_lowerUiH は下部 UI（seekRow + statusBar + 余白）の自然高合計
     double m_videoAspect            = 16.0 / 9.0;
     int    m_lowerUiH               = 0;
 

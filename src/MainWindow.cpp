@@ -69,6 +69,10 @@ const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 const QString kNormalizePrefix    = "  Normalize:";
 const QString kVoiceClarityPrefix = "  Clarity:";
 
+// Normalize / VoiceClarity の強度数（Off + Small + Medium + Large の 4 状態）
+// cycleNormalize / cycleVoiceClarity の循環剰余演算で共通参照する
+constexpr int kLevelCount = 4;
+
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
 const QStringList kVideoExts = { "mp4", "mkv", "mov", "avi", "webm" };
@@ -147,10 +151,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
-    // --- ノーマライズラベル（常時表示。Off=-、Small=1、Medium=2、Large=3） ---
+    // --- ノーマライズラベル（常時表示。Off=0、Small=1、Medium=2、Large=3） ---
     m_normalizeLabel = new QLabel(kNormalizePrefix + "0");
 
-    // --- 音声明瞭化ラベル（常時表示。Off=-、Small=1、Medium=2、Large=3） ---
+    // --- 音声明瞭化ラベル（常時表示。Off=0、Small=1、Medium=2、Large=3） ---
     m_voiceClarityLabel = new QLabel(kVoiceClarityPrefix + "0");
 
     // --- シークスライダー ---
@@ -371,7 +375,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
     qApp->installEventFilter(this);
 
-    // 下部 UI（filePathLabel + seekRow + statusBar + 余白）の自然高を直接合算する。
+    // 下部 UI（seekRow + statusBar + 余白）の自然高を直接合算する。
     // videoView は stretch=1 のためレイアウト後の実高は伸縮配分で揺れる。
     // 引き算ではなく構成要素の sizeHint を積み上げて算出する。
     ensurePolished();
@@ -1268,7 +1272,6 @@ void MainWindow::cycleNormalize()
     // 4 状態循環：Off → Small → Medium → Large → Off ...
     // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
-    constexpr int kLevelCount = 4;
     const int next = (Settings::instance().normalizeLevel() + 1) % kLevelCount;
     Settings::instance().setNormalizeLevel(next);
     m_videoView->setNormalizeLevel(next);
@@ -1289,7 +1292,6 @@ void MainWindow::cycleVoiceClarity()
     // 4 状態循環：Off → Small → Medium → Large → Off ...
     // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
-    constexpr int kLevelCount = 4;
     const int next = (Settings::instance().voiceClarityLevel() + 1) % kLevelCount;
     Settings::instance().setVoiceClarityLevel(next);
     m_videoView->setVoiceClarityLevel(next);

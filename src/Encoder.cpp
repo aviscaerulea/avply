@@ -51,6 +51,7 @@ void Encoder::encode(const EncodeParams& params)
 
     m_cancelled = false;
     m_params = params;
+    m_outputTail.clear();
     m_totalDuration = params.outSec - params.inSec;
     if (m_totalDuration <= 0.0) {
         emit finished(false, params.outputPath, "IN/OUT の範囲が無効です");
@@ -159,7 +160,17 @@ void Encoder::onReadyReadOutput()
 {
     if (!m_process || m_totalDuration <= 0.0) return;
 
-    const QString text = m_process->readAllStandardOutput();
+    // ffmpeg は Windows でロケール（典型的に CP932）の文字を含み得るため fromLocal8Bit を使う。
+    // UTF-8 暗黙変換だとエラーメッセージが化けてユーザに有用な情報が伝わらない
+    const QString text = QString::fromLocal8Bit(m_process->readAllStandardOutput());
+
+    // 失敗時のエラー説明用に末尾を一定量だけ保持する。
+    // ffmpeg のエラー要旨は最終フレーム数行に集約されるため、末尾の固定窓だけで実用十分
+    constexpr int kOutputTailLimit = 2048;
+    m_outputTail.append(text);
+    if (m_outputTail.size() > kOutputTailLimit) {
+        m_outputTail = m_outputTail.right(kOutputTailLimit);
+    }
 
     // ffmpeg 進捗行の time=HH:MM:SS.nn から経過時間を抽出
     // 先頭の `-` は \d+ に一致しないため、ffmpeg がシーク直後に出力する負値（time=-00:00:01.500 等）は
@@ -216,8 +227,14 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     }
     if (exitCode != 0) {
         cleanupTemp();
-        emit finished(false, m_params.outputPath,
-                      QString("変換に失敗しました（終了コード: %1）").arg(exitCode));
+        // ffmpeg 出力末尾を付加してデバッグ可能性を確保する
+        QString detail = QString("変換に失敗しました（終了コード: %1）").arg(exitCode);
+        const QString tail = m_outputTail.trimmed();
+        if (!tail.isEmpty()) {
+            detail.append(QStringLiteral("\n----- ffmpeg 出力末尾 -----\n"));
+            detail.append(tail);
+        }
+        emit finished(false, m_params.outputPath, detail);
         return;
     }
 

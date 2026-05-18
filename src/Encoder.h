@@ -58,4 +58,5 @@ private:
     double m_totalDuration = 0.0; // out - in（秒）
     bool m_cancelled = false;     // ユーザによる cancel() 呼び出しフラグ
     QString m_tempPath;           // %TEMP% 内の一時出力パス
+    QString m_outputTail;         // ffmpeg の merged 出力末尾（失敗時のエラー説明に使用）
 };

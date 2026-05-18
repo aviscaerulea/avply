@@ -72,6 +72,9 @@ void Settings::setNormalizeLevel(int value)
 {
     if (value < kNormalizeMin) value = kNormalizeMin;
     if (value > kNormalizeMax) value = kNormalizeMax;
+    // 同値書込は QSettings::sync の不要なディスク I/O を発生させるため早期 return する。
+    // applyPlaybackState（g キー一括リセット）からのノーオプ呼び出しでも writeInt が走るのを抑止する
+    if (normalizeLevel() == value) return;
     writeInt(kKeyNormalize, value);
 }
 
@@ -87,6 +90,8 @@ void Settings::setVoiceClarityLevel(int value)
 {
     if (value < kVoiceClarityMin) value = kVoiceClarityMin;
     if (value > kVoiceClarityMax) value = kVoiceClarityMax;
+    // 同値書込のディスク I/O を抑止する（setNormalizeLevel と同じ理由）
+    if (voiceClarityLevel() == value) return;
     writeInt(kKeyVoiceClarity, value);
 }
 
