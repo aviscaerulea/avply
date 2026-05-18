@@ -151,25 +151,15 @@ VideoView::VideoView(QWidget* parent)
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
 
-    // 末尾到達時に Qt が自動で StoppedState（位置 0 に戻る）へ遷移するのを抑止する。
-    // 終端の数十 ms 手前で先取りで pause を呼び、ユーザがそこからシークバーで微調整
-    // できるようにする。pause() は非同期完了のため、再入防止フラグで一度だけ発火させる
+    // 再生位置の伝搬。
+    // 末尾到達時の pause は mediaStatusChanged の EndOfMedia ハンドラ側で行う。
+    // positionChanged ベースで先取り pause する旧実装は、ffmpeg backend で mp3 等の
+    // 発火粒度が数百 ms 〜 1 秒程度になるケースで「閾値到達したが末尾は踏み越えていない」
+    // 区間が未再生のまま残る不具合があった
     connect(m_player, &QMediaPlayer::positionChanged,
             this, [this](qint64 pos) {
         // 新ソース読み込み中は旧ソースの遅延 positionChanged を破棄する
         if (m_primeFirstFrame) return;
-        const qint64 dur = m_player->duration();
-        // 末尾自動 pause の閾値を再生速度に応じて動的に伸ばす。
-        // playbackRate が大きいと positionChanged の発火間隔が実時間軸上縮まる代わりに
-        // メディア時間軸上は粗くなり、固定 50ms では末尾を踏み越える。
-        // max(50, 100*rate) で 1.0x は 100ms、4.0x なら 400ms 手前で確実に pause する。
-        // rate を qMax で 1.0 にクランプすることで、想定外の負値・0 でも下限 50ms を維持する
-        const qreal rate = std::max<qreal>(1.0, m_player->playbackRate());
-        const qint64 threshold = static_cast<qint64>(100.0 * rate);
-        if (!m_pausingAtEnd && dur > 0 && pos >= dur - threshold && isPlaying()) {
-            m_pausingAtEnd = true;
-            m_player->pause();
-        }
         emit positionChanged(pos);
     });
 
@@ -181,11 +171,13 @@ VideoView::VideoView(QWidget* parent)
         emit playbackStateChanged(state == QMediaPlayer::PlayingState);
     });
 
-    // メディア読み込み完了時に再生を開始する
+    // メディア状態遷移ハンドラ。
+    // 初回ロード完了時の自動再生と、末尾到達時の pause を扱う
     connect(m_player, &QMediaPlayer::mediaStatusChanged,
             this, [this](QMediaPlayer::MediaStatus s) {
-        if (!m_primeFirstFrame) return;
-        if (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia) {
+        // 初回ロード完了時に再生を開始する
+        if (m_primeFirstFrame &&
+            (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia)) {
             m_primeFirstFrame = false;
             // hasVideo が true のときのみ QQuickView コンテナを表示する。
             // 音声のみのソースで表示すると VideoOutput に何も描画されず黒矩形が残るため、
@@ -194,6 +186,23 @@ VideoView::VideoView(QWidget* parent)
                 m_videoContainer->show();
             }
             m_player->play();
+            return;
+        }
+        // 末尾到達時の pause（Qt が自動で StoppedState へ遷移して位置 0 にリセット
+        // するのを抑止する）。EndOfMedia は確実な末尾検出のため、ffmpeg backend の
+        // positionChanged 発火粒度に依存せず未再生区間を残さない。
+        // pause 直後に position を duration へ固定し、シークバー表示を末尾に張り付ける
+        // （backend によっては EndOfMedia 発火時点の内部 position が dur 手前で
+        // 止まっており、そのまま pause すると最後の数百 ms 分シークバーが届かない）。
+        // 内部 m_player->setPosition は VideoView::setPosition を経由せず m_pausingAtEnd を
+        // 維持するため、再 EndOfMedia 発火でも本ブランチは再入しない
+        if (s == QMediaPlayer::EndOfMedia && !m_pausingAtEnd) {
+            m_pausingAtEnd = true;
+            m_player->pause();
+            const qint64 dur = m_player->duration();
+            if (dur > 0) {
+                m_player->setPosition(dur);
+            }
         }
     });
 }
