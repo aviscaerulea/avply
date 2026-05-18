@@ -170,6 +170,15 @@ private:
     // Off の場合は非表示、それ以外は「🎤 音声明瞭化 (小/中/大)」を表示する
     void updateVoiceClarityDisplay();
 
+    // g キー押下時のトグル動作
+    // 1 回目で再生速度/音量/Normalize/Clarity を全て「中立値」へ揃え、
+    // 2 回目で起動時に読み込んだ TOML / レジストリ値へ復元する
+    void toggleGReset();
+
+    // 再生速度・音量・Normalize・Clarity の 4 項目を一括適用する
+    // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない（呼び出し側で管理）
+    void applyPlaybackState(qreal rate, qreal vol, int normLevel, int clarityLevel);
+
     // 再生状態に応じてウィンドウの最前面表示を切り替える
     // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
     void applyTopmostState();
@@ -211,6 +220,18 @@ private:
 
     // 現在の再生音量（0.0〜1.0）
     qreal m_volume = 1.0;
+
+    // g キーで参照する起動時デフォルト値のスナップショット
+    // TOML / レジストリから初回読込した値をコンストラクタで保存する
+    qreal m_initialPlaybackRate      = 1.0;
+    qreal m_initialVolume            = 1.0;
+    int   m_initialNormalizeLevel    = 0;
+    int   m_initialVoiceClarityLevel = 0;
+
+    // g キーによる「全リセット状態」フラグ
+    // true の間に手動で速度/音量/Normalize/Clarity のいずれかが変わると自動で false に戻り、
+    // 次の g キー押下は再び「全リセット」として動作する
+    bool  m_gResetActive = false;
 
     // ウィンドウのアスペクト比連動用状態
     // m_videoAspect は WM_SIZING 中に参照する動画の基準比率（動画未読込時は 16:9）

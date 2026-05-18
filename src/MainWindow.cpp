@@ -312,6 +312,14 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate         = cfg.playbackSpeed;
     m_volume               = cfg.audioVolume;
+
+    // g キーの「起動時デフォルトへ復元」で参照するスナップショット
+    // 以降にユーザ操作で m_playbackRate / m_volume / Settings 値が変わっても、ここの値は維持する
+    m_initialPlaybackRate      = m_playbackRate;
+    m_initialVolume            = m_volume;
+    m_initialNormalizeLevel    = Settings::instance().normalizeLevel();
+    m_initialVoiceClarityLevel = Settings::instance().voiceClarityLevel();
+
     m_videoView->setVolume(m_volume);
     updateSpeedDisplay();
     updateVolumeDisplay();
@@ -1172,16 +1180,28 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     case Qt::Key_Up:
     case Qt::Key_Down: {
-        // Shift 単独併用時は音量、修飾子なしのときは再生速度を ±0.05 単位で増減する。
-        // Ctrl/Alt/Meta との同時押下は OS や IME のショートカットと衝突しうるため除外する。
-        // KeypadModifier はテンキー押下時に付与される修飾子で意味的中立のためマスクから除外する
-        // （テンキーの ↑↓ も同じ動作で扱う）
+        // 修飾子なしの ↑/↓ で音量を ±0.05 単位で増減する。
+        // Shift/Ctrl/Alt/Meta 併用時は他の OS / IME ショートカットと衝突しうるため捕捉せず素通しする。
+        // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のためマスクから除外する
+        // （テンキー ↑/↓ も同じ動作で扱う）
         const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (mods != Qt::NoModifier) return QMainWindow::eventFilter(watched, event);
         const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
-        if      (mods == Qt::ShiftModifier) changeVolume(sign);
-        else if (mods == Qt::NoModifier)    changePlaybackRate(sign);
+        changeVolume(sign);
         return true;
     }
+    case Qt::Key_Less:
+        // `<` キー（Shift+`,`）で再生速度を -0.05
+        changePlaybackRate(-0.05);
+        return true;
+    case Qt::Key_Greater:
+        // `>` キー（Shift+`.`）で再生速度を +0.05
+        changePlaybackRate(0.05);
+        return true;
+    case Qt::Key_G:
+        // 再生条件（速度/音量/Normalize/Clarity）の全リセット ↔ 起動時デフォルト復元のトグル
+        toggleGReset();
+        return true;
     case Qt::Key_R:
         // 区間マーカーのみクリア（再生位置・再生状態は維持する）
         // onStop は再生位置を 0 に戻すため別実装
@@ -1220,6 +1240,7 @@ void MainWindow::changePlaybackRate(qreal delta)
     m_playbackRate = qBound(qreal(0.05), next, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
+    m_gResetActive = false;
 }
 
 void MainWindow::updateSpeedDisplay()
@@ -1234,6 +1255,7 @@ void MainWindow::changeVolume(qreal delta)
     m_volume = qBound(qreal(0.0), next, qreal(1.0));
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
+    m_gResetActive = false;
 }
 
 void MainWindow::updateVolumeDisplay()
@@ -1251,6 +1273,7 @@ void MainWindow::cycleNormalize()
     Settings::instance().setNormalizeLevel(next);
     m_videoView->setNormalizeLevel(next);
     updateNormalizeDisplay();
+    m_gResetActive = false;
 }
 
 void MainWindow::updateNormalizeDisplay()
@@ -1271,6 +1294,7 @@ void MainWindow::cycleVoiceClarity()
     Settings::instance().setVoiceClarityLevel(next);
     m_videoView->setVoiceClarityLevel(next);
     updateVoiceClarityDisplay();
+    m_gResetActive = false;
 }
 
 void MainWindow::updateVoiceClarityDisplay()
@@ -1294,6 +1318,45 @@ void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
     }
     const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
     if (ms > 0) seekRelative(forward ? ms : -ms);
+}
+
+void MainWindow::toggleGReset()
+{
+    if (m_info.duration <= 0.0) return;
+    if (!m_gResetActive) {
+        // 1 回目：全リセット（速度 1.00、音量 100%、Normalize Off、Clarity Off）
+        applyPlaybackState(1.0, 1.0, 0, 0);
+        m_gResetActive = true;
+    }
+    else {
+        // 2 回目：起動時のデフォルト値（TOML / レジストリ初回読込値）へ復元
+        applyPlaybackState(m_initialPlaybackRate, m_initialVolume,
+                           m_initialNormalizeLevel, m_initialVoiceClarityLevel);
+        m_gResetActive = false;
+    }
+}
+
+void MainWindow::applyPlaybackState(qreal rate, qreal vol, int normLevel, int clarityLevel)
+{
+    // 速度・音量・Normalize・Clarity を一括反映する
+    // 各 setter / Settings 経由で AudioWorker への伝搬とレジストリ永続化も同時に行う
+    m_playbackRate = qBound(qreal(0.05), rate, qreal(4.0));
+    m_videoView->setPlaybackRate(m_playbackRate);
+    updateSpeedDisplay();
+
+    m_volume = qBound(qreal(0.0), vol, qreal(1.0));
+    m_videoView->setVolume(m_volume);
+    updateVolumeDisplay();
+
+    const int n = qBound(0, normLevel, 3);
+    Settings::instance().setNormalizeLevel(n);
+    m_videoView->setNormalizeLevel(n);
+    updateNormalizeDisplay();
+
+    const int c = qBound(0, clarityLevel, 3);
+    Settings::instance().setVoiceClarityLevel(c);
+    m_videoView->setVoiceClarityLevel(c);
+    updateVoiceClarityDisplay();
 }
 
 QString MainWindow::openDialogStartDir() const
