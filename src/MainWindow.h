@@ -52,6 +52,7 @@ private slots:
     void onStop();
     void onConvertOrCancel();
     void onTrimOrCancel();
+    void onCopyFilePath();
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
 
@@ -218,7 +219,6 @@ private:
     int    m_lowerUiH               = 0;
 
     // ウィジェット
-    QLabel*       m_filePathLabel;
     VideoView*    m_videoView;
     QPushButton*  m_playPauseBtn;
     QPushButton*  m_stopBtn;
@@ -241,6 +241,7 @@ private:
     // コンテキストメニュー（右クリック）の各項目
     // 「変換」は実行中に「中止」表記へ切り替え、「トリム」はメインの m_trimBtn と同期する
     QAction*      m_actOpen          = nullptr;
+    QAction*      m_actCopyPath      = nullptr;
     QAction*      m_actConvert       = nullptr;
     QAction*      m_actTrim          = nullptr;
     QAction*      m_actTopmost       = nullptr;

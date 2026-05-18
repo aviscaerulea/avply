@@ -3,6 +3,7 @@
 #include "OutputNamer.h"
 #include "Settings.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -117,10 +118,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 新たに露出した領域がパレット既定色で即時クリアされ、「外枠だけ新サイズ・内側未描画」の
     // 描画追従ラグによる隙間が見えにくくなる
     setAutoFillBackground(true);
-
-    // --- ファイル名表示ラベル（旧「開く...」ボタンはコンテキストメニューに移行済み） ---
-    m_filePathLabel = new QLabel("メディアファイルを選択するか、ウィンドウへドロップしてください");
-    m_filePathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
     // --- 動画プレビュー（クリックで再生/停止トグル、D&D でファイル読み込み） ---
     m_videoView = new VideoView;
@@ -278,7 +275,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     main->setSpacing(8);
     // bottom はわずかな余白だけ残して開始/終了行とステータスバーの間隔を詰める
     main->setContentsMargins(12, 12, 12, 4);
-    main->addWidget(m_filePathLabel);
     // 余剰スペースを全てプレビューに割り当ててウィンドウリサイズに追従させる
     main->addWidget(m_videoView, 1);
     main->addLayout(seekRow);
@@ -328,6 +324,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actOpen = new QAction("ファイルを開く", this);
     connect(m_actOpen, &QAction::triggered, this, &MainWindow::onOpenFile);
 
+    m_actCopyPath = new QAction("ファイルパスをコピー", this);
+    connect(m_actCopyPath, &QAction::triggered, this, &MainWindow::onCopyFilePath);
+
     m_actConvert = new QAction("ファイルを変換する", this);
     connect(m_actConvert, &QAction::triggered, this, &MainWindow::onConvertOrCancel);
 
@@ -373,7 +372,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     const QMargins cm = mainLayout->contentsMargins();
     const int spacing = mainLayout->spacing();
     m_lowerUiH = cm.top() + cm.bottom()
-               + m_filePathLabel->sizeHint().height() + spacing
                + RangeSlider::kTotalH + spacing
                + statusBar()->sizeHint().height();
 
@@ -501,6 +499,12 @@ void MainWindow::onOpenFile()
         this, "メディアファイルを開く", openDialogStartDir(), filter);
     if (path.isEmpty()) return;
     loadFile(path);
+}
+
+void MainWindow::onCopyFilePath()
+{
+    if (m_filePath.isEmpty()) return;
+    QApplication::clipboard()->setText(QDir::toNativeSeparators(m_filePath));
 }
 
 void MainWindow::onSeekSliderChanged(int value)
@@ -754,7 +758,7 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     m_inSec    = 0.0;
     m_outSec   = info.duration;
 
-    m_filePathLabel->setText(path);
+    setWindowTitle(QString("avply - %1").arg(QFileInfo(path).fileName()));
     {
         QSignalBlocker block(m_seekSlider);
         m_seekSlider->setValue(0);
@@ -922,7 +926,8 @@ void MainWindow::updateMenuActionEnabled()
     const bool ffmpegOk  = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
     const bool fileReady = m_info.valid;
 
-    if (m_actOpen)    m_actOpen->setEnabled(idle);
+    if (m_actOpen)     m_actOpen->setEnabled(idle);
+    if (m_actCopyPath) m_actCopyPath->setEnabled(!m_filePath.isEmpty());
     if (m_actConvert) {
         // 実行中（変換のみ）は中止操作のため有効のまま
         const bool running = (m_runningOp == Operation::Convert);
@@ -1381,6 +1386,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     QMenu menu(this);
 
     menu.addAction(m_actOpen);
+    menu.addAction(m_actCopyPath);
     menu.addSeparator();
     menu.addAction(m_actConvert);
     menu.addAction(m_actTrim);
