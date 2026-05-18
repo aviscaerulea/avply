@@ -274,7 +274,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     auto* main    = new QVBoxLayout(central);
     main->setSpacing(8);
     // bottom はわずかな余白だけ残して開始/終了行とステータスバーの間隔を詰める
-    main->setContentsMargins(12, 12, 12, 4);
+    main->setContentsMargins(12, 12, 12, 2);
     // 余剰スペースを全てプレビューに割り当ててウィンドウリサイズに追従させる
     main->addWidget(m_videoView, 1);
     main->addLayout(seekRow);
