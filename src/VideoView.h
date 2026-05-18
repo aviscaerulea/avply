@@ -18,7 +18,8 @@ public:
     explicit VideoView(QWidget* parent = nullptr);
     ~VideoView() override;
 
-    // メディアファイルを読み込む（自動再生はしない。読み込み完了後に最初のフレームを表示する）
+    // メディアファイルを読み込む（ロード完了後に自動再生を開始する）
+    // 同一ファイルが再投入された場合も先頭から再生する
     void setSource(const QString& filePath);
 
     // ソースをクリアして待機状態に戻す

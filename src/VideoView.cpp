@@ -244,6 +244,13 @@ void VideoView::setSource(const QString& filePath)
     if (m_audioWorker) {
         QMetaObject::invokeMethod(m_audioWorker, "reset", Qt::QueuedConnection);
     }
+    // 同一 URL 再投入時の強制再ロード
+    // QMediaPlayer::setSource は同一 URL を渡すと再ロードを省略し、
+    // mediaStatusChanged(LoadedMedia) が再発火しない。
+    // 自動再生フローはこの遷移を起点にしているため、
+    // 一度 QUrl() で NoMedia へ落としてから新 URL を設定し直すことで、
+    // 別ファイル投入時と同じ LoadingMedia → LoadedMedia の遷移を必ず発火させる
+    m_player->setSource(QUrl());
     m_player->setSource(QUrl::fromLocalFile(filePath));
 }
 
