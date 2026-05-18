@@ -7,6 +7,9 @@
 #include <SoundTouch.h>
 #include <algorithm>
 #include <cmath>
+// SSE 制御レジスタ操作（denormal flush 設定用）
+#include <xmmintrin.h>
+#include <pmmintrin.h>
 
 AudioWorker::AudioWorker(const QAudioFormat& format,
                          int  initialNormalizeLevel,
@@ -39,6 +42,14 @@ AudioWorker::~AudioWorker() = default;
 
 void AudioWorker::start()
 {
+    // audio thread の SSE 制御レジスタで denormal flush を有効化する。
+    // Normalizer / VoiceClarity の IIR は無音区間で内部状態が指数的に減衰し、
+    // 数秒で denormal float（1.18e-38 未満）に到達する。x86 では denormal 演算が
+    // 通常の 50〜100 倍遅く、audio thread 上で発生すると sink underrun の引き金になる。
+    // FTZ/DAZ は MXCSR のスレッドローカルフラグのため、必ず audio thread 側で設定する
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+
     // 所属スレッド（audio thread）で QAudioSink を生成して start する。
     // QAudioSink / QIODevice の thread affinity を所属スレッドで一貫させるため、
     // コンストラクタ側では生成せず必ず本スロット経由で生成する
