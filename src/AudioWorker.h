@@ -24,13 +24,17 @@ public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
     // initialNormalizeLevel で Normalizer 強度、initialVoiceClarityLevel で音声明瞭化強度を確定する
     // （いずれも 0=Off / 1=Small / 2=Medium / 3=Large、Normalizer::Level / VoiceClarity::Level と対応）。
-    // normalizerSmall/Medium/Large は強度別の threshold / makeup を avply.toml の値で渡す
+    // normalizerSmall/Medium/Large は強度別の threshold / makeup、
+    // voiceClaritySmall/Medium/Large は強度別の peak / shelf ゲインを avply.toml の値で渡す
     explicit AudioWorker(const QAudioFormat& format,
                          int  initialNormalizeLevel,
                          int  initialVoiceClarityLevel,
                          const Normalizer::LevelParams& normalizerSmall,
                          const Normalizer::LevelParams& normalizerMedium,
                          const Normalizer::LevelParams& normalizerLarge,
+                         const VoiceClarity::LevelParams& voiceClaritySmall,
+                         const VoiceClarity::LevelParams& voiceClarityMedium,
+                         const VoiceClarity::LevelParams& voiceClarityLarge,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 

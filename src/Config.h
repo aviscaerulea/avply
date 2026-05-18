@@ -48,6 +48,17 @@ struct AppConfig {
     double normalizerMakeupDbMedium =  10.0;
     double normalizerMakeupDbLarge  =  13.0;
 
+    // 音声明瞭化（Biquad EQ）強度別の DSP パラメータ
+    // 強度（Small/Medium/Large）ごとに peakDb（3kHz プレゼンスブースト）と shelfDb（8kHz 高域シェルフ）を
+    // 独立指定する。HPF / フィルタ周波数 / Q は強度共通のためここでは扱わない。
+    // peakDb / shelfDb はいずれも 0.0〜12.0 dB にクランプする（負値は明瞭化の趣旨に反する）
+    double voiceClarityPeakDbSmall  = 3.0;
+    double voiceClarityPeakDbMedium = 5.0;
+    double voiceClarityPeakDbLarge  = 7.0;
+    double voiceClarityShelfDbSmall  = 1.0;
+    double voiceClarityShelfDbMedium = 2.0;
+    double voiceClarityShelfDbLarge  = 3.0;
+
     // サイレンストーンの周波数（Hz）と振幅
     // 周波数は 20〜20000 Hz、振幅は 0.0〜0.01（-40 dBFS）にクランプする。
     // 既定 1 kHz / 0.0001（約 -80 dBFS）は BT コーデックのパスバンド内かつ

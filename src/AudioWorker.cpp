@@ -14,6 +14,9 @@ AudioWorker::AudioWorker(const QAudioFormat& format,
                          const Normalizer::LevelParams& normalizerSmall,
                          const Normalizer::LevelParams& normalizerMedium,
                          const Normalizer::LevelParams& normalizerLarge,
+                         const VoiceClarity::LevelParams& voiceClaritySmall,
+                         const VoiceClarity::LevelParams& voiceClarityMedium,
+                         const VoiceClarity::LevelParams& voiceClarityLarge,
                          QObject* parent)
     : QObject(parent)
     , m_format(format)
@@ -27,7 +30,8 @@ AudioWorker::AudioWorker(const QAudioFormat& format,
                      static_cast<VoiceClarity::Level>(
                          std::clamp(initialVoiceClarityLevel,
                                     static_cast<int>(VoiceClarity::Level::Off),
-                                    static_cast<int>(VoiceClarity::Level::Large))))
+                                    static_cast<int>(VoiceClarity::Level::Large))),
+                     voiceClaritySmall, voiceClarityMedium, voiceClarityLarge)
 {
 }
 

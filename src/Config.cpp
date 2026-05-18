@@ -97,6 +97,14 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "normalizer" && key == "makeup_db_medium")    assignDouble(cfg.normalizerMakeupDbMedium);
         if (section == "normalizer" && key == "makeup_db_large")     assignDouble(cfg.normalizerMakeupDbLarge);
 
+        // 音声明瞭化強度別パラメータ（peak / shelf ゲインを Small/Medium/Large の 3 段で個別指定）
+        if (section == "voice_clarity" && key == "peak_db_small")   assignDouble(cfg.voiceClarityPeakDbSmall);
+        if (section == "voice_clarity" && key == "peak_db_medium")  assignDouble(cfg.voiceClarityPeakDbMedium);
+        if (section == "voice_clarity" && key == "peak_db_large")   assignDouble(cfg.voiceClarityPeakDbLarge);
+        if (section == "voice_clarity" && key == "shelf_db_small")  assignDouble(cfg.voiceClarityShelfDbSmall);
+        if (section == "voice_clarity" && key == "shelf_db_medium") assignDouble(cfg.voiceClarityShelfDbMedium);
+        if (section == "voice_clarity" && key == "shelf_db_large")  assignDouble(cfg.voiceClarityShelfDbLarge);
+
         // 真偽値（true / false / 1 / 0 を受理。それ以外は無視）
         auto assignBool = [&](bool& target) {
             const QString v = value.trimmed().toLower();
@@ -140,6 +148,16 @@ void clampConfig(AppConfig& cfg)
     cfg.normalizerMakeupDbSmall  = std::clamp(cfg.normalizerMakeupDbSmall,  0.0, 24.0);
     cfg.normalizerMakeupDbMedium = std::clamp(cfg.normalizerMakeupDbMedium, 0.0, 24.0);
     cfg.normalizerMakeupDbLarge  = std::clamp(cfg.normalizerMakeupDbLarge,  0.0, 24.0);
+
+    // 音声明瞭化 DSP パラメータ範囲
+    // peak / shelf いずれも 0.0〜12.0 dB（負値はカット方向で明瞭化の趣旨に反する。
+    // +12 でも後段 Normalizer リミッタ ±0.97 で頭打ちになり破綻しない）
+    cfg.voiceClarityPeakDbSmall   = std::clamp(cfg.voiceClarityPeakDbSmall,   0.0, 12.0);
+    cfg.voiceClarityPeakDbMedium  = std::clamp(cfg.voiceClarityPeakDbMedium,  0.0, 12.0);
+    cfg.voiceClarityPeakDbLarge   = std::clamp(cfg.voiceClarityPeakDbLarge,   0.0, 12.0);
+    cfg.voiceClarityShelfDbSmall  = std::clamp(cfg.voiceClarityShelfDbSmall,  0.0, 12.0);
+    cfg.voiceClarityShelfDbMedium = std::clamp(cfg.voiceClarityShelfDbMedium, 0.0, 12.0);
+    cfg.voiceClarityShelfDbLarge  = std::clamp(cfg.voiceClarityShelfDbLarge,  0.0, 12.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

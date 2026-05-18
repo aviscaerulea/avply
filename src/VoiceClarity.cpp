@@ -14,21 +14,15 @@ static constexpr float kHpfQ    = 0.707f;  // Butterworth 特性
 
 // 2 段目：Peaking EQ
 // 3kHz 中心の子音帯域（プレゼンス）を持ち上げてこもり感を軽減する
-// ゲインは強度（Level）に応じて切り替える
-static constexpr float kPeakFreq    = 3000.0f;
-static constexpr float kPeakQ       = 1.0f;
-static constexpr float kPeakDbSmall  = +3.0f;
-static constexpr float kPeakDbMedium = +5.0f;
-static constexpr float kPeakDbLarge  = +7.0f;
+// ゲインは強度（Level）に応じて切り替える（avply.toml で調整可能）
+static constexpr float kPeakFreq = 3000.0f;
+static constexpr float kPeakQ    = 1.0f;
 
 // 3 段目：High-shelf
 // 8kHz 以上をシェルフブーストして高域の抜けを補い、明瞭感を底上げする
-// ゲインは強度（Level）に応じて切り替える
-static constexpr float kShelfFreq    = 8000.0f;
-static constexpr float kShelfQ       = 0.707f;
-static constexpr float kShelfDbSmall  = +1.0f;
-static constexpr float kShelfDbMedium = +2.0f;
-static constexpr float kShelfDbLarge  = +3.0f;
+// ゲインは強度（Level）に応じて切り替える（avply.toml で調整可能）
+static constexpr float kShelfFreq = 8000.0f;
+static constexpr float kShelfQ    = 0.707f;
 
 // ON/OFF トグル時のクロスフェード時間（ms）
 // raw 信号と processed 信号のブレンド比を線形に切り替える。短すぎるとクリックノイズが出る
@@ -50,31 +44,12 @@ static VoiceClarity::BiquadCoeff makePeakCoeff(float sampleRate, float fc, float
 // fc：シェルフ周波数、Q：Q 値、gainDb：シェルフゲイン（dB、正でブースト）
 static VoiceClarity::BiquadCoeff makeHighShelfCoeff(float sampleRate, float fc, float q, float gainDb);
 
-// 強度 → Peak/Shelf ゲイン（dB）のペアを返す
-// Off は呼ばれない前提（呼び出し側で Off 判定して係数差し替えをスキップする）
-static void gainsForLevel(VoiceClarity::Level level, float& peakDb, float& shelfDb)
-{
-    // Off を渡すのはプログラマエラー。recomputeCoeffs 側でガード済みだが多重防衛する
-    assert(level != VoiceClarity::Level::Off);
-
-    switch (level) {
-    case VoiceClarity::Level::Small:
-        peakDb  = kPeakDbSmall;
-        shelfDb = kShelfDbSmall;
-        break;
-    case VoiceClarity::Level::Large:
-        peakDb  = kPeakDbLarge;
-        shelfDb = kShelfDbLarge;
-        break;
-    case VoiceClarity::Level::Medium:
-    default:
-        peakDb  = kPeakDbMedium;
-        shelfDb = kShelfDbMedium;
-        break;
-    }
-}
-
-VoiceClarity::VoiceClarity(int sampleRate, int channels, Level initialLevel)
+VoiceClarity::VoiceClarity(int sampleRate,
+                           int channels,
+                           Level initialLevel,
+                           const LevelParams& small,
+                           const LevelParams& medium,
+                           const LevelParams& large)
     : m_sampleRate(static_cast<float>(sampleRate > 0 ? sampleRate : 48000))
     , m_channels(std::clamp(channels, 1, 2))
     , m_level(initialLevel)
@@ -83,6 +58,12 @@ VoiceClarity::VoiceClarity(int sampleRate, int channels, Level initialLevel)
     // sampleRate 不正値（0 や負）に対するゼロ除算ガード
     // 想定外の format でインスタンスが作られた場合でも 48kHz にフォールバックさせて安全に動かす
     m_rampStep = 1.0f / (m_sampleRate * kRampMs * 0.001f);
+
+    // 強度別パラメータ表を構築する。Off は未使用だが Medium 値を入れて未初期化アクセスを防ぐ
+    m_levelParams[static_cast<int>(Level::Off)]    = medium;
+    m_levelParams[static_cast<int>(Level::Small)]  = small;
+    m_levelParams[static_cast<int>(Level::Medium)] = medium;
+    m_levelParams[static_cast<int>(Level::Large)]  = large;
 
     // 初期係数：Off の場合は Medium 相当を仮置きする
     // process は Off + applyRatio==0 なら早期 return するため、Off 状態で係数が呼ばれることはない。
@@ -161,13 +142,13 @@ void VoiceClarity::process(float* samples, std::ptrdiff_t n)
 
 void VoiceClarity::recomputeCoeffs(Level level)
 {
-    float peakDb  = 0.0f;
-    float shelfDb = 0.0f;
-    gainsForLevel(level, peakDb, shelfDb);
+    // Off を渡すのは setLevel / コンストラクタ側でガード済みだが多重防衛する
+    assert(level != Level::Off);
+    const LevelParams& p = m_levelParams[static_cast<int>(level)];
 
     m_coeffs[0] = makeHpfCoeff      (m_sampleRate, kHpfFreq,   kHpfQ);
-    m_coeffs[1] = makePeakCoeff     (m_sampleRate, kPeakFreq,  kPeakQ,  peakDb);
-    m_coeffs[2] = makeHighShelfCoeff(m_sampleRate, kShelfFreq, kShelfQ, shelfDb);
+    m_coeffs[1] = makePeakCoeff     (m_sampleRate, kPeakFreq,  kPeakQ,  p.peakDb);
+    m_coeffs[2] = makeHighShelfCoeff(m_sampleRate, kShelfFreq, kShelfQ, p.shelfDb);
 }
 
 static VoiceClarity::BiquadCoeff makeHpfCoeff(float sampleRate, float fc, float q)

@@ -18,8 +18,24 @@ public:
         Large  = 3,
     };
 
+    // 強度ごとに切り替える DSP パラメータ
+    // Peaking EQ と High-shelf のゲインを独立指定する。HPF / フィルタ周波数 / Q は全強度共通
+    // （帯域配置を変えると音色そのものが変わってしまい強度差として聞こえないため）。
+    // avply.toml の [voice_clarity] セクションでユーザが調整できる
+    struct LevelParams {
+        float peakDb;   // Peaking EQ（3kHz 中心）のブースト量（dB、典型 +1〜+12）
+        float shelfDb;  // High-shelf（8kHz 以上）のブースト量（dB、典型 0〜+6）
+    };
+
     // initialLevel で起動時の適用強度を確定する（ランプなし即時反映）
-    explicit VoiceClarity(int sampleRate = 48000, int channels = 2, Level initialLevel = Level::Medium);
+    // small/medium/large は強度別の peak / shelf ゲインを指定する。
+    // Off は内部的に Medium パラメータを仮置き（process でバイパスするため未使用）
+    explicit VoiceClarity(int sampleRate,
+                          int channels,
+                          Level initialLevel,
+                          const LevelParams& small,
+                          const LevelParams& medium,
+                          const LevelParams& large);
 
     // 適用強度を変更する
     // Off ↔ ON 遷移は 50ms ランプで applyRatio をブレンドする。
@@ -67,6 +83,10 @@ private:
     Level m_level;
     float m_applyRatio;  // 0.0=バイパス, 1.0=DSP 完全適用
     float m_rampStep;    // 1 フレームあたりの applyRatio 変化量（50ms 相当）
+
+    // 強度別パラメータ表
+    // 添字は Level enum の int 値（Off は未使用、Medium 値で埋める）
+    LevelParams m_levelParams[4];
 
     // 3 段の係数（全チャンネル共通、強度変更時に再算出）
     std::array<BiquadCoeff, 3> m_coeffs;

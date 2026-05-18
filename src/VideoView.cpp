@@ -113,12 +113,25 @@ VideoView::VideoView(QWidget* parent)
         static_cast<float>(cfg.normalizerThresholdDbLarge),
         static_cast<float>(cfg.normalizerMakeupDbLarge),
     };
+    const VoiceClarity::LevelParams vcSmall {
+        static_cast<float>(cfg.voiceClarityPeakDbSmall),
+        static_cast<float>(cfg.voiceClarityShelfDbSmall),
+    };
+    const VoiceClarity::LevelParams vcMedium {
+        static_cast<float>(cfg.voiceClarityPeakDbMedium),
+        static_cast<float>(cfg.voiceClarityShelfDbMedium),
+    };
+    const VoiceClarity::LevelParams vcLarge {
+        static_cast<float>(cfg.voiceClarityPeakDbLarge),
+        static_cast<float>(cfg.voiceClarityShelfDbLarge),
+    };
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(audioFmt,
                                     Settings::instance().normalizeLevel(),
                                     Settings::instance().voiceClarityLevel(),
-                                    normSmall, normMedium, normLarge);
+                                    normSmall, normMedium, normLarge,
+                                    vcSmall, vcMedium, vcLarge);
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
