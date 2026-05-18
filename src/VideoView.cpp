@@ -316,6 +316,11 @@ void VideoView::togglePlay()
         m_player->pause();
     }
     else {
+        // 末尾到達 pause 状態からの再生要求は先頭から再生する
+        if (m_pausingAtEnd) {
+            m_pausingAtEnd = false;
+            m_player->setPosition(0);
+        }
         m_player->play();
     }
 }
