@@ -24,6 +24,7 @@
 #include <QStyle>
 #include <QIcon>
 #include <QPixmap>
+#include <QFont>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QDateTime>
@@ -218,18 +219,31 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     connect(m_setInBtn,  &QPushButton::clicked, this, &MainWindow::onSetIn);
     connect(m_setOutBtn, &QPushButton::clicked, this, &MainWindow::onSetOut);
 
-    // 4 つのアイコン式ボタンに共通スタイルとサイズを一括適用する
-    for (QPushButton* b : { m_playPauseBtn, m_stopBtn, m_setInBtn, m_setOutBtn }) {
+    // --- トリムボタン（シークバー行の右側、他アイコンボタンと同サイズに揃える） ---
+    // 「変換」はコンテキストメニュー側に移行済み
+    // Segoe UI Symbol を明示することで Segoe UI Emoji へのフォールバック（カラー絵文字化）を回避し
+    // 他の PNG アイコンと同トーンの線画モノクロで表示する
+    m_trimBtn = new QPushButton(QString::fromUtf8(u8"✂"));
+    QFont trimFont("Segoe UI Symbol");
+    trimFont.setPixelSize(16);
+    m_trimBtn->setFont(trimFont);
+    m_trimBtn->setToolTip("トリム");
+    connect(m_trimBtn, &QPushButton::clicked, this, &MainWindow::onTrimOrCancel);
+
+    // 3 つの正方形アイコンボタンに共通スタイルとサイズを一括適用する
+    // 28x28 でシークバー上段トラック高（RangeSlider::kTrackH）と縦中心を合わせる
+    for (QPushButton* b : { m_playPauseBtn, m_stopBtn, m_trimBtn }) {
         b->setStyleSheet(iconBtnStyle);
         b->setFixedSize(iconBtnSize);
         b->setEnabled(false);
     }
-
-    // --- トリムボタン（シークバー行の右側に配置する。「変換」はコンテキストメニュー側に移行済み） ---
-    m_trimBtn = new QPushButton("トリム");
-    m_trimBtn->setFixedWidth(64);
-    m_trimBtn->setEnabled(false);
-    connect(m_trimBtn, &QPushButton::clicked, this, &MainWindow::onTrimOrCancel);
+    // 【】は横幅を正方形の半分にしてシークバーへの密着感を出す（縦は揃える）
+    const QSize bracketBtnSize(iconBtnSize.width() / 2, iconBtnSize.height());
+    for (QPushButton* b : { m_setInBtn, m_setOutBtn }) {
+        b->setStyleSheet(iconBtnStyle);
+        b->setFixedSize(bracketBtnSize);
+        b->setEnabled(false);
+    }
 
     // 左側アイコン群を内側レイアウトでまとめ、ボタン同士をピッタリ隣接させる
     auto* leftIconRow = new QHBoxLayout;
@@ -243,7 +257,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 左側アイコンボタン高がスライダー上段トラック高（RangeSlider::kTrackH）と一致する前提で、
     // 波形中心とボタン中心が揃う。下段の区間バー（kRangeBarH）はボタン下に張り出して描画される
     auto* seekRow = new QHBoxLayout;
-    seekRow->setSpacing(2);
+    seekRow->setSpacing(0);
     seekRow->addLayout(leftIconRow);
     seekRow->setAlignment(leftIconRow, Qt::AlignTop);
     seekRow->addWidget(m_seekSlider, 1, Qt::AlignTop);
@@ -952,7 +966,9 @@ void MainWindow::setRunning(Operation op)
     if (m_actTrim) {
         m_actTrim->setText(op == Operation::Trim ? "トリムを中止する" : "ファイルをトリムする");
     }
-    m_trimBtn->setText(op == Operation::Trim ? "中止" : "トリム");
+    // 実行中は停止記号「■」へ差し替え、停止可能であることを視覚化する
+    m_trimBtn->setText(op == Operation::Trim ? QString::fromUtf8(u8"■") : QString::fromUtf8(u8"✂"));
+    m_trimBtn->setToolTip(op == Operation::Trim ? "中止" : "トリム");
     if (op == Operation::Trim) m_trimBtn->setEnabled(true);
 
     updateMenuActionEnabled();
