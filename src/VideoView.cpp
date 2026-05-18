@@ -1,5 +1,6 @@
 #include "VideoView.h"
 #include "AudioWorker.h"
+#include "Config.h"
 #include "Settings.h"
 #include <QPalette>
 #include <QVBoxLayout>
@@ -96,13 +97,28 @@ VideoView::VideoView(QWidget* parent)
     // 音声経路を QAudioBufferOutput + 専用スレッド AudioWorker + QAudioSink で構成する。
     // decoder thread → audio thread の QueuedConnection 経路により、
     // GUI thread が modal loop でブロックされても音声経路が独立稼働する。
-    // 初期 DSP 状態は Settings から読み込む（MainWindow からも後段で上書き可能）
+    // 初期 DSP 状態は Settings（強度レベル）から、強度別パラメータは avply.toml から読み込む。
+    // Config::load() は MainWindow でも別途呼ばれるが、ステートレスかつ起動時 1 回のため重複コストは無視できる
     const QAudioFormat audioFmt = makeAudioFormat();
+    const AppConfig    cfg      = Config::load();
+    const Normalizer::LevelParams normSmall {
+        static_cast<float>(cfg.normalizerThresholdDbSmall),
+        static_cast<float>(cfg.normalizerMakeupDbSmall),
+    };
+    const Normalizer::LevelParams normMedium {
+        static_cast<float>(cfg.normalizerThresholdDbMedium),
+        static_cast<float>(cfg.normalizerMakeupDbMedium),
+    };
+    const Normalizer::LevelParams normLarge {
+        static_cast<float>(cfg.normalizerThresholdDbLarge),
+        static_cast<float>(cfg.normalizerMakeupDbLarge),
+    };
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(audioFmt,
-                                    Settings::instance().normalizeEnabled(),
-                                    Settings::instance().voiceClarityLevel());
+                                    Settings::instance().normalizeLevel(),
+                                    Settings::instance().voiceClarityLevel(),
+                                    normSmall, normMedium, normLarge);
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
@@ -256,11 +272,11 @@ void VideoView::setVolume(double volume)
     }
 }
 
-void VideoView::setNormalizeEnabled(bool enabled)
+void VideoView::setNormalizeLevel(int level)
 {
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setNormalizeEnabled", Qt::QueuedConnection,
-                                  Q_ARG(bool, enabled));
+        QMetaObject::invokeMethod(m_audioWorker, "setNormalizeLevel", Qt::QueuedConnection,
+                                  Q_ARG(int, level));
     }
 }
 

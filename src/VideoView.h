@@ -56,9 +56,10 @@ public:
     // ユーザリサイズで極端に小さくならないようにする
     QSize minimumSizeHint() const override;
 
-    // ノーマライズ（RMS コンプレッサ）の ON/OFF を設定する
-    // 変更は AudioWorker に QueuedConnection で転送され、50ms ゲインランプで滑らかに遷移する
-    void setNormalizeEnabled(bool enabled);
+    // ノーマライズ（RMS コンプレッサ）の強度を設定する
+    // 値は Normalizer::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）
+    // 変更は AudioWorker に QueuedConnection で転送され、Off↔ON 遷移は 50ms ゲインランプで滑らかに遷移する
+    void setNormalizeLevel(int level);
 
     // 音声明瞭化（Biquad EQ）の強度を設定する
     // 値は VoiceClarity::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）

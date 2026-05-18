@@ -9,12 +9,20 @@
 #include <cmath>
 
 AudioWorker::AudioWorker(const QAudioFormat& format,
-                         bool initialNormalize,
+                         int  initialNormalizeLevel,
                          int  initialVoiceClarityLevel,
+                         const Normalizer::LevelParams& normalizerSmall,
+                         const Normalizer::LevelParams& normalizerMedium,
+                         const Normalizer::LevelParams& normalizerLarge,
                          QObject* parent)
     : QObject(parent)
     , m_format(format)
-    , m_normalizer(format.sampleRate(), format.channelCount(), initialNormalize)
+    , m_normalizer(format.sampleRate(), format.channelCount(),
+                   static_cast<Normalizer::Level>(
+                       std::clamp(initialNormalizeLevel,
+                                  static_cast<int>(Normalizer::Level::Off),
+                                  static_cast<int>(Normalizer::Level::Large))),
+                   normalizerSmall, normalizerMedium, normalizerLarge)
     , m_voiceClarity(format.sampleRate(), format.channelCount(),
                      static_cast<VoiceClarity::Level>(
                          std::clamp(initialVoiceClarityLevel,
@@ -291,9 +299,12 @@ void AudioWorker::setVolume(double volume)
     m_volume = volume;
 }
 
-void AudioWorker::setNormalizeEnabled(bool enabled)
+void AudioWorker::setNormalizeLevel(int level)
 {
-    m_normalizer.setEnabled(enabled);
+    const int clamped = std::clamp(level,
+                                   static_cast<int>(Normalizer::Level::Off),
+                                   static_cast<int>(Normalizer::Level::Large));
+    m_normalizer.setLevel(static_cast<Normalizer::Level>(clamped));
 }
 
 void AudioWorker::setVoiceClarityLevel(int level)

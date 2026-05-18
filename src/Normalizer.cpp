@@ -1,16 +1,11 @@
 #include "Normalizer.h"
+#include <cassert>
 #include <cmath>
 #include <algorithm>
 
-// 圧縮開始の RMS 閾値（dBFS）
-// この値を超えた帯域が圧縮対象。-25 dBFS は通常の発話・楽音より上に置き、暗騒音は素通しにする狙い
-static constexpr float kThresholdDb = -25.0f;
 // 圧縮比（threshold 超過分を 1/N にする）
 // 6:1 は強めのダウンワード圧縮。大声側を確実に押し込むためにライブ放送系の典型値より深めに取る
 static constexpr float kRatio       = 6.0f;
-// コンプレッサ後のメイクアップゲイン（dB）
-// 小声側の持ち上げ量。+10 dB で threshold 未満の信号は素通しのまま +10 dB 増幅される
-static constexpr float kMakeupDb    = +10.0f;
 // ハードリミッタの絶対上限（線形振幅、1.0=フルスケール）
 // 0.97 は -0.26 dBFS。後段の resampler overshoot（最大 ~2%）を見込んでも 0.99 で頭打ちになる安全係数
 static constexpr float kLimiterCeil = 0.97f;
@@ -35,24 +30,42 @@ static float iirCoeff(float rate, float timeMs)
     return std::exp(-1.0f / (rate * timeMs * 0.001f));
 }
 
-// RMS 追跡器の初期値（mean square = amplitude^2）
-// 閾値 kThresholdDb 相当の振幅を二乗して与える。
+// 閾値 thresholdDb 相当の振幅を二乗した RMS 追跡器の初期値を返す
 // 初回フレームで levelDb が -∞ に振れる事態を防ぎ、初回 recalc 時点で
 // 真の RMS への収束をより速く始められるよう、ありえそうな信号レベル付近に
 // プリセットしておく
-static const float kInitialRmsState = []() {
-    const float amp = std::pow(10.0f, kThresholdDb / 20.0f);
+static float initialRmsState(float thresholdDb)
+{
+    const float amp = std::pow(10.0f, thresholdDb / 20.0f);
     return amp * amp;
-}();
+}
 
-Normalizer::Normalizer(int sampleRate, int channels, bool initialEnabled)
+Normalizer::Normalizer(int sampleRate,
+                       int channels,
+                       Level initialLevel,
+                       const LevelParams& small,
+                       const LevelParams& medium,
+                       const LevelParams& large)
     : m_channels(std::max(1, channels))
-    , m_enabled(initialEnabled)
-    , m_applyRatio(initialEnabled ? 1.0f : 0.0f)
-    , m_rmsState(kInitialRmsState)
+    , m_level(initialLevel)
+    , m_applyRatio(initialLevel == Level::Off ? 0.0f : 1.0f)
     , m_currentGain(1.0f)
     , m_targetGain(1.0f)
 {
+    // 強度別パラメータ表を構築する。Off は未使用だが Medium 値を入れて未初期化アクセスを防ぐ
+    m_levelParams[static_cast<int>(Level::Off)]    = medium;
+    m_levelParams[static_cast<int>(Level::Small)]  = small;
+    m_levelParams[static_cast<int>(Level::Medium)] = medium;
+    m_levelParams[static_cast<int>(Level::Large)]  = large;
+
+    // 初期パラメータ：Off の場合は Medium 相当を仮置きする
+    // process は Off + applyRatio==0 なら早期 return するため、Off 状態でパラメータが使われることはない。
+    // Off → 他強度への遷移時に setLevel 経由で再設定される
+    const Level paramSrc = (initialLevel == Level::Off) ? Level::Medium : initialLevel;
+    m_thresholdDb = m_levelParams[static_cast<int>(paramSrc)].thresholdDb;
+    m_makeupDb    = m_levelParams[static_cast<int>(paramSrc)].makeupDb;
+    m_rmsState    = initialRmsState(m_thresholdDb);
+
     // フレームレートによる各係数の初期化
     // インターリーブ形式でも 1 フレーム = 全チャンネル 1 組であり、
     // フレームレートは sampleRate そのもの（stereo でも 48000 frames/sec）
@@ -72,9 +85,31 @@ Normalizer::Normalizer(int sampleRate, int channels, bool initialEnabled)
     m_frameCounter = 0;
 }
 
-void Normalizer::setEnabled(bool enabled)
+void Normalizer::setLevel(Level level)
 {
-    m_enabled = enabled;
+    if (level == m_level) return;
+
+    // Off 以外の場合のみ threshold / makeup を差し替える
+    // Off → ON 遷移時は新強度のパラメータで圧縮が始まり、applyRatio ランプで raw → processed へ滑らかに移行する。
+    // ON → Off 遷移時はパラメータを維持したまま applyRatio が 0 へ収束し、その後 process は早期 return する
+    if (level != Level::Off) {
+        // Off は呼ばれない前提だが上の if でガード済み
+        assert(level == Level::Small || level == Level::Medium || level == Level::Large);
+        m_thresholdDb = m_levelParams[static_cast<int>(level)].thresholdDb;
+        m_makeupDb    = m_levelParams[static_cast<int>(level)].makeupDb;
+
+        // Off → ON 遷移時：Off 中に凍結していたゲイン状態をリセットして再 warmup する。
+        // Off 中は早期 return でスキップするため targetGain が古い値で凍結しており、
+        // そのまま applyRatio ランプを立ち上げると旧ゲインが 50ms 混入する。
+        // reset() と同等の初期化で currentGain=1.0 → 正規値へ kAttackMs かけて収束させる
+        if (m_level == Level::Off) {
+            m_rmsState    = initialRmsState(m_thresholdDb);
+            m_currentGain = 1.0f;
+            m_targetGain  = 1.0f;
+            m_frameCounter = 0;
+        }
+    }
+    m_level = level;
 }
 
 void Normalizer::reset()
@@ -82,7 +117,7 @@ void Normalizer::reset()
     // シーク後に古いコンプレッサ状態が残らないようリセットする。
     // 再生再開直後は kRmsWindowMs（10ms）相当の warmup として currentGain=1.0 を据え置き、
     // 経過後に初回 recalc で targetGain を確定して以降 kAttackMs/kReleaseMs で追従する
-    m_rmsState     = kInitialRmsState;
+    m_rmsState     = initialRmsState(m_thresholdDb);
     m_currentGain  = 1.0f;
     m_targetGain   = 1.0f;
     // reset 後 1 窓分（kRmsWindowMs）は再計算を待ち、その間 currentGain は 1.0 のまま据え置く。
@@ -94,6 +129,14 @@ void Normalizer::process(float* samples, std::ptrdiff_t n)
 {
     const std::ptrdiff_t frames = n / m_channels;
 
+    // 完全バイパス：Off かつランプ収束済み（m_applyRatio == 0）の場合は DSP 計算ごとスキップする。
+    // 出力は raw 入力そのままで in-place 不変。次回 ON 時はパラメータ再設定 + applyRatio が 0→1 へ
+    // 50ms かけて遷移する間に過渡応答も raw 寄りでマスクされ聴感影響は出ない
+    if (m_level == Level::Off && m_applyRatio == 0.0f) {
+        return;
+    }
+
+    const bool enabled = (m_level != Level::Off);
     for (std::ptrdiff_t f = 0; f < frames; ++f) {
         float* frame = samples + f * m_channels;
 
@@ -112,18 +155,18 @@ void Normalizer::process(float* samples, std::ptrdiff_t n)
             m_frameCounter = 0;
             const float rmsLevel = std::sqrt(std::max(m_rmsState, 1e-12f));
             const float levelDb  = 20.0f * std::log10(rmsLevel);
-            const float comprDb  = (levelDb > kThresholdDb)
-                                 ? -(levelDb - kThresholdDb) * (1.0f - 1.0f / kRatio)
+            const float comprDb  = (levelDb > m_thresholdDb)
+                                 ? -(levelDb - m_thresholdDb) * (1.0f - 1.0f / kRatio)
                                  : 0.0f;
-            m_targetGain = std::pow(10.0f, (comprDb + kMakeupDb) / 20.0f);
+            m_targetGain = std::pow(10.0f, (comprDb + m_makeupDb) / 20.0f);
         }
 
         // アタック/リリース平滑（ゲイン低下方向はアタック、回復方向はリリース）
         const float coeff = (m_targetGain < m_currentGain) ? m_attackCoeff : m_releaseCoeff;
         m_currentGain = coeff * m_currentGain + (1.0f - coeff) * m_targetGain;
 
-        // バイパスランプ更新（ON→OFF / OFF→ON を 50ms かけて線形補間する）
-        if (m_enabled) {
+        // バイパスランプ更新（ON→1.0, Off→0.0 へ線形補間）
+        if (enabled) {
             m_applyRatio = std::min(1.0f, m_applyRatio + m_rampStep);
         }
         else {

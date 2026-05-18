@@ -37,6 +37,17 @@ struct AppConfig {
     // false にすると SilenceTone を起動せず、OS への常時音声出力を行わない
     bool silenceToneEnabled = true;
 
+    // ノーマライズ強度別の DSP パラメータ
+    // 強度（Small/Medium/Large）ごとに threshold（圧縮開始閾値 dBFS）と makeup（底上げ dB）を
+    // 独立指定する。Ratio / Attack / Release / Limiter は強度共通のためここでは扱わない。
+    // threshold は -60.0〜0.0、makeup は 0.0〜24.0 にクランプする
+    double normalizerThresholdDbSmall  = -20.0;
+    double normalizerThresholdDbMedium = -25.0;
+    double normalizerThresholdDbLarge  = -30.0;
+    double normalizerMakeupDbSmall  =   5.0;
+    double normalizerMakeupDbMedium =  10.0;
+    double normalizerMakeupDbLarge  =  13.0;
+
     // サイレンストーンの周波数（Hz）と振幅
     // 周波数は 20〜20000 Hz、振幅は 0.0〜0.01（-40 dBFS）にクランプする。
     // 既定 1 kHz / 0.0001（約 -80 dBFS）は BT コーデックのパスバンド内かつ

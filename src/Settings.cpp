@@ -4,11 +4,14 @@ namespace {
 constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
 constexpr const char* kKeyPriority       = "aboveNormalPriority";
-constexpr const char* kKeyNormalize      = "normalizeEnabled";
+constexpr const char* kKeyNormalize      = "normalizeLevel";
 constexpr const char* kKeyVoiceClarity   = "voiceClarityLevel";
 
-// 音声明瞭化の強度範囲（VoiceClarity::Level と対応）
+// ノーマライズ・音声明瞭化の強度範囲（それぞれ Normalizer::Level / VoiceClarity::Level と対応）
 // 0=Off / 1=Small / 2=Medium / 3=Large。Settings 単独でクランプするため数値定義する
+constexpr int kNormalizeMin     = 0;
+constexpr int kNormalizeMax     = 3;
+constexpr int kNormalizeDefault = 2;
 constexpr int kVoiceClarityMin     = 0;
 constexpr int kVoiceClarityMax     = 3;
 constexpr int kVoiceClarityDefault = 2;
@@ -57,14 +60,19 @@ void Settings::setAboveNormalPriority(bool value)
     writeBool(kKeyPriority, value);
 }
 
-bool Settings::normalizeEnabled() const
+int Settings::normalizeLevel() const
 {
-    return readBool(kKeyNormalize, true);
+    const int v = readInt(kKeyNormalize, kNormalizeDefault);
+    if (v < kNormalizeMin) return kNormalizeMin;
+    if (v > kNormalizeMax) return kNormalizeMax;
+    return v;
 }
 
-void Settings::setNormalizeEnabled(bool value)
+void Settings::setNormalizeLevel(int value)
 {
-    writeBool(kKeyNormalize, value);
+    if (value < kNormalizeMin) value = kNormalizeMin;
+    if (value > kNormalizeMax) value = kNormalizeMax;
+    writeInt(kKeyNormalize, value);
 }
 
 int Settings::voiceClarityLevel() const

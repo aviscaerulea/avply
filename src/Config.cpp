@@ -89,6 +89,14 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "audio"    && key == "silence_tone_freq_hz") assignDouble(cfg.silenceToneFreqHz);
         if (section == "audio"    && key == "silence_tone_amp")     assignDouble(cfg.silenceToneAmp);
 
+        // ノーマライズ強度別パラメータ（threshold / makeup を Small/Medium/Large の 3 段で個別指定）
+        if (section == "normalizer" && key == "threshold_db_small")  assignDouble(cfg.normalizerThresholdDbSmall);
+        if (section == "normalizer" && key == "threshold_db_medium") assignDouble(cfg.normalizerThresholdDbMedium);
+        if (section == "normalizer" && key == "threshold_db_large")  assignDouble(cfg.normalizerThresholdDbLarge);
+        if (section == "normalizer" && key == "makeup_db_small")     assignDouble(cfg.normalizerMakeupDbSmall);
+        if (section == "normalizer" && key == "makeup_db_medium")    assignDouble(cfg.normalizerMakeupDbMedium);
+        if (section == "normalizer" && key == "makeup_db_large")     assignDouble(cfg.normalizerMakeupDbLarge);
+
         // 真偽値（true / false / 1 / 0 を受理。それ以外は無視）
         auto assignBool = [&](bool& target) {
             const QString v = value.trimmed().toLower();
@@ -122,6 +130,16 @@ void clampConfig(AppConfig& cfg)
     // 振幅 0.01（-40 dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
+
+    // ノーマライズ DSP パラメータ範囲
+    // threshold: -60.0〜0.0 dBFS（-60 より低いとほぼ常時圧縮、0 より上は無圧縮になり意味がない）
+    // makeup: 0.0〜24.0 dB（負値はノーマライズの趣旨に反する。+24 でもリミッタ ±0.97 で確実に頭打ち）
+    cfg.normalizerThresholdDbSmall  = std::clamp(cfg.normalizerThresholdDbSmall,  -60.0, 0.0);
+    cfg.normalizerThresholdDbMedium = std::clamp(cfg.normalizerThresholdDbMedium, -60.0, 0.0);
+    cfg.normalizerThresholdDbLarge  = std::clamp(cfg.normalizerThresholdDbLarge,  -60.0, 0.0);
+    cfg.normalizerMakeupDbSmall  = std::clamp(cfg.normalizerMakeupDbSmall,  0.0, 24.0);
+    cfg.normalizerMakeupDbMedium = std::clamp(cfg.normalizerMakeupDbMedium, 0.0, 24.0);
+    cfg.normalizerMakeupDbLarge  = std::clamp(cfg.normalizerMakeupDbLarge,  0.0, 24.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

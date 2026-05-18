@@ -22,11 +22,15 @@ class AudioWorker : public QObject {
     Q_OBJECT
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // initialNormalize で起動時の Normalizer 状態、initialVoiceClarityLevel で音声明瞭化強度を確定する
-    // （VoiceClarity::Level 値そのまま：0=Off / 1=Small / 2=Medium / 3=Large）
+    // initialNormalizeLevel で Normalizer 強度、initialVoiceClarityLevel で音声明瞭化強度を確定する
+    // （いずれも 0=Off / 1=Small / 2=Medium / 3=Large、Normalizer::Level / VoiceClarity::Level と対応）。
+    // normalizerSmall/Medium/Large は強度別の threshold / makeup を avply.toml の値で渡す
     explicit AudioWorker(const QAudioFormat& format,
-                         bool initialNormalize,
+                         int  initialNormalizeLevel,
                          int  initialVoiceClarityLevel,
+                         const Normalizer::LevelParams& normalizerSmall,
+                         const Normalizer::LevelParams& normalizerMedium,
+                         const Normalizer::LevelParams& normalizerLarge,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -44,8 +48,10 @@ public slots:
     // 再生音量を更新する（0.0〜1.0）
     void setVolume(double volume);
 
-    // ノーマライズ ON/OFF を切り替える（50ms ゲインランプで滑らかに遷移する）
-    void setNormalizeEnabled(bool enabled);
+    // ノーマライズの強度を切り替える
+    // 値は Normalizer::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）
+    // Off ↔ ON 遷移は 50ms ゲインランプで滑らかに反映、ON 強度間は threshold/makeup の差し替えのみ
+    void setNormalizeLevel(int level);
 
     // 音声明瞭化（Biquad EQ）の強度を切り替える
     // 値は VoiceClarity::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）

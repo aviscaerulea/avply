@@ -152,13 +152,17 @@ private:
     void onToggleTopmost(bool checked);
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
-    void onToggleNormalize(bool checked);
+
+    // ノーマライズの強度を 1 段階進める（Off → 小 → 中 → 大 → Off の 4 状態循環）
+    // N キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
+    void cycleNormalize();
 
     // 音声明瞭化の強度を 1 段階進める（Off → 小 → 中 → 大 → Off の 4 状態循環）
     // V キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
     void cycleVoiceClarity();
 
-    // ノーマライズラベルの表示/非表示を現在の設定に応じて更新する
+    // ノーマライズラベルの表示/非表示と強度表記を現在の設定に応じて更新する
+    // Off の場合は非表示、それ以外は「🎚 ノーマライズ (小/中/大)」を表示する
     void updateNormalizeDisplay();
 
     // 音声明瞭化ラベルの表示/非表示と強度表記を現在の設定に応じて更新する
@@ -242,7 +246,6 @@ private:
     QAction*      m_actTopmost       = nullptr;
     QAction*      m_actSingleInst    = nullptr;
     QAction*      m_actPriority      = nullptr;
-    QAction*      m_actNormalize     = nullptr;
 
     // 現在の再生状態（applyTopmostState で参照）
     bool m_isPlaying = false;
