@@ -728,6 +728,13 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
 
+    // probe 完了までファイル依存 UI を一旦無効化する
+    // m_videoView は既に新ソースへ切替済みだが、m_filePath / m_info は probe 完了まで旧値のまま。
+    // この間トリム/変換ボタンが活性のままだと「再生中の動画」と「実際に処理される旧ファイル」が
+    // 乖離するため、m_info を invalidate して setUiEnabled で UI を確実に止める
+    m_info = VideoInfo();
+    setUiEnabled(false);
+
     // 旧 probe を破棄してから新規発行する。
     // 連続 D&D などで前ファイルの probe 結果が遅れて到着し、新ファイルの状態を上書きするのを防ぐ
     if (m_probeProc) {
@@ -1167,11 +1174,27 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     if (QApplication::activeModalWidget()) {
         return QMainWindow::eventFilter(watched, event);
     }
-    // 実行中（変換またはトリム）はシーク・再生トグル・速度変更を全て無効化する
-    // （Space / ←→ / ↑↓ いずれも処理負荷の増加と誤操作要因になる）
-    if (m_runningOp != Operation::None) return true;
-
+    // 実行中（変換またはトリム）はメディア操作キー（Space / ←→ / ↑↓ / N / V / G / R）のみ
+    // 無効化する。Alt+F4・Tab・Ctrl+C 等のシステムキーやアプリ全体のショートカットは素通しし、
+    // ウィンドウ閉鎖やフォーカス移動をブロックしないようにする
     const auto* ke = static_cast<QKeyEvent*>(event);
+    if (m_runningOp != Operation::None) {
+        switch (ke->key()) {
+        case Qt::Key_Left:
+        case Qt::Key_Right:
+        case Qt::Key_Space:
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_G:
+        case Qt::Key_R:
+        case Qt::Key_N:
+        case Qt::Key_V:
+            return true;
+        default:
+            return QMainWindow::eventFilter(watched, event);
+        }
+    }
+
     switch (ke->key()) {
     case Qt::Key_Left:
         seekRelative(-m_seekLeftMs);
@@ -1558,12 +1581,11 @@ void MainWindow::stopWaveformProcess(bool synchronous)
     // QFile::remove より先に確実にプロセスを終了させる必要がある
     m_waveformProc->waitForFinished(synchronous ? 3000 : 1000);
 
-    if (synchronous) {
-        delete m_waveformProc;
-    }
-    else {
-        m_waveformProc->deleteLater();
-    }
+    // 親子破棄経路に乗せると ~QProcess() の waitForFinished(30000) が
+    // ここで上乗せされ最長 33 秒ブロックする。setParent(nullptr) + deleteLater で切り離す
+    // （probeProc・Encoder と同じ終了応答性パターン）
+    m_waveformProc->setParent(nullptr);
+    m_waveformProc->deleteLater();
     m_waveformProc = nullptr;
 
     // 中途まで書かれた可能性のある PNG を削除する

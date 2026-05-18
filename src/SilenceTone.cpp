@@ -106,8 +106,12 @@ SilenceTone::SilenceTone(QObject* parent)
     // かつユーザがアプリ起動後に音声を流し始めるまでの典型的猶予内に収まる値として設定する
     m_healthCheck.setInterval(30000);
     connect(&m_healthCheck, &QTimer::timeout, this, [this]() {
+        // 復旧トリガも debounce 経由に統一する。
+        // 直接 onAudioOutputsChanged を呼ぶと、同時に pending な audioOutputsChanged
+        // → m_restartDebounce タイマと衝突し closeSink/openSink が連続実行されて
+        // サイレンストーンが一瞬切れる（closeSink 内 stop() の同期ブロックで GUI も短時間劣化する）
         if (m_started && !m_sink) {
-            onAudioOutputsChanged();
+            m_restartDebounce.start();
         }
     });
 }

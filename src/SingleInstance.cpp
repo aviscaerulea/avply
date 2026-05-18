@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QPointer>
 #include <QSharedPointer>
 #include <QStandardPaths>
 #include <QTimer>
@@ -72,7 +73,13 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
     QLocalServer::removeServer(pipeName());
     if (!server->listen(pipeName())) return;
 
-    QObject::connect(server, &QLocalServer::newConnection, win, [server, win]() {
+    // MainWindow への弱参照を構築する
+    // 受信ソケットの readyRead や ack 送信待ちは MainWindow の寿命より長引く可能性があり、
+    // 生ポインタを lambda にキャプチャすると MainWindow 破棄後の deliver 発火で
+    // dangling 参照になる。QPointer は破棄後に自動で null 化される
+    QPointer<MainWindow> winSafe(win);
+
+    QObject::connect(server, &QLocalServer::newConnection, win, [server, winSafe]() {
         QLocalSocket* socket = server->nextPendingConnection();
         if (!socket) return;
 
@@ -95,7 +102,7 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
         recvTimer->setSingleShot(true);
         recvTimer->setInterval(kServerRecvTimeoutMs);
 
-        auto deliver = [win, buf, delivered, recvTimer](QLocalSocket* s) {
+        auto deliver = [winSafe, buf, delivered, recvTimer](QLocalSocket* s) {
             if (*delivered) return;
             *delivered = true;
             recvTimer->stop();
@@ -138,7 +145,15 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
             }
             s->disconnectFromServer();
 
-            win->loadFileFromIpc(path);
+            // MainWindow への呼び出しは GUI thread へキューイングする
+            // QLocalServer の newConnection は GUI thread で発火するため通常は同 thread だが、
+            // QPointer の null チェックと dereference 間のアトミック性は保証されない。
+            // QueuedConnection 経由とすることで receiver 破棄後のイベントは Qt 側で安全に破棄される
+            if (winSafe) {
+                QMetaObject::invokeMethod(winSafe, "loadFileFromIpc",
+                                          Qt::QueuedConnection,
+                                          Q_ARG(QString, path));
+            }
         };
 
         // 受信：改行検出または上限超過で確定

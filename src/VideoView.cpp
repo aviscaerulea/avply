@@ -223,6 +223,17 @@ VideoView::~VideoView()
     // BlockingQueuedConnection で呼んで audio thread 上で sink を解放する。
     // GUI thread で sink を破棄すると thread affinity 違反になるため、この順序が必須
     if (m_audioThread) {
+        // teardown 待ち中に decoder thread から audioBufferReceived が発火すると
+        // event queue に積まれた onAudioBuffer が teardown 後（sink=null）に走り
+        // 早期 return で済むが、teardown 前の隙間で走れば sink->bytesFree() 等の
+        // 競合経路に乗る。明示的に audioBuf → audioWorker の connect を切ることで
+        // 以後の新規 audioBufferReceived 発火は audioWorker へ届かなくなる。
+        // ただし disconnect 時点で既に audio thread のイベントキューに積まれている
+        // onAudioBuffer 1 件は実行される可能性が残るため、teardown は
+        // BlockingQueuedConnection で audio thread を一旦排他することで競合を防ぐ
+        if (m_audioBuf && m_audioWorker) {
+            disconnect(m_audioBuf, nullptr, m_audioWorker, nullptr);
+        }
         if (m_audioWorker) {
             QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
         }

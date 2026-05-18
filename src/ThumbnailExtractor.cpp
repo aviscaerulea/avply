@@ -71,13 +71,23 @@ void ThumbnailExtractor::request(int seconds,
         "scale=%1:%2:force_original_aspect_ratio=decrease:flags=fast_bilinear,format=rgb24")
         .arg(m_thumbSize.width()).arg(m_thumbSize.height());
 
+    // input seek + output seek の組み合わせで GOP 単位のずれを抑える
+    // -ss を -i の前に置く（input seek）と高速にスキップできるが、最寄りの前方キーフレームまで
+    // しか戻れず、GOP=120 frame（4 秒@30fps）想定では実測位置が要求位置から最大数秒ずれる。
+    // 要求位置の少し手前へ input seek で粗く飛び、続く -ss（output seek）でフレーム正確に追い込む。
+    // pre が 0 になる短い動画でも、out 側 -ss seconds で要求位置に到達できる
+    constexpr int kPreSeekSec = 5;
+    const int preSeek  = std::max(0, seconds - kPreSeekSec);
+    const int fineSeek = seconds - preSeek;
+
     QStringList args = { "-hide_banner", "-loglevel", "error" };
     if (!m_hwaccel.isEmpty() && m_hwaccel.compare("none", Qt::CaseInsensitive) != 0) {
         args << "-hwaccel" << m_hwaccel;
     }
     args
-        << "-ss" << QString::number(seconds)
+        << "-ss" << QString::number(preSeek)
         << "-i" << m_inputPath
+        << "-ss" << QString::number(fineSeek)
         << "-frames:v" << "1"
         << "-an" << "-sn" << "-dn"
         << "-vf" << filterStr

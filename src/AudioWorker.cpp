@@ -120,11 +120,17 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     const qsizetype inFrames = buf.frameCount();
     if (inFrames <= 0) return;
 
+    // SoundTouch に入力サンプル（interleaved float）を投入する
+    // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる
+    m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
+
     // フェールセーフ：連続 underrun 時の蓄積暴走を抑止する
     // sink への書き戻し失敗が続くと SoundTouch 内出力キュー (numSamples) と m_pendingTail が
     // 入力レート分だけ際限なく膨らみ、再生レイテンシが秒単位で増大する。
     // 約 2 秒相当を超えた時点で両方破棄して即時回復させる。聴感上は一瞬の音飛びになるが
-    // 持続的なレイテンシ膨張に比べ復帰コストが圧倒的に低い
+    // 持続的なレイテンシ膨張に比べ復帰コストが圧倒的に低い。
+    // putSamples 後にチェックすることで、当該バッファ投入により閾値を踏み越えたケースも
+    // 同一フレーム内で検出して即時クリアできる（putSamples 前チェックでは検出が 1 フレーム遅れる）
     constexpr qint64 kOverflowSeconds = 2;
     const qint64 sampleRate    = m_format.sampleRate();
     const qint64 bytesPerSec   = static_cast<qint64>(m_format.bytesForDuration(1000 * 1000));
@@ -138,11 +144,12 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
                    << "— clearing both to recover";
         m_stretch->clear();
         m_pendingTail.clear();
+        // 統計に underrun として 1 件計上して 1 秒ログから可視化する。
+        // overflow は持続的な書き戻し失敗の結果として発生するため、
+        // underrun カウンタの増加と同種の異常として記録するのが妥当
+        ++m_statsUnderruns;
+        return;
     }
-
-    // SoundTouch に入力サンプル（interleaved float）を投入する
-    // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる
-    m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
 
     // 統計集計用ローカル変数
     qint64 totalInBytes  = 0;
@@ -302,6 +309,23 @@ void AudioWorker::reset()
     m_statsUnderruns = 0;
     m_firstBufferReported = false;
     if (!m_sink) return;
+    // シーク連打スロットリング
+    // 直近 50ms 以内の再 reset では sink の stop()→start() をスキップする。
+    // stop()→start() は WASAPI の完全再起動で約 30ms ブロックし、連打すると
+    // audio thread に蓄積して GUI 体感が劣化するため間引く。
+    // QAudioSink::reset() は StoppedState に遷移して sinkDev の write が
+    // 無効化されるリスクがあるため呼ばず、WASAPI バッファ（最大 200ms）に
+    // 残った旧サンプルは一瞬鳴ってから新規入力で上書きされるに任せる。
+    // 上の DSP リセット（Normalizer / VoiceClarity / SoundTouch / pendingTail）は
+    // 既に完了しているため、シーク連打中の聴感悪化は限定的。
+    // スロットリング窓は「最後の reset 呼び出し」から 50ms とし、連打が継続する
+    // 限り常にスロットリング側へ流すことで sink restart の蓄積を抑える
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_lastSinkRestartMs < 50) {
+        m_lastSinkRestartMs = now;
+        return;
+    }
+    m_lastSinkRestartMs = now;
     m_sink->stop();
     m_sinkDev = m_sink->start();
     if (!m_sinkDev) {

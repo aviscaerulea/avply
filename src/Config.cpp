@@ -22,8 +22,26 @@ bool parseSection(const QString& line, QString& section)
     return !section.isEmpty();
 }
 
+// 値文字列からクォート外の行末コメントを切り捨てる
+// TOML 慣習で `speed = 1.25  # コメント` を許容する。
+// クォート内の `#` はリテラルとして保持する（パス等での誤切断を防ぐ）
+QString stripInlineComment(const QString& raw)
+{
+    bool inQuote = false;
+    for (int i = 0; i < raw.size(); ++i) {
+        const QChar c = raw.at(i);
+        if (c == '"') {
+            inQuote = !inQuote;
+        }
+        else if (c == '#' && !inQuote) {
+            return raw.left(i).trimmed();
+        }
+    }
+    return raw;
+}
+
 // key = "value" 形式の 1 行を解釈する
-// コメント（# 始まり）と空行は無視。値はダブルクォートを除去
+// コメント（# 始まり）と空行は無視。値はダブルクォートを除去し、行末コメントも切り捨てる
 bool parseKeyValue(const QString& line, QString& key, QString& value)
 {
     const QString trimmed = line.trimmed();
@@ -33,7 +51,7 @@ bool parseKeyValue(const QString& line, QString& key, QString& value)
     if (eq <= 0) return false;
 
     key = trimmed.left(eq).trimmed();
-    QString raw = trimmed.mid(eq + 1).trimmed();
+    QString raw = stripInlineComment(trimmed.mid(eq + 1).trimmed());
     if (raw.size() >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
         raw = raw.mid(1, raw.size() - 2);
     }

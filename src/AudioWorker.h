@@ -112,6 +112,12 @@ private:
     // 初回バッファのフォーマット記録フラグ
     // reset() で false に戻し、ファイル切替・シーク後の最初のバッファでも診断ログを再出力する
     bool         m_firstBufferReported = false;
+    // QAudioSink の stop()→start() スロットリング用タイムスタンプ
+    // シーク連打で reset() が短時間に複数回キューイングされた際、毎回 WASAPI の
+    // 完全再起動（〜30ms ブロック）を走らせると audio thread の HighPriority 占有時間が
+    // 加算されて GUI 体感が劣化する。直近 50ms 以内の再 reset では sink->reset() のみで
+    // バッファ破棄に留め、状態機械リセットは間引く
+    qint64       m_lastSinkRestartMs = 0;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;
