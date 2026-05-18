@@ -1184,24 +1184,25 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     case Qt::Key_Up:
     case Qt::Key_Down: {
-        // 修飾子なしの ↑/↓ で音量を ±0.05 単位で増減する。
-        // Shift/Ctrl/Alt/Meta 併用時は他の OS / IME ショートカットと衝突しうるため捕捉せず素通しする。
-        // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のためマスクから除外する
-        // （テンキー ↑/↓ も同じ動作で扱う）
+        // 修飾子による分岐
+        // - 修飾子なし：再生速度 ±0.05
+        // - Shift 単独：音量 ±0.05
+        // - Ctrl/Alt/Meta 併用：OS/IME ショートカットと衝突しうるため素通し
+        // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のため
+        // マスクから除外し、テンキー ↑/↓ も同じ動作で扱う
         const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-        if (mods != Qt::NoModifier) return QMainWindow::eventFilter(watched, event);
         const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
-        changeVolume(sign);
+        if (mods == Qt::NoModifier) {
+            changePlaybackRate(sign);
+        }
+        else if (mods == Qt::ShiftModifier) {
+            changeVolume(sign);
+        }
+        else {
+            return QMainWindow::eventFilter(watched, event);
+        }
         return true;
     }
-    case Qt::Key_Less:
-        // `<` キー（Shift+`,`）で再生速度を -0.05
-        changePlaybackRate(-0.05);
-        return true;
-    case Qt::Key_Greater:
-        // `>` キー（Shift+`.`）で再生速度を +0.05
-        changePlaybackRate(0.05);
-        return true;
     case Qt::Key_G:
         // 再生条件（速度/音量/Normalize/Clarity）の全リセット ↔ 起動時デフォルト復元のトグル
         toggleGReset();
