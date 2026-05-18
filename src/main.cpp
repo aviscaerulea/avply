@@ -39,12 +39,9 @@ void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QS
         QMutexLocker locker(&s_mutex);
 
         if (!s_logFile.isOpen()) {
-            wchar_t exePath[MAX_PATH] = {};
-            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            QString dir = QString::fromWCharArray(exePath);
-            const int sep = dir.lastIndexOf('\\');
-            if (sep >= 0) dir.truncate(sep + 1);
-            s_logFile.setFileName(dir + "avply.log");
+            // ロングパス（MAX_PATH 超）対応と DRY のため Config::exeDirectory を流用する
+            const QString dir = Config::exeDirectory();
+            s_logFile.setFileName(dir + "/avply.log");
             // 開けなかった場合は isOpen() が false のまま。次の if で書き込みをスキップする
             (void)s_logFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
         }

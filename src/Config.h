@@ -74,4 +74,10 @@ namespace Config {
     // 存在すれば同キーを後勝ちで上書きする。
     // ffmpeg_path 未設定時は scoop デフォルトパスにフォールバックする。
     AppConfig load();
+
+    // 実行ファイルのあるディレクトリ絶対パス
+    // QCoreApplication 未構築でも動くよう Win32 API を直接使う。
+    // MAX_PATH 超のロングパス環境にも対応するためバッファを動的拡張する。
+    // 取得失敗時は空文字を返す
+    QString exeDirectory();
 } // namespace Config

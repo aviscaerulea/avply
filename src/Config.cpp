@@ -166,11 +166,9 @@ QString scoopFallback()
     return QDir::homePath() + "/scoop/apps/ffmpeg/current/bin/ffmpeg.exe";
 }
 
-// 実行ファイルのあるディレクトリを返す
-// QCoreApplication が未構築でも動くよう Win32 API を直接使う。
-// main.cpp の qputenv 経路から QApplication 構築前に呼ばれる。
-// ロングパス（MAX_PATH 超）に対応するためバッファを動的拡張する
-QString exeDirectory()
+} // namespace
+
+QString Config::exeDirectory()
 {
     std::vector<wchar_t> buf(MAX_PATH);
     DWORD n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
@@ -187,11 +185,9 @@ QString exeDirectory()
     return (sep >= 0) ? path.left(sep) : QString();
 }
 
-} // namespace
-
 AppConfig Config::load()
 {
-    const QString exeDir = exeDirectory();
+    const QString exeDir = Config::exeDirectory();
     AppConfig cfg;
 
     mergeFromFile(exeDir + "/avply.toml",       cfg);
