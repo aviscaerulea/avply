@@ -122,6 +122,21 @@ QProcess* probeAsync(
         callback(info, result);
         proc->deleteLater();
     });
+
+    // 起動失敗を捕捉する
+    // FailedToStart のとき finished は発火しないため、
+    // ここで callback を確実に呼ばないと呼び出し元が永久待機しプロセスもリークする。
+    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
+    QObject::connect(proc, &QProcess::errorOccurred, parent,
+        [proc, callback](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart) return;
+
+        // finished 経路と二重発火しないよう、ここで disconnect する
+        QObject::disconnect(proc, nullptr, nullptr, nullptr);
+        proc->deleteLater();
+        callback(VideoInfo{}, FfmpegResult{false, "ffprobe の起動に失敗しました"});
+    });
+
     proc->start(ffprobePath, args);
     return proc;
 }
@@ -204,6 +219,21 @@ QProcess* generateWaveform(
         callback(ok, ok ? outputPath : QString());
         proc->deleteLater();
     });
+
+    // 起動失敗を捕捉する
+    // FailedToStart のとき finished は発火しないため、
+    // ここで callback を確実に呼ばないとプロセスがリークし callback も不発になる。
+    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
+    QObject::connect(proc, &QProcess::errorOccurred, parent,
+        [proc, callback](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart) return;
+
+        // finished 経路と二重発火しないよう、ここで disconnect する
+        QObject::disconnect(proc, nullptr, nullptr, nullptr);
+        proc->deleteLater();
+        callback(false, QString());
+    });
+
     proc->start(ffmpegPath, args);
     return proc;
 }
