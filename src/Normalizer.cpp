@@ -6,9 +6,15 @@
 // 圧縮比（threshold 超過分を 1/N にする）
 // 6:1 は強めのダウンワード圧縮。大声側を確実に押し込むためにライブ放送系の典型値より深めに取る
 static constexpr float kRatio       = 6.0f;
-// ハードリミッタの絶対上限（線形振幅、1.0=フルスケール）
+// リミッタの絶対上限（線形振幅、1.0=フルスケール）
 // 0.97 は -0.26 dBFS。後段の resampler overshoot（最大 ~2%）を見込んでも 0.99 で頭打ちになる安全係数
 static constexpr float kLimiterCeil = 0.97f;
+// ソフトリミッタのニー（線形通過の上限、線形振幅）
+// この値未満は無加工で素通しし、kLimiterCeil との間を tanh で滑らかに飽和させる。
+// 0.56 ≒ -5.0 dBFS。makeup gain で押し上げた声のピークがハードクリップで角張る帯域を
+// この曲線で丸め、「ザリッ」という高次倍音歪みを低次の穏やかな飽和に置き換える。
+// 値を下げるほど早めに飽和が効き角が取れるが、素通し帯域が狭まり大音量がやや鈍る
+static constexpr float kLimiterKnee = 0.56f;
 // RMS 検出窓長（ms）
 // 入力信号の実効値追跡に使う移動平均長。短すぎると発話の母音切れ目に過剰反応し、長すぎると応答が鈍る
 static constexpr float kRmsWindowMs = 10.0f;
@@ -28,6 +34,22 @@ static constexpr float kRampMs      = 50.0f;
 static float iirCoeff(float rate, float timeMs)
 {
     return std::exp(-1.0f / (rate * timeMs * 0.001f));
+}
+
+// ソフトリミッタ
+// 振幅が kLimiterKnee 未満なら無加工で素通しし、kLimiterKnee 〜 kLimiterCeil を
+// tanh で滑らかに飽和させて出力が kLimiterCeil を超えないよう保証する。
+// ニーで値・傾きとも連続（C1）になり、ハードクリップの角を取って歪みを和らげる
+static float softLimit(float x)
+{
+    const float a = std::fabs(x);
+    if (a <= kLimiterKnee) {
+        return x;
+    }
+    const float over   = a - kLimiterKnee;
+    const float range  = kLimiterCeil - kLimiterKnee;
+    const float shaped = kLimiterKnee + range * std::tanh(over / range);
+    return std::copysign(shaped, x);
 }
 
 // 閾値 thresholdDb 相当の振幅を二乗した RMS 追跡器の初期値を返す
@@ -173,14 +195,14 @@ void Normalizer::process(float* samples, std::ptrdiff_t n)
             m_applyRatio = std::max(0.0f, m_applyRatio - m_rampStep);
         }
 
-        // 各チャンネルに適用: DSP 出力とバイパスをランプ比率で補間しリミッタで上限保証
-        // 補間後にもリミッタを掛けることで raw が ±1.0 超の入力でもピーク保証を維持する
+        // 各チャンネルに適用: DSP 出力とバイパスをランプ比率で補間しソフトリミッタで上限保証
+        // 補間後にソフトリミッタを掛けることで raw が ±1.0 超の入力でもピーク保証を維持する。
+        // 補間前の中間クリップは行わず、最終出力 1 回だけ softLimit に通して二重整形を避ける
         for (int ch = 0; ch < m_channels; ++ch) {
-            const float raw = frame[ch];
-            float processed = raw * m_currentGain;
-            processed = std::clamp(processed, -kLimiterCeil, kLimiterCeil);
-            const float blended = m_applyRatio * processed + (1.0f - m_applyRatio) * raw;
-            frame[ch] = std::clamp(blended, -kLimiterCeil, kLimiterCeil);
+            const float raw      = frame[ch];
+            const float processed = raw * m_currentGain;
+            const float blended   = m_applyRatio * processed + (1.0f - m_applyRatio) * raw;
+            frame[ch] = softLimit(blended);
         }
     }
 }
