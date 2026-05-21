@@ -7,6 +7,7 @@
 #include <SoundTouch.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 // SSE 制御レジスタ操作（denormal flush 設定用）
 #include <xmmintrin.h>
 #include <pmmintrin.h>
@@ -111,6 +112,18 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         m_appliedRate = pendingRate;
     }
 
+    // 等速再生（rate≒1.0）は SoundTouch をバイパスする。
+    // tempo 1.0 でも SoundTouch は WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を残し、
+    // 後段 Normalizer の makeup gain がそれを可聴なプチノイズへ増幅するため、等速では経路ごと外す。
+    // バイパスの ON/OFF が切り替わる瞬間に SoundTouch 内の旧 tempo 残量を破棄する。
+    // bypass へ入る場合は以後 putSamples しないため残量が宙に浮き、bypass から出る場合も
+    // 残量は旧経路のもので不要。速度変更の瞬間に数十 ms 欠落するが体感されない
+    const bool bypass = std::abs(pendingRate - 1.0) < 1e-6;
+    if (bypass != m_bypassActive) {
+        m_stretch->clear();
+        m_bypassActive = bypass;
+    }
+
     // 初回バッファのフォーマット記録
     // format mismatch 検出用の診断ログ。m_firstBufferReported は reset() で false に戻すため、
     // ファイル切替・シーク後の最初のバッファでも再出力される
@@ -159,16 +172,34 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         m_firstBufferReported = false;
     }
 
-    // SoundTouch に入力サンプル（interleaved float）を投入する
-    // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる。
-    // overflow 復旧後も同経路で当該バッファ分を投入する（捨てると復旧冒頭で空出力になる）
-    m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
-
     // 統計集計用ローカル変数
     qint64 totalInBytes  = 0;
     qint64 totalOutBytes = 0;
     int    underruns     = 0;
     int    writes        = 0;
+
+    if (bypass) {
+        // 等速再生：SoundTouch を通さず raw 入力を直接 DSP へ通す。
+        // DSP 適用済みサンプルを m_pendingTail 末尾へ積み、後続の flush ブロックで
+        // 既存残量と同じ経路・順序で sink へ書き出す。sink フル時も pendingTail に
+        // 滞留して順序とサンプルが保たれるため、SoundTouch のような滞留先が無くても欠落しない
+        const qsizetype outSamples = inFrames * channels;
+        const qsizetype outBytes   = outSamples * static_cast<qsizetype>(sizeof(float));
+        if (m_workBuf.size() < outBytes) {
+            m_workBuf.resize(outBytes);
+        }
+        std::memcpy(m_workBuf.data(), buf.constData<float>(), static_cast<size_t>(outBytes));
+        float* data = reinterpret_cast<float*>(m_workBuf.data());
+        m_voiceClarity.process(data, outSamples);
+        m_normalizer.process(data, outSamples);
+        m_pendingTail.append(m_workBuf.constData(), outBytes);
+    }
+    else {
+        // SoundTouch に入力サンプル（interleaved float）を投入する
+        // 出力は tempo に応じて入力 frame 数 / tempo 程度のフレーム数になる。
+        // overflow 復旧後も同経路で当該バッファ分を投入する（捨てると復旧冒頭で空出力になる）
+        m_stretch->putSamples(buf.constData<float>(), static_cast<uint>(inFrames));
+    }
 
     // 音量適用のラムダ
     // m_pendingTail / receiveSamples 出力のいずれも pre-volume（post-normalizer）として保持し、
@@ -216,6 +247,8 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
     // SoundTouch から time-stretched サンプルを取り出して DSP・音量・sink への書き込みを行う
     // 1 回の receiveSamples で全部出ない場合があるため received == 0 までループする
+    // バイパス時は SoundTouch を経由しないため本ループ全体をスキップする（出力は上の pendingTail 経路で完結）
+    if (!bypass) {
     // receiveSamples 1 回あたりの取り出し上限フレーム数
     // 4096 ≒ 85ms@48kHz。大きすぎると 1 ループが長くなり sink bytesFree チェック粒度が落ちる
     constexpr uint kRecvBatchFrames = 4096;
@@ -272,6 +305,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
             break;
         }
     }
+    } // if (!bypass)
 
     // 診断ログ：1 秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）。
     // 周期 qInfo は OutputDebugString 同期 I/O で audio thread を数 ms ブロックするため

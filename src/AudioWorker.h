@@ -107,6 +107,12 @@ private:
     // audio thread 上で最後に適用済みの SoundTouch tempo
     // m_pendingRate との差分検知に使う（毎回 setTempo を呼ばない最適化）
     double       m_appliedRate = 1.0;
+    // 等速再生時の SoundTouch バイパス状態
+    // rate が 1.0 のときは時間圧縮が不要なため SoundTouch を通さず raw を直接 DSP へ送る。
+    // SoundTouch は tempo 1.0 でも WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を生み、
+    // Normalizer の makeup gain がそれを可聴なプチノイズへ増幅するため等速では経路ごと外す。
+    // 経路切替（bypass の ON/OFF）を検知して SoundTouch 内の旧残量を破棄するために保持する
+    bool         m_bypassActive = false;
     // 1 秒集計の診断ログ用カウンタ群
     // function-local static にすると reset() / シーク跨ぎで初期化されず、
     // リセット直後の集計窓が 1 秒超 / 未満となり診断ログの誤読を招くためメンバ化する
