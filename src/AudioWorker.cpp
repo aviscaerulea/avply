@@ -355,7 +355,7 @@ void AudioWorker::reset()
     m_firstBufferReported = false;
     if (!m_sink) return;
     // シーク連打スロットリング
-    // 直近 50ms 以内の再 reset では sink stop()→start() をスキップする。WASAPI 完全再起動の
+    // 直近 50ms 以内の再 reset では sink reset()→start() をスキップする。WASAPI 完全再起動の
     // 約 30ms ブロックが audio thread に蓄積するのを防ぐ。スロットリング窓は「最後に実際に
     // restart した時刻」から 50ms とし、throttle 側 return では m_lastSinkRestartMs を
     // 更新しない。これにより 49ms 間隔の連打中でも 50ms ごとに一度は sink restart が走り、
@@ -365,7 +365,7 @@ void AudioWorker::reset()
         return;
     }
     m_lastSinkRestartMs = now;
-    m_sink->stop();
+    m_sink->reset();
     m_sinkDev = m_sink->start();
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed (after reset):" << m_sink->error();
@@ -374,7 +374,7 @@ void AudioWorker::reset()
 
 void AudioWorker::forceReset()
 {
-    // ソース切替時の強制リセット。throttle を無視して必ず sink を stop→start し、
+    // ソース切替時の強制リセット。throttle を無視して必ず sink を reset→start し、
     // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ
     m_normalizer.reset();
     m_voiceClarity.reset();
@@ -390,7 +390,7 @@ void AudioWorker::forceReset()
     m_firstBufferReported = false;
     if (!m_sink) return;
     m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();
-    m_sink->stop();
+    m_sink->reset();
     m_sinkDev = m_sink->start();
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed (after forceReset):" << m_sink->error();
