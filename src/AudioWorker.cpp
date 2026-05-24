@@ -338,7 +338,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 void AudioWorker::reset()
 {
     // シーク時の sink 積み残し破棄と DSP 状態リセット。
-    // 50ms 以内の連打ではスロットリング側に流し、sink stop()→start() を間引く
+    // 50ms 以内の連打ではスロットリング側に流し、sink reset()→start() を間引く
     m_normalizer.reset();
     m_voiceClarity.reset();
     if (m_stretch) m_stretch->clear();

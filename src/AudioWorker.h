@@ -51,7 +51,7 @@ public slots:
     void reset();
 
     // ソース切替時の強制リセット
-    // 前ソースのサンプルが WASAPI バッファに残らないよう必ず sink stop()→start() を実行する。
+    // 前ソースのサンプルが WASAPI バッファに残らないよう必ず sink reset()→start() を実行する。
     // throttle 適用外。reset() と異なり m_workBuf / m_volumeWork も解放する
     void forceReset();
 
@@ -124,7 +124,7 @@ private:
     // 初回バッファのフォーマット記録フラグ
     // reset() で false に戻し、ファイル切替・シーク後の最初のバッファでも診断ログを再出力する
     bool         m_firstBufferReported = false;
-    // QAudioSink の stop()→start() スロットリング用タイムスタンプ
+    // QAudioSink の reset()→start() スロットリング用タイムスタンプ
     // シーク連打で reset() が短時間に複数回キューイングされた際、毎回 WASAPI の
     // 完全再起動（〜30ms ブロック）を走らせると audio thread の HighPriority 占有時間が
     // 加算されて GUI 体感が劣化する。直近 50ms 以内の再 reset では sink への操作を

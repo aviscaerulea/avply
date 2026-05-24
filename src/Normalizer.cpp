@@ -103,7 +103,7 @@ Normalizer::Normalizer(int sampleRate,
     m_gainRecalcInterval = std::max(1, static_cast<int>(frameRate * kRmsWindowMs * 0.001f));
     // 初回 recalc を 1 窓分（kRmsWindowMs）遅らせるためカウンタを 0 から開始する。
     // 即時 recalc にすると RMS 追跡器が真値に収束する前にターゲットゲインが算出され、
-    // currentGain=1.0 → makeup 適用後ゲインへ kAttackMs かけて急峻に立ち上がるため
+    // currentGain=1.0 → makeup 適用後ゲインへ kReleaseMs かけて緩慢に立ち上がるため
     // シーク直後にポップノイズとして体感される
     m_frameCounter = 0;
 }
@@ -124,7 +124,7 @@ void Normalizer::setLevel(Level level)
         // Off → ON 遷移時：Off 中に凍結していたゲイン状態をリセットして再 warmup する。
         // Off 中は早期 return でスキップするため targetGain が古い値で凍結しており、
         // そのまま applyRatio ランプを立ち上げると旧ゲインが 50ms 混入する。
-        // reset() と同等の初期化で currentGain=1.0 → 正規値へ kAttackMs かけて収束させる
+        // reset() と同等の初期化で currentGain=1.0 → 正規値へ kReleaseMs かけて収束させる
         if (m_level == Level::Off) {
             m_rmsState    = initialRmsState(m_thresholdDb);
             m_currentGain = 1.0f;
