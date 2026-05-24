@@ -1,10 +1,11 @@
 #pragma once
 #include <cstddef>
 
-// RMS コンプレッサ + メイクアップゲイン DSP
-// 大声/小声の音量差を縮小する。出力サンプルは常に ±kLimiterCeil 以内に収まる。
-// 過去の gain × playbackRate overshoot ノイズ問題を回避するため、自己ピーク制限設計とし
-// soft-clip を排除している（limiter は通常時ほぼ不発、最悪ケースのハードキャップのみ機能する）
+// アップワード RMS コンプレッサ DSP
+// 閾値未満の小音量のみを持ち上げ、閾値以上の大音量は素通しする（ゲイン 1.0）。
+// 大音量を一切押し上げないため出力は元のピークを超えず、soft-limiter は通常時ほぼ不発で
+// フルスケール直前のピークと後段 overshoot のみ穏やかに頭打ちする安全網として機能する。
+// 出力サンプルは常に ±kLimiterCeil 以内に収まる
 class Normalizer {
 public:
     // 圧縮強度レベル
@@ -18,12 +19,12 @@ public:
     };
 
     // 強度ごとに切り替える DSP パラメータ
-    // 「圧縮の浅深」と「底上げ量」を独立に指定する。Ratio / Attack / Release / Limiter 上限 /
+    // 「持ち上げ境界」と「最大ブースト量」を独立に指定する。Ratio / Attack / Release / Limiter 上限 /
     // RMS 窓は全強度共通（質感の一貫性を保つため）。avply.toml の [normalizer] セクションで
     // ユーザが調整できる
     struct LevelParams {
-        float thresholdDb;  // 圧縮開始の RMS 閾値（dBFS、典型 -30〜-15）
-        float makeupDb;     // コンプレッサ後の底上げゲイン（dB、典型 0〜+18）
+        float thresholdDb;  // 持ち上げ境界の RMS 閾値（dBFS、これ未満を持ち上げ以上は素通し、典型 -30〜-15）
+        float makeupDb;     // 小音量ブーストの最大量（dB、典型 0〜+18）
     };
 
     // 初期強度と Small/Medium/Large の DSP パラメータを指定する。

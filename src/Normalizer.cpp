@@ -3,18 +3,19 @@
 #include <cmath>
 #include <algorithm>
 
-// 圧縮比（threshold 超過分を 1/N にする）
-// 6:1 は強めのダウンワード圧縮。大声側を確実に押し込むためにライブ放送系の典型値より深めに取る
+// アップワード圧縮のレシオ（閾値との差のうち持ち上げる割合）
+// 6:1 で「1 - 1/6 = 83% の差を埋める」。threshold との gap が大きいほどブーストが増え、
+// makeup で上限キャップされる。発話の quietness に応じた滑らかな持ち上げを得るための典型値
 static constexpr float kRatio       = 6.0f;
 // リミッタの絶対上限（線形振幅、1.0=フルスケール）
 // 0.97 は -0.26 dBFS。後段の resampler overshoot（最大 ~2%）を見込んでも 0.99 で頭打ちになる安全係数
 static constexpr float kLimiterCeil = 0.97f;
 // ソフトリミッタのニー（線形通過の上限、線形振幅）
 // この値未満は無加工で素通しし、kLimiterCeil との間を tanh で滑らかに飽和させる。
-// 0.56 ≒ -5.0 dBFS。makeup gain で押し上げた声のピークがハードクリップで角張る帯域を
-// この曲線で丸め、「ザリッ」という高次倍音歪みを低次の穏やかな飽和に置き換える。
-// 値を下げるほど早めに飽和が効き角が取れるが、素通し帯域が狭まり大音量がやや鈍る
-static constexpr float kLimiterKnee = 0.56f;
+// 0.90 ≒ -0.9 dBFS。アップワード圧縮では大音量を素通しするため通常時は不発で、
+// フルスケール直前のピークと後段 resampler overshoot のみをこの曲線で穏やかに頭打ちする
+// 安全網として機能する。値を下げるほど早めに飽和が効くが、素通し帯域が狭まり大音量が鈍る
+static constexpr float kLimiterKnee = 0.90f;
 // RMS 検出窓長（ms）
 // 入力信号の実効値追跡に使う移動平均長。短すぎると発話の母音切れ目に過剰反応し、長すぎると応答が鈍る
 static constexpr float kRmsWindowMs = 10.0f;
@@ -177,10 +178,13 @@ void Normalizer::process(float* samples, std::ptrdiff_t n)
             m_frameCounter = 0;
             const float rmsLevel = std::sqrt(std::max(m_rmsState, 1e-12f));
             const float levelDb  = 20.0f * std::log10(rmsLevel);
-            const float comprDb  = (levelDb > m_thresholdDb)
-                                 ? -(levelDb - m_thresholdDb) * (1.0f - 1.0f / kRatio)
-                                 : 0.0f;
-            m_targetGain = std::pow(10.0f, (comprDb + m_makeupDb) / 20.0f);
+            // 閾値未満のみ持ち上げる（アップワード圧縮）。閾値以上はゲイン 0dB で完全素通し。
+            // ブースト量は閾値との差を 1/kRatio だけ詰めた値とし、makeup を上限にキャップする
+            float boostDb = (levelDb < m_thresholdDb)
+                          ? (m_thresholdDb - levelDb) * (1.0f - 1.0f / kRatio)
+                          : 0.0f;
+            boostDb = std::min(boostDb, m_makeupDb);
+            m_targetGain = std::pow(10.0f, boostDb / 20.0f);
         }
 
         // アタック/リリース平滑（ゲイン低下方向はアタック、回復方向はリリース）
