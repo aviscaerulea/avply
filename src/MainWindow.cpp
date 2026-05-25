@@ -65,12 +65,11 @@ namespace {
 const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
-// 後ろに "0"（Off）/ "1"（Small）/ "2"（Medium）/ "3"（Large）を連結して表示する
-const QString kNormalizePrefix    = "  Normalize:";
-const QString kVoiceClarityPrefix = "  Clarity:";
+// 後ろに "0"（Off）/ "1"（Low）/ "2"（Medium）/ "3"（High）を連結して表示する
+const QString kSpeechEnhancePrefix = "  Voice:";
 
-// Normalize / VoiceClarity の強度数（Off + Small + Medium + Large の 4 状態）
-// cycleNormalize / cycleVoiceClarity の循環剰余演算で共通参照する
+// 音声強調の強度数（Off + Low + Medium + High の 4 状態）
+// cycleSpeechEnhance の循環剰余演算で参照する
 constexpr int kLevelCount = 4;
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
@@ -151,11 +150,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
-    // --- ノーマライズラベル（常時表示。Off=0、Small=1、Medium=2、Large=3） ---
-    m_normalizeLabel = new QLabel(kNormalizePrefix + "0");
-
-    // --- 音声明瞭化ラベル（常時表示。Off=0、Small=1、Medium=2、Large=3） ---
-    m_voiceClarityLabel = new QLabel(kVoiceClarityPrefix + "0");
+    // --- 音声強調ラベル（常時表示。Off=0、Low=1、Medium=2、High=3） ---
+    m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "0");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -293,8 +289,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addPermanentWidget(m_posLabel);
     statusBar()->addPermanentWidget(m_speedLabel);
     statusBar()->addPermanentWidget(m_volumeLabel);
-    statusBar()->addPermanentWidget(m_normalizeLabel);
-    statusBar()->addPermanentWidget(m_voiceClarityLabel);
+    statusBar()->addPermanentWidget(m_speechEnhanceLabel);
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
     m_seekTimer.setSingleShot(true);
@@ -319,10 +314,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // g キーの「起動時デフォルトへ復元」で参照するスナップショット
     // 以降にユーザ操作で m_playbackRate / m_volume / Settings 値が変わっても、ここの値は維持する
-    m_initialPlaybackRate      = m_playbackRate;
-    m_initialVolume            = m_volume;
-    m_initialNormalizeLevel    = Settings::instance().normalizeLevel();
-    m_initialVoiceClarityLevel = Settings::instance().voiceClarityLevel();
+    m_initialPlaybackRate = m_playbackRate;
+    m_initialVolume       = m_volume;
+    m_initialEnhanceLevel = Settings::instance().speechEnhanceLevel();
 
     m_videoView->setVolume(m_volume);
     updateSpeedDisplay();
@@ -361,15 +355,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actPriority->setChecked(Settings::instance().aboveNormalPriority());
     connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
 
-    // 起動時のノーマライズ強度を VideoView（AudioWorker）に反映し、ラベル表示を初期化する
+    // 起動時の音声強調強度を VideoView（AudioWorker）に反映し、ラベル表示を初期化する
     // QAction は持たず N キー押下のみで循環するため、コンテキストメニュー項目は作らない
-    m_videoView->setNormalizeLevel(Settings::instance().normalizeLevel());
-    updateNormalizeDisplay();
-
-    // 音声明瞭化の起動時強度を VideoView（AudioWorker）に反映し、ラベル表示を初期化する
-    // QAction は持たず V キー押下のみで循環するため、コンテキストメニュー項目は作らない
-    m_videoView->setVoiceClarityLevel(Settings::instance().voiceClarityLevel());
-    updateVoiceClarityDisplay();
+    m_videoView->setSpeechEnhanceLevel(Settings::instance().speechEnhanceLevel());
+    updateSpeechEnhanceDisplay();
 
     updateMenuActionEnabled();
     // アプリケーション全体のキー入力を捕捉して左右カーソルシークに変換する
@@ -1192,7 +1181,6 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         case Qt::Key_G:
         case Qt::Key_R:
         case Qt::Key_N:
-        case Qt::Key_V:
             return true;
         default:
             return QMainWindow::eventFilter(watched, event);
@@ -1231,7 +1219,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     }
     case Qt::Key_G:
-        // 再生条件（速度/音量/Normalize/Clarity）の全リセット ↔ 起動時デフォルト復元のトグル
+        // 再生条件（速度/音量/音声強調）の全リセット ↔ 起動時デフォルト復元のトグル
         toggleGReset();
         return true;
     case Qt::Key_R:
@@ -1246,10 +1234,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         }
         return true;
     case Qt::Key_N:
-        cycleNormalize();
-        return true;
-    case Qt::Key_V:
-        cycleVoiceClarity();
+        cycleSpeechEnhance();
         return true;
     default:
         return QMainWindow::eventFilter(watched, event);
@@ -1295,44 +1280,24 @@ void MainWindow::updateVolumeDisplay()
     m_volumeLabel->setText(kVolumePrefix + QString::asprintf("%.0f%%", m_volume * 100.0));
 }
 
-void MainWindow::cycleNormalize()
+void MainWindow::cycleSpeechEnhance()
 {
-    // 4 状態循環：Off → Small → Medium → Large → Off ...
-    // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
+    // 4 状態循環：Off → Low → Medium → High → Off ...
+    // 強度値（0=Off / 1=Low / 2=Medium / 3=High）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
-    const int next = (Settings::instance().normalizeLevel() + 1) % kLevelCount;
-    Settings::instance().setNormalizeLevel(next);
-    m_videoView->setNormalizeLevel(next);
-    updateNormalizeDisplay();
+    const int next = (Settings::instance().speechEnhanceLevel() + 1) % kLevelCount;
+    Settings::instance().setSpeechEnhanceLevel(next);
+    m_videoView->setSpeechEnhanceLevel(next);
+    updateSpeechEnhanceDisplay();
     m_gResetActive = false;
 }
 
-void MainWindow::updateNormalizeDisplay()
+void MainWindow::updateSpeechEnhanceDisplay()
 {
-    // Off=0、Small=1、Medium=2、Large=3 を常時表示する
+    // Off=0、Low=1、Medium=2、High=3 を常時表示する
     // レジストリ改ざん等で 0〜3 外の値が来ても表示文字列が崩れないよう qBound でガードする
-    const int level = qBound(0, Settings::instance().normalizeLevel(), 3);
-    m_normalizeLabel->setText(kNormalizePrefix + QString::number(level));
-}
-
-void MainWindow::cycleVoiceClarity()
-{
-    // 4 状態循環：Off → Small → Medium → Large → Off ...
-    // 強度値（0=Off / 1=Small / 2=Medium / 3=Large）の剰余で素直に表現する。
-    // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
-    const int next = (Settings::instance().voiceClarityLevel() + 1) % kLevelCount;
-    Settings::instance().setVoiceClarityLevel(next);
-    m_videoView->setVoiceClarityLevel(next);
-    updateVoiceClarityDisplay();
-    m_gResetActive = false;
-}
-
-void MainWindow::updateVoiceClarityDisplay()
-{
-    // Off=0、Small=1、Medium=2、Large=3 を常時表示する
-    // レジストリ改ざん等で 0〜3 外の値が来ても表示文字列が崩れないよう qBound でガードする
-    const int level = qBound(0, Settings::instance().voiceClarityLevel(), 3);
-    m_voiceClarityLabel->setText(kVoiceClarityPrefix + QString::number(level));
+    const int level = qBound(0, Settings::instance().speechEnhanceLevel(), 3);
+    m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + QString::number(level));
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
@@ -1354,21 +1319,20 @@ void MainWindow::toggleGReset()
 {
     if (m_info.duration <= 0.0) return;
     if (!m_gResetActive) {
-        // 1 回目：全リセット（速度 1.00、音量 100%、Normalize Off、Clarity Off）
-        applyPlaybackState(1.0, 1.0, 0, 0);
+        // 1 回目：全リセット（速度 1.00、音量 100%、音声強調 Off）
+        applyPlaybackState(1.0, 1.0, 0);
         m_gResetActive = true;
     }
     else {
         // 2 回目：起動時のデフォルト値（TOML / レジストリ初回読込値）へ復元
-        applyPlaybackState(m_initialPlaybackRate, m_initialVolume,
-                           m_initialNormalizeLevel, m_initialVoiceClarityLevel);
+        applyPlaybackState(m_initialPlaybackRate, m_initialVolume, m_initialEnhanceLevel);
         m_gResetActive = false;
     }
 }
 
-void MainWindow::applyPlaybackState(qreal rate, qreal vol, int normLevel, int clarityLevel)
+void MainWindow::applyPlaybackState(qreal rate, qreal vol, int enhanceLevel)
 {
-    // 速度・音量・Normalize・Clarity を一括反映する
+    // 速度・音量・音声強調を一括反映する
     // 各 setter / Settings 経由で AudioWorker への伝搬とレジストリ永続化も同時に行う
     m_playbackRate = qBound(qreal(0.05), rate, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
@@ -1378,15 +1342,10 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol, int normLevel, int cl
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
 
-    const int n = qBound(0, normLevel, 3);
-    Settings::instance().setNormalizeLevel(n);
-    m_videoView->setNormalizeLevel(n);
-    updateNormalizeDisplay();
-
-    const int c = qBound(0, clarityLevel, 3);
-    Settings::instance().setVoiceClarityLevel(c);
-    m_videoView->setVoiceClarityLevel(c);
-    updateVoiceClarityDisplay();
+    const int e = qBound(0, enhanceLevel, 3);
+    Settings::instance().setSpeechEnhanceLevel(e);
+    m_videoView->setSpeechEnhanceLevel(e);
+    updateSpeechEnhanceDisplay();
 }
 
 QString MainWindow::openDialogStartDir() const

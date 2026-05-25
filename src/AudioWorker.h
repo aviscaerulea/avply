@@ -1,6 +1,5 @@
 #pragma once
-#include "Normalizer.h"
-#include "VoiceClarity.h"
+#include "SpeechEnhancer.h"
 #include <QObject>
 #include <QAudioFormat>
 #include <QAudioBuffer>
@@ -13,7 +12,7 @@ class QIODevice;
 
 namespace soundtouch { class SoundTouch; }
 
-// 専用スレッドで Normalizer DSP と QAudioSink への書き込みを担うワーカ
+// 専用スレッドで SpeechEnhancer DSP と QAudioSink への書き込みを担うワーカ
 // audioBufferReceived は decoder thread で発火するが、本ワーカの専用スレッドに
 // QueuedConnection で配送することで GUI thread のブロックから音声経路を独立させる。
 // QAudioSink/QIODevice の thread affinity は所属スレッドで一貫させる必要があるため、
@@ -22,19 +21,14 @@ class AudioWorker : public QObject {
     Q_OBJECT
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // initialNormalizeLevel で Normalizer 強度、initialVoiceClarityLevel で音声明瞭化強度を確定する
-    // （いずれも 0=Off / 1=Small / 2=Medium / 3=Large、Normalizer::Level / VoiceClarity::Level と対応）。
-    // normalizerSmall/Medium/Large は強度別の threshold / makeup、
-    // voiceClaritySmall/Medium/Large は強度別の peak / shelf ゲインを avply.toml の値で渡す
+    // initialSpeechEnhanceLevel で音声強調強度を確定する
+    // （0=Off / 1=Low / 2=Medium / 3=High、SpeechEnhancer::Level と対応）。
+    // speechEnhanceLow/Medium/High は強度別の NS レベル / AGC ゲインを avply.toml の値で渡す
     explicit AudioWorker(const QAudioFormat& format,
-                         int  initialNormalizeLevel,
-                         int  initialVoiceClarityLevel,
-                         const Normalizer::LevelParams& normalizerSmall,
-                         const Normalizer::LevelParams& normalizerMedium,
-                         const Normalizer::LevelParams& normalizerLarge,
-                         const VoiceClarity::LevelParams& voiceClaritySmall,
-                         const VoiceClarity::LevelParams& voiceClarityMedium,
-                         const VoiceClarity::LevelParams& voiceClarityLarge,
+                         int  initialSpeechEnhanceLevel,
+                         const SpeechEnhancer::LevelParams& speechEnhanceLow,
+                         const SpeechEnhancer::LevelParams& speechEnhanceMedium,
+                         const SpeechEnhancer::LevelParams& speechEnhanceHigh,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -58,15 +52,10 @@ public slots:
     // 再生音量を更新する（0.0〜1.0）
     void setVolume(double volume);
 
-    // ノーマライズの強度を切り替える
-    // 値は Normalizer::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）
-    // Off ↔ ON 遷移は 50ms ゲインランプで滑らかに反映、ON 強度間は threshold/makeup の差し替えのみ
-    void setNormalizeLevel(int level);
-
-    // 音声明瞭化（Biquad EQ）の強度を切り替える
-    // 値は VoiceClarity::Level に対応（0=Off / 1=Small / 2=Medium / 3=Large）
-    // Off ↔ ON 遷移は 50ms ランプでクロスフェード、強度変更時は係数のみ差し替える
-    void setVoiceClarityLevel(int level);
+    // 音声強調の強度を切り替える
+    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Low / 2=Medium / 3=High）
+    // ApplyConfig を内部で呼ぶため audio thread からのみ実行する
+    void setSpeechEnhanceLevel(int level);
 
     // 再生速度を SoundTouch に設定する（音程を保ったまま時間圧縮 / 伸長する）
     // QAudioBufferOutput が pitchCompensation を無視するため AudioWorker 側で時間圧縮する
@@ -78,8 +67,15 @@ public slots:
 
 private:
     QAudioFormat m_format;
-    Normalizer   m_normalizer;
-    VoiceClarity m_voiceClarity;
+    // 音声強調 DSP（WebRTC APM ラッパ）
+    // APM は ApplyConfig / ProcessStream / Initialize を同一スレッドから呼ぶ前提のため、
+    // 生成は start() スロット（audio thread）で行い affinity を確定する。
+    // 構築引数は下記メンバへ退避して start() まで保持する
+    std::unique_ptr<SpeechEnhancer> m_enhancer;
+    int                       m_initialEnhanceLevel;
+    SpeechEnhancer::LevelParams m_enhanceLow;
+    SpeechEnhancer::LevelParams m_enhanceMedium;
+    SpeechEnhancer::LevelParams m_enhanceHigh;
     QAudioSink*  m_sink    = nullptr;
     QIODevice*   m_sinkDev = nullptr;
     double       m_volume  = 1.0;
@@ -87,7 +83,7 @@ private:
     // 毎呼び出しの QByteArray 確保は new/delete スパイクを招くため再利用する。
     // 必要サイズに足りないときだけ resize で拡張する
     QByteArray   m_workBuf;
-    // QAudioSink への partial write 残量バッファ（pre-volume / post-normalizer の状態で保持）
+    // QAudioSink への partial write 残量バッファ（pre-volume / post-enhancer の状態で保持）
     // sink の bytesFree() 不足で書ききれなかった末尾サンプルを保持し、
     // 次回 onAudioBuffer 冒頭で最優先に書き戻す。サンプル欠落（プチノイズ）を防ぐ。
     // 音量は書き込み直前に最新値を適用するため、書き込み失敗から書き戻しの間に
@@ -110,7 +106,7 @@ private:
     // 等速再生時の SoundTouch バイパス状態
     // rate が 1.0 のときは時間圧縮が不要なため SoundTouch を通さず raw を直接 DSP へ送る。
     // SoundTouch は tempo 1.0 でも WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を生み、
-    // Normalizer の makeup gain がそれを可聴なプチノイズへ増幅するため等速では経路ごと外す。
+    // APM の AGC ゲインがそれを可聴なプチノイズへ増幅するため等速では経路ごと外す。
     // 経路切替（bypass の ON/OFF）を検知して SoundTouch 内の旧残量を破棄するために保持する
     bool         m_bypassActive = false;
     // 1 秒集計の診断ログ用カウンタ群

@@ -121,21 +121,16 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "audio"    && key == "silence_tone_freq_hz") assignDouble(cfg.silenceToneFreqHz);
         if (section == "audio"    && key == "silence_tone_amp")     assignDouble(cfg.silenceToneAmp);
 
-        // ノーマライズ強度別パラメータ（threshold / makeup を Small/Medium/Large の 3 段で個別指定）
-        if (section == "normalizer" && key == "threshold_db_small")  assignDouble(cfg.normalizerThresholdDbSmall);
-        if (section == "normalizer" && key == "threshold_db_medium") assignDouble(cfg.normalizerThresholdDbMedium);
-        if (section == "normalizer" && key == "threshold_db_large")  assignDouble(cfg.normalizerThresholdDbLarge);
-        if (section == "normalizer" && key == "makeup_db_small")     assignDouble(cfg.normalizerMakeupDbSmall);
-        if (section == "normalizer" && key == "makeup_db_medium")    assignDouble(cfg.normalizerMakeupDbMedium);
-        if (section == "normalizer" && key == "makeup_db_large")     assignDouble(cfg.normalizerMakeupDbLarge);
-
-        // 音声明瞭化強度別パラメータ（peak / shelf ゲインを Small/Medium/Large の 3 段で個別指定）
-        if (section == "voice_clarity" && key == "peak_db_small")   assignDouble(cfg.voiceClarityPeakDbSmall);
-        if (section == "voice_clarity" && key == "peak_db_medium")  assignDouble(cfg.voiceClarityPeakDbMedium);
-        if (section == "voice_clarity" && key == "peak_db_large")   assignDouble(cfg.voiceClarityPeakDbLarge);
-        if (section == "voice_clarity" && key == "shelf_db_small")  assignDouble(cfg.voiceClarityShelfDbSmall);
-        if (section == "voice_clarity" && key == "shelf_db_medium") assignDouble(cfg.voiceClarityShelfDbMedium);
-        if (section == "voice_clarity" && key == "shelf_db_large")  assignDouble(cfg.voiceClarityShelfDbLarge);
+        // 音声強調強度別パラメータ（ns_level / fixed_gain_db / max_gain_db を Small/Medium/Large の 3 段で個別指定）
+        if (section == "speech_enhance" && key == "ns_level_small")  assignInt(cfg.speechEnhanceNsLevelSmall);
+        if (section == "speech_enhance" && key == "ns_level_medium") assignInt(cfg.speechEnhanceNsLevelMedium);
+        if (section == "speech_enhance" && key == "ns_level_large")  assignInt(cfg.speechEnhanceNsLevelLarge);
+        if (section == "speech_enhance" && key == "fixed_gain_db_small")  assignDouble(cfg.speechEnhanceFixedGainDbSmall);
+        if (section == "speech_enhance" && key == "fixed_gain_db_medium") assignDouble(cfg.speechEnhanceFixedGainDbMedium);
+        if (section == "speech_enhance" && key == "fixed_gain_db_large")  assignDouble(cfg.speechEnhanceFixedGainDbLarge);
+        if (section == "speech_enhance" && key == "max_gain_db_small")  assignDouble(cfg.speechEnhanceMaxGainDbSmall);
+        if (section == "speech_enhance" && key == "max_gain_db_medium") assignDouble(cfg.speechEnhanceMaxGainDbMedium);
+        if (section == "speech_enhance" && key == "max_gain_db_large")  assignDouble(cfg.speechEnhanceMaxGainDbLarge);
 
         // 真偽値（true / false / 1 / 0 を受理。それ以外は無視）
         auto assignBool = [&](bool& target) {
@@ -171,25 +166,19 @@ void clampConfig(AppConfig& cfg)
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
 
-    // ノーマライズ DSP パラメータ範囲
-    // threshold: -60.0〜0.0 dBFS（-60 より低いとほぼ常時圧縮、0 より上は無圧縮になり意味がない）
-    // makeup: 0.0〜24.0 dB（負値はノーマライズの趣旨に反する。+24 でもリミッタ ±0.97 で確実に頭打ち）
-    cfg.normalizerThresholdDbSmall  = std::clamp(cfg.normalizerThresholdDbSmall,  -60.0, 0.0);
-    cfg.normalizerThresholdDbMedium = std::clamp(cfg.normalizerThresholdDbMedium, -60.0, 0.0);
-    cfg.normalizerThresholdDbLarge  = std::clamp(cfg.normalizerThresholdDbLarge,  -60.0, 0.0);
-    cfg.normalizerMakeupDbSmall  = std::clamp(cfg.normalizerMakeupDbSmall,  0.0, 24.0);
-    cfg.normalizerMakeupDbMedium = std::clamp(cfg.normalizerMakeupDbMedium, 0.0, 24.0);
-    cfg.normalizerMakeupDbLarge  = std::clamp(cfg.normalizerMakeupDbLarge,  0.0, 24.0);
-
-    // 音声明瞭化 DSP パラメータ範囲
-    // peak / shelf いずれも 0.0〜12.0 dB（負値はカット方向で明瞭化の趣旨に反する。
-    // +12 でも後段 Normalizer リミッタ ±0.97 で頭打ちになり破綻しない）
-    cfg.voiceClarityPeakDbSmall   = std::clamp(cfg.voiceClarityPeakDbSmall,   0.0, 12.0);
-    cfg.voiceClarityPeakDbMedium  = std::clamp(cfg.voiceClarityPeakDbMedium,  0.0, 12.0);
-    cfg.voiceClarityPeakDbLarge   = std::clamp(cfg.voiceClarityPeakDbLarge,   0.0, 12.0);
-    cfg.voiceClarityShelfDbSmall  = std::clamp(cfg.voiceClarityShelfDbSmall,  0.0, 12.0);
-    cfg.voiceClarityShelfDbMedium = std::clamp(cfg.voiceClarityShelfDbMedium, 0.0, 12.0);
-    cfg.voiceClarityShelfDbLarge  = std::clamp(cfg.voiceClarityShelfDbLarge,  0.0, 12.0);
+    // 音声強調 DSP パラメータ範囲
+    // ns_level: 0〜3（Low / Moderate / High / VeryHigh）
+    // fixed_gain_db: 0.0〜30.0 dB（AGC2 固定ブースト。過大値でも APM 内部リミッタが頭打ちする）
+    // max_gain_db: 0.0〜50.0 dB（AGC2 適応ブースト上限。APM の上限が 50dB）
+    cfg.speechEnhanceNsLevelSmall  = std::clamp(cfg.speechEnhanceNsLevelSmall,  0, 3);
+    cfg.speechEnhanceNsLevelMedium = std::clamp(cfg.speechEnhanceNsLevelMedium, 0, 3);
+    cfg.speechEnhanceNsLevelLarge  = std::clamp(cfg.speechEnhanceNsLevelLarge,  0, 3);
+    cfg.speechEnhanceFixedGainDbSmall  = std::clamp(cfg.speechEnhanceFixedGainDbSmall,  0.0, 30.0);
+    cfg.speechEnhanceFixedGainDbMedium = std::clamp(cfg.speechEnhanceFixedGainDbMedium, 0.0, 30.0);
+    cfg.speechEnhanceFixedGainDbLarge  = std::clamp(cfg.speechEnhanceFixedGainDbLarge,  0.0, 30.0);
+    cfg.speechEnhanceMaxGainDbSmall  = std::clamp(cfg.speechEnhanceMaxGainDbSmall,  0.0, 50.0);
+    cfg.speechEnhanceMaxGainDbMedium = std::clamp(cfg.speechEnhanceMaxGainDbMedium, 0.0, 50.0);
+    cfg.speechEnhanceMaxGainDbLarge  = std::clamp(cfg.speechEnhanceMaxGainDbLarge,  0.0, 50.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

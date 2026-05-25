@@ -4,17 +4,13 @@ namespace {
 constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
 constexpr const char* kKeyPriority       = "aboveNormalPriority";
-constexpr const char* kKeyNormalize      = "normalizeLevel";
-constexpr const char* kKeyVoiceClarity   = "voiceClarityLevel";
+constexpr const char* kKeySpeechEnhance  = "speechEnhanceLevel";
 
-// ノーマライズ・音声明瞭化の強度範囲（それぞれ Normalizer::Level / VoiceClarity::Level と対応）
-// 0=Off / 1=Small / 2=Medium / 3=Large。Settings 単独でクランプするため数値定義する
-constexpr int kNormalizeMin     = 0;
-constexpr int kNormalizeMax     = 3;
-constexpr int kNormalizeDefault = 2;
-constexpr int kVoiceClarityMin     = 0;
-constexpr int kVoiceClarityMax     = 3;
-constexpr int kVoiceClarityDefault = 2;
+// 音声強調の強度範囲（SpeechEnhancer::Level と対応）
+// 0=Off / 1=Low / 2=Medium / 3=High。Settings 単独でクランプするため数値定義する
+constexpr int kSpeechEnhanceMin     = 0;
+constexpr int kSpeechEnhanceMax     = 3;
+constexpr int kSpeechEnhanceDefault = 2;
 } // namespace
 
 Settings::Settings()
@@ -60,39 +56,22 @@ void Settings::setAboveNormalPriority(bool value)
     writeBool(kKeyPriority, value);
 }
 
-int Settings::normalizeLevel() const
+int Settings::speechEnhanceLevel() const
 {
-    const int v = readInt(kKeyNormalize, kNormalizeDefault);
-    if (v < kNormalizeMin) return kNormalizeMin;
-    if (v > kNormalizeMax) return kNormalizeMax;
+    const int v = readInt(kKeySpeechEnhance, kSpeechEnhanceDefault);
+    if (v < kSpeechEnhanceMin) return kSpeechEnhanceMin;
+    if (v > kSpeechEnhanceMax) return kSpeechEnhanceMax;
     return v;
 }
 
-void Settings::setNormalizeLevel(int value)
+void Settings::setSpeechEnhanceLevel(int value)
 {
-    if (value < kNormalizeMin) value = kNormalizeMin;
-    if (value > kNormalizeMax) value = kNormalizeMax;
+    if (value < kSpeechEnhanceMin) value = kSpeechEnhanceMin;
+    if (value > kSpeechEnhanceMax) value = kSpeechEnhanceMax;
     // 同値書込は QSettings::sync の不要なディスク I/O を発生させるため早期 return する。
     // applyPlaybackState（g キー一括リセット）からのノーオプ呼び出しでも writeInt が走るのを抑止する
-    if (normalizeLevel() == value) return;
-    writeInt(kKeyNormalize, value);
-}
-
-int Settings::voiceClarityLevel() const
-{
-    const int v = readInt(kKeyVoiceClarity, kVoiceClarityDefault);
-    if (v < kVoiceClarityMin) return kVoiceClarityMin;
-    if (v > kVoiceClarityMax) return kVoiceClarityMax;
-    return v;
-}
-
-void Settings::setVoiceClarityLevel(int value)
-{
-    if (value < kVoiceClarityMin) value = kVoiceClarityMin;
-    if (value > kVoiceClarityMax) value = kVoiceClarityMax;
-    // 同値書込のディスク I/O を抑止する（setNormalizeLevel と同じ理由）
-    if (voiceClarityLevel() == value) return;
-    writeInt(kKeyVoiceClarity, value);
+    if (speechEnhanceLevel() == value) return;
+    writeInt(kKeySpeechEnhance, value);
 }
 
 bool Settings::readBool(const char* key, bool defaultValue) const

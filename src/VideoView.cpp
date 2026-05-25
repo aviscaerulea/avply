@@ -101,37 +101,26 @@ VideoView::VideoView(QWidget* parent)
     // Config::load() は MainWindow でも別途呼ばれるが、ステートレスかつ起動時 1 回のため重複コストは無視できる
     const QAudioFormat audioFmt = makeAudioFormat();
     const AppConfig    cfg      = Config::load();
-    const Normalizer::LevelParams normSmall {
-        static_cast<float>(cfg.normalizerThresholdDbSmall),
-        static_cast<float>(cfg.normalizerMakeupDbSmall),
+    const SpeechEnhancer::LevelParams enhanceLow {
+        cfg.speechEnhanceNsLevelSmall,
+        static_cast<float>(cfg.speechEnhanceFixedGainDbSmall),
+        static_cast<float>(cfg.speechEnhanceMaxGainDbSmall),
     };
-    const Normalizer::LevelParams normMedium {
-        static_cast<float>(cfg.normalizerThresholdDbMedium),
-        static_cast<float>(cfg.normalizerMakeupDbMedium),
+    const SpeechEnhancer::LevelParams enhanceMedium {
+        cfg.speechEnhanceNsLevelMedium,
+        static_cast<float>(cfg.speechEnhanceFixedGainDbMedium),
+        static_cast<float>(cfg.speechEnhanceMaxGainDbMedium),
     };
-    const Normalizer::LevelParams normLarge {
-        static_cast<float>(cfg.normalizerThresholdDbLarge),
-        static_cast<float>(cfg.normalizerMakeupDbLarge),
-    };
-    const VoiceClarity::LevelParams vcSmall {
-        static_cast<float>(cfg.voiceClarityPeakDbSmall),
-        static_cast<float>(cfg.voiceClarityShelfDbSmall),
-    };
-    const VoiceClarity::LevelParams vcMedium {
-        static_cast<float>(cfg.voiceClarityPeakDbMedium),
-        static_cast<float>(cfg.voiceClarityShelfDbMedium),
-    };
-    const VoiceClarity::LevelParams vcLarge {
-        static_cast<float>(cfg.voiceClarityPeakDbLarge),
-        static_cast<float>(cfg.voiceClarityShelfDbLarge),
+    const SpeechEnhancer::LevelParams enhanceHigh {
+        cfg.speechEnhanceNsLevelLarge,
+        static_cast<float>(cfg.speechEnhanceFixedGainDbLarge),
+        static_cast<float>(cfg.speechEnhanceMaxGainDbLarge),
     };
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(audioFmt,
-                                    Settings::instance().normalizeLevel(),
-                                    Settings::instance().voiceClarityLevel(),
-                                    normSmall, normMedium, normLarge,
-                                    vcSmall, vcMedium, vcLarge);
+                                    Settings::instance().speechEnhanceLevel(),
+                                    enhanceLow, enhanceMedium, enhanceHigh);
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
@@ -251,7 +240,7 @@ void VideoView::setSource(const QString& filePath)
     m_player->stop();
     m_primeFirstFrame = true;
     m_pausingAtEnd = false;
-    // ソース切替時に sink の積み残しサンプルと Normalizer 状態を強制リセットする。
+    // ソース切替時に sink の積み残しサンプルと SpeechEnhancer 状態を強制リセットする。
     // forceReset は throttle 適用外で必ず sink stop()→start() を実行するため、
     // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ。
     // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する。
@@ -296,7 +285,7 @@ qint64 VideoView::position() const
 
 void VideoView::setPosition(qint64 ms)
 {
-    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと Normalizer 状態をリセットする
+    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと SpeechEnhancer 状態をリセットする
     m_pausingAtEnd = false;
     if (m_audioWorker) {
         AudioWorker* w = m_audioWorker;
@@ -329,18 +318,10 @@ void VideoView::setVolume(double volume)
     }
 }
 
-void VideoView::setNormalizeLevel(int level)
+void VideoView::setSpeechEnhanceLevel(int level)
 {
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setNormalizeLevel", Qt::QueuedConnection,
-                                  Q_ARG(int, level));
-    }
-}
-
-void VideoView::setVoiceClarityLevel(int level)
-{
-    if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setVoiceClarityLevel", Qt::QueuedConnection,
+        QMetaObject::invokeMethod(m_audioWorker, "setSpeechEnhanceLevel", Qt::QueuedConnection,
                                   Q_ARG(int, level));
     }
 }

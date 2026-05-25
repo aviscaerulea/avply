@@ -20,19 +20,12 @@ public:
     bool aboveNormalPriority() const;
     void setAboveNormalPriority(bool value);
 
-    // 再生時の RMS コンプレッサによるノーマライズ強度
-    // 0=Off / 1=Small / 2=Medium / 3=Large（デフォルト 2=Medium）
-    // 値は Normalizer::Level と 1:1 対応する。enum を直接公開しないのは
-    // QSettings の永続化が int で完結するため、依存の方向性を Settings → Normalizer 単方向に保つため
-    int  normalizeLevel() const;
-    void setNormalizeLevel(int value);
-
-    // 再生時の音声明瞭化（Biquad EQ）強度
-    // 0=Off / 1=Small / 2=Medium / 3=Large（デフォルト 2=Medium）
-    // 値は VoiceClarity::Level と 1:1 対応する。enum を直接公開しないのは
-    // QSettings の永続化が int で完結するため、依存の方向性を Settings → VoiceClarity 単方向に保つため
-    int  voiceClarityLevel() const;
-    void setVoiceClarityLevel(int value);
+    // 再生時の音声強調（WebRTC APM）強度
+    // 0=Off / 1=Low / 2=Medium / 3=High（デフォルト 2=Medium）
+    // 値は SpeechEnhancer::Level と 1:1 対応する。enum を直接公開しないのは
+    // QSettings の永続化が int で完結するため、依存の方向性を Settings → SpeechEnhancer 単方向に保つため
+    int  speechEnhanceLevel() const;
+    void setSpeechEnhanceLevel(int value);
 
 private:
     Settings();

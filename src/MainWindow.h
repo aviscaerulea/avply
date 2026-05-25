@@ -157,30 +157,22 @@ private:
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
 
-    // ノーマライズの強度を 1 段階進める（Off → 小 → 中 → 大 → Off の 4 状態循環）
+    // 音声強調の強度を 1 段階進める（Off → 弱 → 標準 → 強 → Off の 4 状態循環）
     // N キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
-    void cycleNormalize();
+    void cycleSpeechEnhance();
 
-    // 音声明瞭化の強度を 1 段階進める（Off → 小 → 中 → 大 → Off の 4 状態循環）
-    // V キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
-    void cycleVoiceClarity();
-
-    // ノーマライズラベルの強度表記を現在の設定に応じて更新する
-    // 常時表示で「Normalize:0/1/2/3」（0=Off / 1=小 / 2=中 / 3=大）の数値を表示する
-    void updateNormalizeDisplay();
-
-    // 音声明瞭化ラベルの強度表記を現在の設定に応じて更新する
-    // 常時表示で「Clarity:0/1/2/3」（0=Off / 1=小 / 2=中 / 3=大）の数値を表示する
-    void updateVoiceClarityDisplay();
+    // 音声強調ラベルの強度表記を現在の設定に応じて更新する
+    // 常時表示で「Voice:0/1/2/3」（0=Off / 1=弱 / 2=標準 / 3=強）の数値を表示する
+    void updateSpeechEnhanceDisplay();
 
     // g キー押下時のトグル動作
-    // 1 回目で再生速度/音量/Normalize/Clarity を全て「中立値」へ揃え、
+    // 1 回目で再生速度/音量/音声強調を全て「中立値」へ揃え、
     // 2 回目で起動時に読み込んだ TOML / レジストリ値へ復元する
     void toggleGReset();
 
-    // 再生速度・音量・Normalize・Clarity の 4 項目を一括適用する
+    // 再生速度・音量・音声強調の 3 項目を一括適用する
     // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない（呼び出し側で管理）
-    void applyPlaybackState(qreal rate, qreal vol, int normLevel, int clarityLevel);
+    void applyPlaybackState(qreal rate, qreal vol, int enhanceLevel);
 
     // 再生状態に応じてウィンドウの最前面表示を切り替える
     // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
@@ -226,13 +218,12 @@ private:
 
     // g キーで参照する起動時デフォルト値のスナップショット
     // TOML / レジストリから初回読込した値をコンストラクタで保存する
-    qreal m_initialPlaybackRate      = 1.0;
-    qreal m_initialVolume            = 1.0;
-    int   m_initialNormalizeLevel    = 0;
-    int   m_initialVoiceClarityLevel = 0;
+    qreal m_initialPlaybackRate   = 1.0;
+    qreal m_initialVolume         = 1.0;
+    int   m_initialEnhanceLevel   = 0;
 
     // g キーによる「全リセット状態」フラグ
-    // true の間に手動で速度/音量/Normalize/Clarity のいずれかが変わると自動で false に戻り、
+    // true の間に手動で速度/音量/音声強調のいずれかが変わると自動で false に戻り、
     // 次の g キー押下は再び「全リセット」として動作する
     bool  m_gResetActive = false;
 
@@ -253,8 +244,7 @@ private:
     QLabel*       m_posLabel;
     QLabel*       m_speedLabel;
     QLabel*       m_volumeLabel;
-    QLabel*       m_normalizeLabel;
-    QLabel*       m_voiceClarityLabel;
+    QLabel*       m_speechEnhanceLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;
