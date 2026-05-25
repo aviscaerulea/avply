@@ -151,7 +151,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
-    // --- 音声強調ラベル（常時表示。Off=0、Low=1、Medium=2、High=3） ---
+    // --- 音声強調ラベル（常時表示。Off=0、標準=1、強=2） ---
     m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "0");
 
     // --- シークスライダー ---
@@ -1356,7 +1356,7 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol, int enhanceLevel)
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
 
-    const int e = qBound(0, enhanceLevel, 3);
+    const int e = qBound(0, enhanceLevel, 2);
     Settings::instance().setSpeechEnhanceLevel(e);
     m_videoView->setSpeechEnhanceLevel(e);
     updateSpeechEnhanceDisplay();
