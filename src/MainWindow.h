@@ -162,7 +162,7 @@ private:
     void cycleSpeechEnhance();
 
     // 音声強調ラベルの強度表記を現在の設定に応じて更新する
-    // 常時表示で「Voice:0/1/2」（0=Off / 1=標準 / 2=強）の数値を表示する
+    // 常時表示で「Clarity:0/1/2」（0=Off / 1=標準 / 2=強）の数値を表示する
     void updateSpeechEnhanceDisplay();
 
     // g キー押下時のトグル動作

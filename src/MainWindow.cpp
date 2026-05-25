@@ -66,7 +66,7 @@ const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
 // 後ろに "0"（Off）/ "1"（標準）/ "2"（強）を連結して表示する
-const QString kSpeechEnhancePrefix = "  Voice:";
+const QString kSpeechEnhancePrefix = "  Clarity:";
 
 // 音声強調の強度数（Off + 標準 + 強 の 3 状態）
 // cycleSpeechEnhance の循環剰余演算で参照する
