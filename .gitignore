@@ -37,3 +37,8 @@ aqtinstall.log
 
 # 実行ファイル
 **/*.exe
+
+*.mp4
+*.wav
+*.mp3
+*.opus
