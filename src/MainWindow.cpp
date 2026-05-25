@@ -1450,6 +1450,11 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
 {
     QMenu menu(this);
 
+    // メニューの角丸抑制スタイル
+    // Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする
+    const QString menuStyle = "QMenu { border-radius: 2px; }";
+    menu.setStyleSheet(menuStyle);
+
     menu.addAction(m_actOpen);
     menu.addAction(m_actCopyPath);
     menu.addSeparator();
@@ -1458,6 +1463,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     menu.addSeparator();
 
     QMenu* settings = menu.addMenu("設定");
+    settings->setStyleSheet(menuStyle);
     settings->addAction(m_actTopmost);
     settings->addAction(m_actSingleInst);
     settings->addAction(m_actPriority);
