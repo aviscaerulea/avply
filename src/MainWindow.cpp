@@ -685,9 +685,10 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     setRunning(Operation::None);
 
     if (ok) {
-        // 完了時は 100% で青を区間全体に重ねた状態を維持する
-        m_seekSlider->setProgress(100);
-        m_outputLabel->setText("  完了しました：" + outputPath);
+        // 完了直後に出力ファイルを開き直す
+        // loadFile→onProbeFinished が区間マーカー・進捗・各ラベルをリセットするため、
+        // 進捗 100% や完了ラベルの設定は不要（直後に上書きされる）
+        loadFile(outputPath, false);
         return;
     }
 
