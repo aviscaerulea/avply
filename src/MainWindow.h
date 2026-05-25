@@ -265,6 +265,10 @@ private:
     // 現在の再生状態（applyTopmostState で参照）
     bool m_isPlaying = false;
 
+    // シークバードラッグ開始時点の再生状態
+    // ドラッグ終了時の再生再開可否判定に使う（開始前に停止していたら再開しない）
+    bool m_wasPlayingBeforeDrag = false;
+
     Encoder* m_encoder = nullptr;
 
     // 実行中の波形生成プロセス。新規ファイル読込時に kill して入れ替える

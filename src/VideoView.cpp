@@ -318,20 +318,26 @@ void VideoView::togglePlay()
         m_player->pause();
     }
     else {
-        // 末尾到達 pause 状態からの再生要求は先頭から再生する。
-        // setPosition() 経由で AudioWorker::reset を発出し、前回再生末尾の
-        // partial-write 残量（SoundTouch 内部バッファと m_pendingTail）が
-        // 先頭区間に貼り付くプチノイズを防ぐ
-        if (m_pausingAtEnd) {
-            setPosition(0);
-        }
-        m_player->play();
+        play();
     }
 }
 
 void VideoView::pause()
 {
     if (isPlaying()) m_player->pause();
+}
+
+void VideoView::play()
+{
+    if (isPlaying()) return;
+    // 末尾到達 pause 状態からの再生要求は先頭から再生する。
+    // setPosition() 経由で AudioWorker::reset を発出し、前回再生末尾の
+    // partial-write 残量（SoundTouch 内部バッファと m_pendingTail）が
+    // 先頭区間に貼り付くプチノイズを防ぐ
+    if (m_pausingAtEnd) {
+        setPosition(0);
+    }
+    m_player->play();
 }
 
 void VideoView::setInteractive(bool enabled)

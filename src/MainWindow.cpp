@@ -163,6 +163,16 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     connect(m_seekSlider, &RangeSlider::wheelScrolled,
             this, &MainWindow::handleWheelInput);
 
+    // シークバードラッグ中は再生を一時停止し、離したら元の再生状態へ復帰する
+    // ドラッグ開始前から一時停止していた場合は復帰時も一時停止を維持する
+    connect(m_seekSlider, &RangeSlider::dragStarted, this, [this]() {
+        m_wasPlayingBeforeDrag = m_videoView->isPlaying();
+        if (m_wasPlayingBeforeDrag) m_videoView->pause();
+    });
+    connect(m_seekSlider, &RangeSlider::dragEnded, this, [this]() {
+        if (m_wasPlayingBeforeDrag) m_videoView->play();
+    });
+
     // --- シークバーホバープレビュー（MPC-HC 風） ---
     m_seekPreview    = new SeekPreview(this);
     m_thumbExtractor = new ThumbnailExtractor(this);

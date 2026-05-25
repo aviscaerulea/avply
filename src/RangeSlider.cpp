@@ -108,6 +108,8 @@ void RangeSlider::mousePressEvent(QMouseEvent* event)
         const int x = static_cast<int>(event->position().x());
         const int v = QStyle::sliderValueFromPosition(
             minimum(), maximum(), x, width());
+        // 押下時点ではまだ実移動ドラッグではない（クリックジャンプ扱い）
+        m_dragging = false;
         setSliderDown(true);
         setValue(v);
         event->accept();
@@ -123,6 +125,11 @@ void RangeSlider::mouseMoveEvent(QMouseEvent* event)
         const int x = static_cast<int>(event->position().x());
         const int v = QStyle::sliderValueFromPosition(
             minimum(), maximum(), x, width());
+        // 押下後の初回移動で実移動ドラッグ開始とみなす
+        if (!m_dragging) {
+            m_dragging = true;
+            emit dragStarted();
+        }
         setValue(v);
         // ドラッグ中もホバー通知を出す（MPC-HC 互換でプレビューが追従する）
         emit hoverMoved(std::clamp(x, 0, width() - 1), v);
@@ -151,6 +158,11 @@ void RangeSlider::mouseReleaseEvent(QMouseEvent* event)
     // ドラッグ終端で sliderReleased を発火させる（既存 sliderDown 状態を解除）
     if (event->button() == Qt::LeftButton && isSliderDown()) {
         setSliderDown(false);
+        // 実移動ドラッグが行われていた場合のみ終了を通知する
+        if (m_dragging) {
+            m_dragging = false;
+            emit dragEnded();
+        }
         event->accept();
         return;
     }

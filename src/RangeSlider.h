@@ -58,6 +58,13 @@ signals:
     // マウスがバー外に出たことを通知する
     void hoverLeft();
 
+    // 実移動を伴うドラッグの開始を通知する（押下後に初めて位置が動いた時点で 1 回発火）
+    // 単純クリックジャンプ（移動なしの押下→離す）では発火しない
+    void dragStarted();
+
+    // ドラッグの終了を通知する（dragStarted が発火したドラッグのリリース時のみ）
+    void dragEnded();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -81,4 +88,8 @@ private:
 
     // 音声無し時の中央基線描画フラグ
     bool m_drawBaseline = false;
+
+    // 実移動ドラッグ進行中フラグ
+    // 押下後に位置が動いた時点で true。dragStarted/dragEnded を 1 回ずつに対応させる
+    bool m_dragging = false;
 };
