@@ -40,15 +40,11 @@ struct AppConfig {
     // 音声強調（WebRTC APM）強度別の DSP パラメータ
     // 強度（Small/Medium/Large）ごとに以下を独立指定する。
     //  - nsLevel: ノイズ抑制レベル（0=Low / 1=Moderate / 2=High / 3=VeryHigh、0〜3 にクランプ）
-    //  - fixedGainDb: AGC2 固定ブースト量 dB（0.0〜30.0 にクランプ）
     //  - maxGainDb: AGC2 適応ブースト上限 dB（0.0〜50.0 にクランプ）
-    // HPF / AGC2 適応有効化は強度共通のためここでは扱わない。
+    // HPF / AGC2 適応有効化・入力プリアッテネーションは強度共通のためここでは扱わない。
     int speechEnhanceNsLevelSmall  = 1;
     int speechEnhanceNsLevelMedium = 2;
     int speechEnhanceNsLevelLarge  = 2;
-    double speechEnhanceFixedGainDbSmall  =  0.0;
-    double speechEnhanceFixedGainDbMedium =  3.0;
-    double speechEnhanceFixedGainDbLarge  =  6.0;
     double speechEnhanceMaxGainDbSmall  = 30.0;
     double speechEnhanceMaxGainDbMedium = 40.0;
     double speechEnhanceMaxGainDbLarge  = 50.0;

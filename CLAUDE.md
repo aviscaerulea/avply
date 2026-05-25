@@ -176,12 +176,20 @@ APM は 10ms 固定フレーム（48kHz で 480 サンプル）・deinterleaved 
 
 APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドから呼ぶ必要がある。そのため `SpeechEnhancer` の生成は `AudioWorker::start()` スロット（audio thread）で行い、affinity を確定する。`setLevel` も `setSpeechEnhanceLevel` スロット経由で audio thread からのみ呼ぶ。
 
-DSP パラメータ（強度別の NS レベル / AGC ゲインは `avply.toml` の `[speech_enhance]` セクションで指定する）：
+**プチノイズ（クリックノイズ）対策**
+
+APM の最終リミッタはピークを 1.0 へ頭打ちにする。WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提とするため、既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、リミッタがハードクリップして単発クリックを生む。対策として以下を恒久適用する。
+
+- 入力プリアッテネーション：APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったまま全強度でクリップを根絶する。実測で -6dB なら Off / 小 / 中 / 大すべてでクリップフレーム 0
+- `fixed_digital.gain_db = 0` 固定：adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源であり、プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した。強度差は NS レベルと `adaptive_digital.max_gain_db` のみで付ける
+- `headroom_db = 4` / `initial_gain_db = 6`：headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。小さいほどターゲットが上がり小声を強く持ち上げる。大声は既にターゲット以上のため影響を受けず、クリップ耐性もプリアッテネーションで担保されるため変わらない。4dB で小声を十分持ち上げつつ全強度でクリップフレーム 0 を維持する（実測）。`initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える
+- `max_gain_change_db_per_second = 300`：適応ゲインが目標へ収束する速度の上限。既定 6dB/s では小声を +24dB 持ち上げるのに約 4 秒かかり、発話冒頭がゲイン追従に間に合わず聞こえない。レートリミッタを大きく開放して各発話冒頭の追従を可能な限りタイトにする。速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。なお 100 dB/s 以上は全体平均が頭打ちで、実質の律速は AGC 内部の小声検知レイテンシ（Config 非公開）。`initial_gain_db` を上げれば初期位置から速く立ち上がるが、再生開始直後の大音量がリミッタを叩きクリップが再発するため 6 に据え置く
+
+DSP パラメータ（強度別の NS レベル / AGC 適応上限は `avply.toml` の `[speech_enhance]` セクションで指定する）：
 
 | パラメータ | 小 | 中 | 大 |
 |-----------|----|----|----|
 | NS レベル（0=Low / 1=Moderate / 2=High / 3=VeryHigh） | 1 | 2 | 2 |
-| AGC2 固定ゲイン（fixed_digital.gain_db） | 0.0 dB | 3.0 dB | 6.0 dB |
 | AGC2 適応上限（adaptive_digital.max_gain_db） | 30.0 dB | 40.0 dB | 50.0 dB |
 
 avply.toml 設定例（既定値）：
@@ -191,15 +199,12 @@ avply.toml 設定例（既定値）：
 ns_level_small  = 1
 ns_level_medium = 2
 ns_level_large  = 2
-fixed_gain_db_small  = 0.0
-fixed_gain_db_medium = 3.0
-fixed_gain_db_large  = 6.0
 max_gain_db_small  = 30.0
 max_gain_db_medium = 40.0
 max_gain_db_large  = 50.0
 ```
 
-NS レベルは 0〜3、fixed_gain_db は 0.0〜30.0 dB、max_gain_db は 0.0〜50.0 dB にクランプする。
+NS レベルは 0〜3、max_gain_db は 0.0〜50.0 dB にクランプする。入力プリアッテネーションは toml では調整できない（クリップ耐性に直結する内部の正しさ定数のためコード固定）。
 `reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
 
 **高速再生時のサンプル欠落対策（SoundTouch WSOLA）**

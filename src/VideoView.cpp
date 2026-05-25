@@ -103,17 +103,14 @@ VideoView::VideoView(QWidget* parent)
     const AppConfig    cfg      = Config::load();
     const SpeechEnhancer::LevelParams enhanceLow {
         cfg.speechEnhanceNsLevelSmall,
-        static_cast<float>(cfg.speechEnhanceFixedGainDbSmall),
         static_cast<float>(cfg.speechEnhanceMaxGainDbSmall),
     };
     const SpeechEnhancer::LevelParams enhanceMedium {
         cfg.speechEnhanceNsLevelMedium,
-        static_cast<float>(cfg.speechEnhanceFixedGainDbMedium),
         static_cast<float>(cfg.speechEnhanceMaxGainDbMedium),
     };
     const SpeechEnhancer::LevelParams enhanceHigh {
         cfg.speechEnhanceNsLevelLarge,
-        static_cast<float>(cfg.speechEnhanceFixedGainDbLarge),
         static_cast<float>(cfg.speechEnhanceMaxGainDbLarge),
     };
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);

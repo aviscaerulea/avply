@@ -12,6 +12,14 @@ namespace {
 // 取り出し済みプレフィックスがこのサンプル数を超えたら先頭詰めして再確保を抑える。
 constexpr qsizetype kOutCompactThreshold = 48000; // 約 1 秒（48kHz interleaved 換算で十分小さい）
 
+// APM 入力プリアッテネーション係数（約 -6dB）
+// WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提に設計されており、
+// 既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、
+// 最終リミッタがピークを 1.0 へハードクリップして単発クリック（プチノイズ）を生む。
+// 入力をあらかじめ減衰させて AGC2 が期待する余裕を作ることで、小音量発言の持ち上げを保ったまま
+// 全強度でクリップを根絶する。実測で -6dB なら Off / 小 / 中 / 大すべてでクリップフレーム 0。
+constexpr float kInputPreGain = 0.5f;
+
 // NS レベル変換
 // 0〜3 を webrtc の Level enum へクランプして対応付ける。
 webrtc::AudioProcessing::Config::NoiseSuppression::Level nsLevelFromInt(int v)
@@ -63,7 +71,27 @@ struct SpeechEnhancer::Impl {
         c.gain_controller2.enabled = true;
         c.gain_controller2.adaptive_digital.enabled = true;
         c.gain_controller2.adaptive_digital.max_gain_db = p.maxGainDb;
-        c.gain_controller2.fixed_digital.gain_db = p.fixedGainDb;
+        // 出力ターゲットレベル（小声の持ち上げ量を支配する）
+        // headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。値が小さいほど
+        // ターゲットが上がり、ターゲット未満の小声ほど強く持ち上がる。大声は既にターゲット以上の
+        // ため影響を受けず、クリップ耐性も入力プリアッテネーションで担保されるため変わらない。
+        // 4dB で小声を十分持ち上げつつ全強度でクリップフレーム 0 を維持する（実測）。
+        // 既定 5dB より下げるが initial_gain を既定 15dB から控えめにして再生直後の過大ブーストを避ける。
+        c.gain_controller2.adaptive_digital.headroom_db = 4.0f;
+        c.gain_controller2.adaptive_digital.initial_gain_db = 6.0f;
+        // ゲイン収束速度の上限（小声発話冒頭の立ち上がりを速める）
+        // 既定 6dB/s では小声を +24dB 持ち上げるのに約 4 秒かかり、発話冒頭がゲイン追従に
+        // 間に合わず聞こえない。レートリミッタを大きく開放してゲインが目標へほぼ即座に追従するようにする。
+        // 速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。
+        // 100dB/s 以上は全体平均が頭打ち（実質の律速は AGC 内部の小声検知レイテンシ）だが、
+        // 各発話冒頭の追従を可能な限りタイトにするため余裕を持って 300dB/s を採る。
+        c.gain_controller2.adaptive_digital.max_gain_change_db_per_second = 300.0f;
+        // fixed_digital は使わない（明示的に 0 固定）
+        // adaptive ゲインの後・最終リミッタの前に効く固定ブーストで、APM のリミッタが
+        // ピークを 1.0 へハードクリップして単発クリックを生む決定的要因だった。実測で
+        // fixed +3/+6dB は入力プリアッテネーション併用でも再クリップしたため恒久的に無効化する。
+        // 強度差は NS レベルと adaptive_digital.max_gain_db のみで付ける。
+        c.gain_controller2.fixed_digital.gain_db = 0.0f;
         return c;
     }
 
@@ -176,7 +204,7 @@ void SpeechEnhancer::pushInterleaved(const float* in, qsizetype frames)
     const int fs = m_impl->frameSize;
 
     for (qsizetype i = 0; i < frames; ++i) {
-        m_impl->inMono.push_back(m_impl->downmix(in + i * ch));
+        m_impl->inMono.push_back(m_impl->downmix(in + i * ch) * kInputPreGain);
     }
 
     // 10ms フレーム単位の APM 処理

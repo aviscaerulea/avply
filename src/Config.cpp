@@ -121,13 +121,10 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "audio"    && key == "silence_tone_freq_hz") assignDouble(cfg.silenceToneFreqHz);
         if (section == "audio"    && key == "silence_tone_amp")     assignDouble(cfg.silenceToneAmp);
 
-        // 音声強調強度別パラメータ（ns_level / fixed_gain_db / max_gain_db を Small/Medium/Large の 3 段で個別指定）
+        // 音声強調強度別パラメータ（ns_level / max_gain_db を Small/Medium/Large の 3 段で個別指定）
         if (section == "speech_enhance" && key == "ns_level_small")  assignInt(cfg.speechEnhanceNsLevelSmall);
         if (section == "speech_enhance" && key == "ns_level_medium") assignInt(cfg.speechEnhanceNsLevelMedium);
         if (section == "speech_enhance" && key == "ns_level_large")  assignInt(cfg.speechEnhanceNsLevelLarge);
-        if (section == "speech_enhance" && key == "fixed_gain_db_small")  assignDouble(cfg.speechEnhanceFixedGainDbSmall);
-        if (section == "speech_enhance" && key == "fixed_gain_db_medium") assignDouble(cfg.speechEnhanceFixedGainDbMedium);
-        if (section == "speech_enhance" && key == "fixed_gain_db_large")  assignDouble(cfg.speechEnhanceFixedGainDbLarge);
         if (section == "speech_enhance" && key == "max_gain_db_small")  assignDouble(cfg.speechEnhanceMaxGainDbSmall);
         if (section == "speech_enhance" && key == "max_gain_db_medium") assignDouble(cfg.speechEnhanceMaxGainDbMedium);
         if (section == "speech_enhance" && key == "max_gain_db_large")  assignDouble(cfg.speechEnhanceMaxGainDbLarge);
@@ -168,14 +165,10 @@ void clampConfig(AppConfig& cfg)
 
     // 音声強調 DSP パラメータ範囲
     // ns_level: 0〜3（Low / Moderate / High / VeryHigh）
-    // fixed_gain_db: 0.0〜30.0 dB（AGC2 固定ブースト。過大値でも APM 内部リミッタが頭打ちする）
     // max_gain_db: 0.0〜50.0 dB（AGC2 適応ブースト上限。APM の上限が 50dB）
     cfg.speechEnhanceNsLevelSmall  = std::clamp(cfg.speechEnhanceNsLevelSmall,  0, 3);
     cfg.speechEnhanceNsLevelMedium = std::clamp(cfg.speechEnhanceNsLevelMedium, 0, 3);
     cfg.speechEnhanceNsLevelLarge  = std::clamp(cfg.speechEnhanceNsLevelLarge,  0, 3);
-    cfg.speechEnhanceFixedGainDbSmall  = std::clamp(cfg.speechEnhanceFixedGainDbSmall,  0.0, 30.0);
-    cfg.speechEnhanceFixedGainDbMedium = std::clamp(cfg.speechEnhanceFixedGainDbMedium, 0.0, 30.0);
-    cfg.speechEnhanceFixedGainDbLarge  = std::clamp(cfg.speechEnhanceFixedGainDbLarge,  0.0, 30.0);
     cfg.speechEnhanceMaxGainDbSmall  = std::clamp(cfg.speechEnhanceMaxGainDbSmall,  0.0, 50.0);
     cfg.speechEnhanceMaxGainDbMedium = std::clamp(cfg.speechEnhanceMaxGainDbMedium, 0.0, 50.0);
     cfg.speechEnhanceMaxGainDbLarge  = std::clamp(cfg.speechEnhanceMaxGainDbLarge,  0.0, 50.0);

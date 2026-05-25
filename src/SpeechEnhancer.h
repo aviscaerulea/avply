@@ -23,7 +23,6 @@ public:
     // avply.toml の [speech_enhance] から構築する。
     struct LevelParams {
         int noiseSuppressionLevel; // 0=Low, 1=Moderate, 2=High, 3=VeryHigh
-        float fixedGainDb;         // AGC2 fixed_digital.gain_db（固定ブースト）
         float maxGainDb;           // AGC2 adaptive_digital.max_gain_db（適応ブースト上限）
     };
 

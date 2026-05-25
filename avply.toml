@@ -82,15 +82,6 @@ ns_level_medium = 2
 # ノイズ抑制レベル（大）
 # デフォルトは 2。
 ns_level_large = 2
-# AGC2 固定デジタルゲイン（小、dB）
-# adaptive ゲインに加算する固定ブースト量。0.0〜30.0 にクランプ。デフォルトは 0.0。
-fixed_gain_db_small = 0.0
-# AGC2 固定デジタルゲイン（中、dB）
-# デフォルトは 3.0。
-fixed_gain_db_medium = 3.0
-# AGC2 固定デジタルゲイン（大、dB）
-# デフォルトは 6.0。
-fixed_gain_db_large = 6.0
 # AGC2 adaptive デジタルの最大ゲイン（小、dB）
 # 小音量の発言を持ち上げる adaptive ゲインの上限。0.0〜50.0 にクランプ。デフォルトは 30.0。
 max_gain_db_small = 30.0
