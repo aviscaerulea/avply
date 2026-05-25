@@ -7,10 +7,10 @@ constexpr const char* kKeyPriority       = "aboveNormalPriority";
 constexpr const char* kKeySpeechEnhance  = "speechEnhanceLevel";
 
 // 音声強調の強度範囲（SpeechEnhancer::Level と対応）
-// 0=Off / 1=Low / 2=Medium / 3=High。Settings 単独でクランプするため数値定義する
+// 0=Off / 1=Standard / 2=Strong。Settings 単独でクランプするため数値定義する
 constexpr int kSpeechEnhanceMin     = 0;
-constexpr int kSpeechEnhanceMax     = 3;
-constexpr int kSpeechEnhanceDefault = 2;
+constexpr int kSpeechEnhanceMax     = 2;
+constexpr int kSpeechEnhanceDefault = 1;
 } // namespace
 
 Settings::Settings()

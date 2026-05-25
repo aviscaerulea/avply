@@ -13,18 +13,16 @@
 
 AudioWorker::AudioWorker(const QAudioFormat& format,
                          int  initialSpeechEnhanceLevel,
-                         const SpeechEnhancer::LevelParams& speechEnhanceLow,
-                         const SpeechEnhancer::LevelParams& speechEnhanceMedium,
-                         const SpeechEnhancer::LevelParams& speechEnhanceHigh,
+                         int  nsStandard,
+                         int  nsStrong,
                          QObject* parent)
     : QObject(parent)
     , m_format(format)
     , m_initialEnhanceLevel(std::clamp(initialSpeechEnhanceLevel,
                                        static_cast<int>(SpeechEnhancer::Level::Off),
-                                       static_cast<int>(SpeechEnhancer::Level::High)))
-    , m_enhanceLow(speechEnhanceLow)
-    , m_enhanceMedium(speechEnhanceMedium)
-    , m_enhanceHigh(speechEnhanceHigh)
+                                       static_cast<int>(SpeechEnhancer::Level::Strong)))
+    , m_nsStandard(nsStandard)
+    , m_nsStrong(nsStrong)
 {
     // SpeechEnhancer（APM）の生成は start()（audio thread）で行う。
     // APM は生成・設定・処理を同一スレッドで完結させる前提のため、構築引数だけ退避する
@@ -47,7 +45,7 @@ void AudioWorker::start()
     // コンストラクタ側では生成せず必ず本スロット経由で生成する
     m_enhancer = std::make_unique<SpeechEnhancer>(
         m_format.sampleRate(), m_format.channelCount(),
-        m_enhanceLow, m_enhanceMedium, m_enhanceHigh,
+        m_nsStandard, m_nsStrong,
         static_cast<SpeechEnhancer::Level>(m_initialEnhanceLevel));
 
     // 所属スレッド（audio thread）で QAudioSink を生成して start する。
@@ -399,7 +397,7 @@ void AudioWorker::setSpeechEnhanceLevel(int level)
     if (!m_enhancer) return;
     const int clamped = std::clamp(level,
                                    static_cast<int>(SpeechEnhancer::Level::Off),
-                                   static_cast<int>(SpeechEnhancer::Level::High));
+                                   static_cast<int>(SpeechEnhancer::Level::Strong));
     m_enhancer->setLevel(static_cast<SpeechEnhancer::Level>(clamped));
 }
 

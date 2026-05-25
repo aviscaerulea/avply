@@ -121,13 +121,9 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "audio"    && key == "silence_tone_freq_hz") assignDouble(cfg.silenceToneFreqHz);
         if (section == "audio"    && key == "silence_tone_amp")     assignDouble(cfg.silenceToneAmp);
 
-        // 音声強調強度別パラメータ（ns_level / max_gain_db を Small/Medium/Large の 3 段で個別指定）
-        if (section == "speech_enhance" && key == "ns_level_small")  assignInt(cfg.speechEnhanceNsLevelSmall);
-        if (section == "speech_enhance" && key == "ns_level_medium") assignInt(cfg.speechEnhanceNsLevelMedium);
-        if (section == "speech_enhance" && key == "ns_level_large")  assignInt(cfg.speechEnhanceNsLevelLarge);
-        if (section == "speech_enhance" && key == "max_gain_db_small")  assignDouble(cfg.speechEnhanceMaxGainDbSmall);
-        if (section == "speech_enhance" && key == "max_gain_db_medium") assignDouble(cfg.speechEnhanceMaxGainDbMedium);
-        if (section == "speech_enhance" && key == "max_gain_db_large")  assignDouble(cfg.speechEnhanceMaxGainDbLarge);
+        // 音声強調強度別の NS レベル（Standard/Strong の 2 段で個別指定）
+        if (section == "speech_enhance" && key == "ns_level_standard") assignInt(cfg.speechEnhanceNsLevelStandard);
+        if (section == "speech_enhance" && key == "ns_level_strong")   assignInt(cfg.speechEnhanceNsLevelStrong);
 
         // 真偽値（true / false / 1 / 0 を受理。それ以外は無視）
         auto assignBool = [&](bool& target) {
@@ -163,15 +159,10 @@ void clampConfig(AppConfig& cfg)
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
 
-    // 音声強調 DSP パラメータ範囲
+    // 音声強調 NS レベル範囲
     // ns_level: 0〜3（Low / Moderate / High / VeryHigh）
-    // max_gain_db: 0.0〜50.0 dB（AGC2 適応ブースト上限。APM の上限が 50dB）
-    cfg.speechEnhanceNsLevelSmall  = std::clamp(cfg.speechEnhanceNsLevelSmall,  0, 3);
-    cfg.speechEnhanceNsLevelMedium = std::clamp(cfg.speechEnhanceNsLevelMedium, 0, 3);
-    cfg.speechEnhanceNsLevelLarge  = std::clamp(cfg.speechEnhanceNsLevelLarge,  0, 3);
-    cfg.speechEnhanceMaxGainDbSmall  = std::clamp(cfg.speechEnhanceMaxGainDbSmall,  0.0, 50.0);
-    cfg.speechEnhanceMaxGainDbMedium = std::clamp(cfg.speechEnhanceMaxGainDbMedium, 0.0, 50.0);
-    cfg.speechEnhanceMaxGainDbLarge  = std::clamp(cfg.speechEnhanceMaxGainDbLarge,  0.0, 50.0);
+    cfg.speechEnhanceNsLevelStandard = std::clamp(cfg.speechEnhanceNsLevelStandard, 0, 3);
+    cfg.speechEnhanceNsLevelStrong   = std::clamp(cfg.speechEnhanceNsLevelStrong,   0, 3);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

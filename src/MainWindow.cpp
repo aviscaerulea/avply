@@ -65,12 +65,12 @@ namespace {
 const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
-// 後ろに "0"（Off）/ "1"（Low）/ "2"（Medium）/ "3"（High）を連結して表示する
+// 後ろに "0"（Off）/ "1"（標準）/ "2"（強）を連結して表示する
 const QString kSpeechEnhancePrefix = "  Voice:";
 
-// 音声強調の強度数（Off + Low + Medium + High の 4 状態）
+// 音声強調の強度数（Off + 標準 + 強 の 3 状態）
 // cycleSpeechEnhance の循環剰余演算で参照する
-constexpr int kLevelCount = 4;
+constexpr int kLevelCount = 3;
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -1282,8 +1282,8 @@ void MainWindow::updateVolumeDisplay()
 
 void MainWindow::cycleSpeechEnhance()
 {
-    // 4 状態循環：Off → Low → Medium → High → Off ...
-    // 強度値（0=Off / 1=Low / 2=Medium / 3=High）の剰余で素直に表現する。
+    // 3 状態循環：Off → 標準 → 強 → Off ...
+    // 強度値（0=Off / 1=標準 / 2=強）の剰余で素直に表現する。
     // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
     const int next = (Settings::instance().speechEnhanceLevel() + 1) % kLevelCount;
     Settings::instance().setSpeechEnhanceLevel(next);
@@ -1294,9 +1294,9 @@ void MainWindow::cycleSpeechEnhance()
 
 void MainWindow::updateSpeechEnhanceDisplay()
 {
-    // Off=0、Low=1、Medium=2、High=3 を常時表示する
-    // レジストリ改ざん等で 0〜3 外の値が来ても表示文字列が崩れないよう qBound でガードする
-    const int level = qBound(0, Settings::instance().speechEnhanceLevel(), 3);
+    // Off=0、標準=1、強=2 を常時表示する
+    // レジストリ改ざん等で 0〜2 外の値が来ても表示文字列が崩れないよう qBound でガードする
+    const int level = qBound(0, Settings::instance().speechEnhanceLevel(), 2);
     m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + QString::number(level));
 }
 

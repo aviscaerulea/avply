@@ -11,27 +11,21 @@ class SpeechEnhancer
 {
 public:
     // 強度レベル
-    // Off は APM を通さず素通し（ステレオ保持）。Low / Medium / High で NS / AGC を段階的に強める。
+    // Off は APM を通さず素通し（ステレオ保持）。Standard / Strong で NS を段階的に強める。
+    // AGC2（持ち上げ）は両者共通で、強度差は NS（ノイズ抑制）の強さのみで付く。
     enum class Level {
         Off = 0,
-        Low = 1,
-        Medium = 2,
-        High = 3
-    };
-
-    // レベル別 DSP パラメータ
-    // avply.toml の [speech_enhance] から構築する。
-    struct LevelParams {
-        int noiseSuppressionLevel; // 0=Low, 1=Moderate, 2=High, 3=VeryHigh
-        float maxGainDb;           // AGC2 adaptive_digital.max_gain_db（適応ブースト上限）
+        Standard = 1,
+        Strong = 2
     };
 
     // コンストラクタ
     // sampleRate / channels は入出力 interleaved フォーマット。APM 実体は audio thread での生成を前提とする。
+    // nsStandard / nsStrong は強度別の NS レベル（0=Low / 1=Moderate / 2=High / 3=VeryHigh）。
+    // AGC2 適応上限はコード固定のため引数では渡さない。
     SpeechEnhancer(int sampleRate, int channels,
-                   const LevelParams& low,
-                   const LevelParams& medium,
-                   const LevelParams& high,
+                   int nsStandard,
+                   int nsStrong,
                    Level initialLevel);
     ~SpeechEnhancer();
 

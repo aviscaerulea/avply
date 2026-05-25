@@ -71,23 +71,12 @@ silence_tone_amp = 0.0001
 # 音声強調設定
 # 再生時の WebRTC Audio Processing（APM）でノイズ抑制 + 自動ゲイン制御（AGC2）+ ハイパスフィルタを適用する。
 # 話者間の音量バラつきを自動で均し、小音量の発言を持ち上げる。
-# 強度切替（Off/小/中/大）は N キーで実行する。本セクションでは強度別のパラメータのみ指定する。
+# 強度切替（Off/標準/強）は N キーで実行する。
+# 強度差は NS（ノイズ抑制）の強さのみで付く。AGC2 の持ち上げ量は両強度で共通（コード固定）。
 [speech_enhance]
-# ノイズ抑制レベル（小）
-# 0=Off / 1=Low / 2=Moderate / 3=High。0〜3 にクランプ。デフォルトは 1。
-ns_level_small = 1
-# ノイズ抑制レベル（中）
-# デフォルトは 2。
-ns_level_medium = 2
-# ノイズ抑制レベル（大）
-# デフォルトは 2。
-ns_level_large = 2
-# AGC2 adaptive デジタルの最大ゲイン（小、dB）
-# 小音量の発言を持ち上げる adaptive ゲインの上限。0.0〜50.0 にクランプ。デフォルトは 30.0。
-max_gain_db_small = 30.0
-# AGC2 adaptive デジタルの最大ゲイン（中、dB）
-# デフォルトは 40.0。
-max_gain_db_medium = 40.0
-# AGC2 adaptive デジタルの最大ゲイン（大、dB）
-# デフォルトは 50.0。
-max_gain_db_large = 50.0
+# ノイズ抑制レベル（標準）
+# 0=Low / 1=Moderate / 2=High / 3=VeryHigh。0〜3 にクランプ。デフォルトは 1（Moderate）。
+ns_level_standard = 1
+# ノイズ抑制レベル（強）
+# デフォルトは 2（High）。3（VeryHigh）は声まで削るため非推奨。
+ns_level_strong = 2

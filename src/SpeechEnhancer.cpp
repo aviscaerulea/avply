@@ -17,8 +17,15 @@ constexpr qsizetype kOutCompactThreshold = 48000; // 約 1 秒（48kHz interleav
 // 既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、
 // 最終リミッタがピークを 1.0 へハードクリップして単発クリック（プチノイズ）を生む。
 // 入力をあらかじめ減衰させて AGC2 が期待する余裕を作ることで、小音量発言の持ち上げを保ったまま
-// 全強度でクリップを根絶する。実測で -6dB なら Off / 小 / 中 / 大すべてでクリップフレーム 0。
+// 全強度でクリップを根絶する。実測で -6dB なら Off / 標準 / 強すべてでクリップフレーム 0。
 constexpr float kInputPreGain = 0.5f;
+
+// AGC2 適応ブースト上限（dB）
+// adaptive_digital.max_gain_db。会議音声の小声は headroom で決まる出力ターゲット（約 -28dB 相当）
+// までの持ち上げで足り、適応ゲインがこの天井に届くことはない。offline 計測で 30/40/50dB の
+// いずれでも小声・大声の出力レベル・クリップ指標が完全に一致したため、強度別に分けても無意味と
+// 判明した。極端な小声向けの保険として中庸な 40dB をコード固定する（toml 非公開）。
+constexpr float kMaxGainDb = 40.0f;
 
 // NS レベル変換
 // 0〜3 を webrtc の Level enum へクランプして対応付ける。
@@ -46,7 +53,7 @@ struct SpeechEnhancer::Impl {
     int channels;
     int frameSize; // sampleRate / 100（10ms 分の 1ch サンプル数）
     Level level;
-    LevelParams params[3]; // index 0=Low, 1=Medium, 2=High
+    int nsLevels[2]; // index 0=Standard, 1=Strong（NS レベル 0〜3）
 
     rtc::scoped_refptr<webrtc::AudioProcessing> apm;
     webrtc::StreamConfig monoConfig; // (sampleRate, 1ch)
@@ -61,16 +68,16 @@ struct SpeechEnhancer::Impl {
     // Off 以外で呼ぶ前提（呼び出し側で level != Off をガード済み）。NS / AGC2 / HPF を有効化し、AEC は使わない（再生済み音声のため）。
     webrtc::AudioProcessing::Config buildConfig(Level lvl) const
     {
-        // params は Low/Medium/High の 3 要素。Level は Off=0/Low=1/Medium=2/High=3 のため -1 で index へ写す
-        const LevelParams& p = params[static_cast<int>(lvl) - 1];
+        // nsLevels は Standard/Strong の 2 要素。Level は Off=0/Standard=1/Strong=2 のため -1 で index へ写す
+        const int nsLevel = nsLevels[static_cast<int>(lvl) - 1];
         webrtc::AudioProcessing::Config c;
         c.pipeline.maximum_internal_processing_rate = 48000;
         c.high_pass_filter.enabled = true;
         c.noise_suppression.enabled = true;
-        c.noise_suppression.level = nsLevelFromInt(p.noiseSuppressionLevel);
+        c.noise_suppression.level = nsLevelFromInt(nsLevel);
         c.gain_controller2.enabled = true;
         c.gain_controller2.adaptive_digital.enabled = true;
-        c.gain_controller2.adaptive_digital.max_gain_db = p.maxGainDb;
+        c.gain_controller2.adaptive_digital.max_gain_db = kMaxGainDb;
         // 出力ターゲットレベル（小声の持ち上げ量を支配する）
         // headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。値が小さいほど
         // ターゲットが上がり、ターゲット未満の小声ほど強く持ち上がる。大声は既にターゲット以上の
@@ -90,7 +97,7 @@ struct SpeechEnhancer::Impl {
         // adaptive ゲインの後・最終リミッタの前に効く固定ブーストで、APM のリミッタが
         // ピークを 1.0 へハードクリップして単発クリックを生む決定的要因だった。実測で
         // fixed +3/+6dB は入力プリアッテネーション併用でも再クリップしたため恒久的に無効化する。
-        // 強度差は NS レベルと adaptive_digital.max_gain_db のみで付ける。
+        // 強度差は NS レベルのみで付ける（max_gain は無意味と計測で判明したためコード固定）。
         c.gain_controller2.fixed_digital.gain_db = 0.0f;
         return c;
     }
@@ -128,9 +135,8 @@ struct SpeechEnhancer::Impl {
 // コンストラクタ
 // APM を生成し、初期レベルが Off 以外なら Config を適用して初期化する。
 SpeechEnhancer::SpeechEnhancer(int sampleRate, int channels,
-                               const LevelParams& low,
-                               const LevelParams& medium,
-                               const LevelParams& high,
+                               int nsStandard,
+                               int nsStrong,
                                Level initialLevel)
     : m_impl(std::make_unique<Impl>())
 {
@@ -138,9 +144,8 @@ SpeechEnhancer::SpeechEnhancer(int sampleRate, int channels,
     m_impl->channels = channels;
     m_impl->frameSize = sampleRate / 100;
     m_impl->level = initialLevel;
-    m_impl->params[0] = low;
-    m_impl->params[1] = medium;
-    m_impl->params[2] = high;
+    m_impl->nsLevels[0] = nsStandard;
+    m_impl->nsLevels[1] = nsStrong;
     m_impl->monoConfig = webrtc::StreamConfig(sampleRate, 1);
     m_impl->monoFrame.resize(static_cast<size_t>(m_impl->frameSize));
     m_impl->monoFrameOut.resize(static_cast<size_t>(m_impl->frameSize));

@@ -37,17 +37,11 @@ struct AppConfig {
     // false にすると SilenceTone を起動せず、OS への常時音声出力を行わない
     bool silenceToneEnabled = true;
 
-    // 音声強調（WebRTC APM）強度別の DSP パラメータ
-    // 強度（Small/Medium/Large）ごとに以下を独立指定する。
-    //  - nsLevel: ノイズ抑制レベル（0=Low / 1=Moderate / 2=High / 3=VeryHigh、0〜3 にクランプ）
-    //  - maxGainDb: AGC2 適応ブースト上限 dB（0.0〜50.0 にクランプ）
-    // HPF / AGC2 適応有効化・入力プリアッテネーションは強度共通のためここでは扱わない。
-    int speechEnhanceNsLevelSmall  = 1;
-    int speechEnhanceNsLevelMedium = 2;
-    int speechEnhanceNsLevelLarge  = 2;
-    double speechEnhanceMaxGainDbSmall  = 30.0;
-    double speechEnhanceMaxGainDbMedium = 40.0;
-    double speechEnhanceMaxGainDbLarge  = 50.0;
+    // 音声強調（WebRTC APM）強度別の NS レベル
+    // 強度（Standard/Strong）ごとにノイズ抑制レベルを指定する（0=Low / 1=Moderate / 2=High / 3=VeryHigh、0〜3 にクランプ）。
+    // AGC2 適応上限・HPF・入力プリアッテネーションはコード固定のためここでは扱わない。
+    int speechEnhanceNsLevelStandard = 1;
+    int speechEnhanceNsLevelStrong   = 2;
 
     // サイレンストーンの周波数（Hz）と振幅
     // 周波数は 20〜20000 Hz、振幅は 0.0〜0.01（-40 dBFS）にクランプする。

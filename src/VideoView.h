@@ -58,7 +58,7 @@ public:
     QSize minimumSizeHint() const override;
 
     // 音声強調（WebRTC APM）の強度を設定する
-    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Low / 2=Medium / 3=High）
+    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Standard / 2=Strong）
     // 変更は AudioWorker に QueuedConnection で転送され、audio thread 上で ApplyConfig される
     void setSpeechEnhanceLevel(int level);
 

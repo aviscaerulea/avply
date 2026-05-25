@@ -157,12 +157,12 @@ private:
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
 
-    // 音声強調の強度を 1 段階進める（Off → 弱 → 標準 → 強 → Off の 4 状態循環）
+    // 音声強調の強度を 1 段階進める（Off → 標準 → 強 → Off の 3 状態循環）
     // N キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
     void cycleSpeechEnhance();
 
     // 音声強調ラベルの強度表記を現在の設定に応じて更新する
-    // 常時表示で「Voice:0/1/2/3」（0=Off / 1=弱 / 2=標準 / 3=強）の数値を表示する
+    // 常時表示で「Voice:0/1/2」（0=Off / 1=標準 / 2=強）の数値を表示する
     void updateSpeechEnhanceDisplay();
 
     // g キー押下時のトグル動作

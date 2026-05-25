@@ -22,13 +22,12 @@ class AudioWorker : public QObject {
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
     // initialSpeechEnhanceLevel で音声強調強度を確定する
-    // （0=Off / 1=Low / 2=Medium / 3=High、SpeechEnhancer::Level と対応）。
-    // speechEnhanceLow/Medium/High は強度別の NS レベル / AGC ゲインを avply.toml の値で渡す
+    // （0=Off / 1=Standard / 2=Strong、SpeechEnhancer::Level と対応）。
+    // nsStandard / nsStrong は強度別の NS レベルを avply.toml の値で渡す（AGC はコード固定）
     explicit AudioWorker(const QAudioFormat& format,
                          int  initialSpeechEnhanceLevel,
-                         const SpeechEnhancer::LevelParams& speechEnhanceLow,
-                         const SpeechEnhancer::LevelParams& speechEnhanceMedium,
-                         const SpeechEnhancer::LevelParams& speechEnhanceHigh,
+                         int  nsStandard,
+                         int  nsStrong,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -53,7 +52,7 @@ public slots:
     void setVolume(double volume);
 
     // 音声強調の強度を切り替える
-    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Low / 2=Medium / 3=High）
+    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Standard / 2=Strong）
     // ApplyConfig を内部で呼ぶため audio thread からのみ実行する
     void setSpeechEnhanceLevel(int level);
 
@@ -73,9 +72,8 @@ private:
     // 構築引数は下記メンバへ退避して start() まで保持する
     std::unique_ptr<SpeechEnhancer> m_enhancer;
     int                       m_initialEnhanceLevel;
-    SpeechEnhancer::LevelParams m_enhanceLow;
-    SpeechEnhancer::LevelParams m_enhanceMedium;
-    SpeechEnhancer::LevelParams m_enhanceHigh;
+    int                       m_nsStandard;
+    int                       m_nsStrong;
     QAudioSink*  m_sink    = nullptr;
     QIODevice*   m_sinkDev = nullptr;
     double       m_volume  = 1.0;

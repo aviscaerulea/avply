@@ -101,23 +101,12 @@ VideoView::VideoView(QWidget* parent)
     // Config::load() は MainWindow でも別途呼ばれるが、ステートレスかつ起動時 1 回のため重複コストは無視できる
     const QAudioFormat audioFmt = makeAudioFormat();
     const AppConfig    cfg      = Config::load();
-    const SpeechEnhancer::LevelParams enhanceLow {
-        cfg.speechEnhanceNsLevelSmall,
-        static_cast<float>(cfg.speechEnhanceMaxGainDbSmall),
-    };
-    const SpeechEnhancer::LevelParams enhanceMedium {
-        cfg.speechEnhanceNsLevelMedium,
-        static_cast<float>(cfg.speechEnhanceMaxGainDbMedium),
-    };
-    const SpeechEnhancer::LevelParams enhanceHigh {
-        cfg.speechEnhanceNsLevelLarge,
-        static_cast<float>(cfg.speechEnhanceMaxGainDbLarge),
-    };
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
     m_audioWorker = new AudioWorker(audioFmt,
                                     Settings::instance().speechEnhanceLevel(),
-                                    enhanceLow, enhanceMedium, enhanceHigh);
+                                    cfg.speechEnhanceNsLevelStandard,
+                                    cfg.speechEnhanceNsLevelStrong);
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
