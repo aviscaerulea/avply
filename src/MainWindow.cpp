@@ -33,6 +33,7 @@
 #include <QAction>
 #include <QMenu>
 #include <QContextMenuEvent>
+#include <QDesktopServices>
 #include <QWindow>
 #include <QThreadPool>
 #include <algorithm>
@@ -1454,6 +1455,15 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     // Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする
     const QString menuStyle = "QMenu { border-radius: 2px; }";
     menu.setStyleSheet(menuStyle);
+
+    // アプリ名・バージョン項目
+    // クリックで GitHub のプロジェクトページをブラウザで開く
+    QAction* about = menu.addAction(
+        QApplication::applicationName() + " v" + QApplication::applicationVersion());
+    connect(about, &QAction::triggered, this, []() {
+        QDesktopServices::openUrl(QUrl("https://github.com/aviscaerulea/avply"));
+    });
+    menu.addSeparator();
 
     menu.addAction(m_actOpen);
     menu.addAction(m_actCopyPath);
