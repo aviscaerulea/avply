@@ -1177,7 +1177,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     if (QApplication::activeModalWidget()) {
         return QMainWindow::eventFilter(watched, event);
     }
-    // 実行中（変換またはトリム）はメディア操作キー（Space / ←→ / ↑↓ / N / V / G / R）のみ
+    // 実行中（変換またはトリム）はメディア操作キー（Space / ←→ / ↑↓ / . , / N / G / R）のみ
     // 無効化する。Alt+F4・Tab・Ctrl+C 等のシステムキーやアプリ全体のショートカットは素通しし、
     // ウィンドウ閉鎖やフォーカス移動をブロックしないようにする
     const auto* ke = static_cast<QKeyEvent*>(event);
@@ -1188,6 +1188,8 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         case Qt::Key_Space:
         case Qt::Key_Up:
         case Qt::Key_Down:
+        case Qt::Key_Period:
+        case Qt::Key_Comma:
         case Qt::Key_G:
         case Qt::Key_R:
         case Qt::Key_N:
@@ -1209,25 +1211,25 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     case Qt::Key_Up:
     case Qt::Key_Down: {
-        // 修飾子による分岐
-        // - 修飾子なし：再生速度 ±0.05
-        // - Shift 単独：音量 ±0.05
-        // - Ctrl/Alt/Meta 併用：OS/IME ショートカットと衝突しうるため素通し
+        // 音量 ±0.05
+        // 修飾子付き（Shift/Ctrl/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
         // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のため
         // マスクから除外し、テンキー ↑/↓ も同じ動作で扱う
         const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-        const qreal sign = (ke->key() == Qt::Key_Up) ? 0.05 : -0.05;
-        if (mods == Qt::NoModifier) {
-            changePlaybackRate(sign);
-        }
-        else if (mods == Qt::ShiftModifier) {
-            changeVolume(sign);
-        }
-        else {
+        if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
+        changeVolume((ke->key() == Qt::Key_Up) ? 0.05 : -0.05);
         return true;
     }
+    case Qt::Key_Period:
+        // 再生速度 +0.05
+        changePlaybackRate(0.05);
+        return true;
+    case Qt::Key_Comma:
+        // 再生速度 -0.05
+        changePlaybackRate(-0.05);
+        return true;
     case Qt::Key_G:
         // 再生条件（速度/音量/音声強調）の全リセット ↔ 起動時デフォルト復元のトグル
         toggleGReset();
