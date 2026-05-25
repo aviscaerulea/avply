@@ -59,7 +59,10 @@ jobs:
 
       - name: Copy assets
         shell: pwsh
-        run: Copy-Item avply.toml out\Release\
+        run: |
+          Copy-Item avply.toml out\Release\
+          Copy-Item avply.toml out\Release\avply.toml.example
+          New-Item -Path out\Release\avply.local.toml -ItemType File
 
       - name: Create zip
         shell: pwsh
