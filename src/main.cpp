@@ -142,7 +142,7 @@ int main(int argc, char* argv[])
     app.setWindowIcon(appIcon);
 
     app.setApplicationName("avply");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion(AVPLY_VERSION);
     app.setOrganizationName("avply");
 
     // コマンドライン第 1 引数があれば初期ファイルとして MainWindow に渡す

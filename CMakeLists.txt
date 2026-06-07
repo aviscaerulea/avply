@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 project(avply VERSION 1.0.0 LANGUAGES CXX)
 
+# アプリ表示バージョン。未指定時は CMakeLists の PROJECT_VERSION を使用する
+# リリースビルド時は GHA ワークフローが -DAVPLY_VERSION=<git-tag> で上書きする
+set(AVPLY_VERSION "${PROJECT_VERSION}" CACHE STRING "アプリ表示バージョン（リリース時は git タグで上書き）")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -71,6 +75,10 @@ qt_add_executable(avply WIN32
     src/icons.qrc
     src/app.rc
 )
+
+# AVPLY_VERSION をバイナリへ文字列マクロとして注入する
+# main.cpp の setApplicationVersion で参照し、コンテキストメニューの About 項目に表示する
+target_compile_definitions(avply PRIVATE AVPLY_VERSION="${AVPLY_VERSION}")
 
 # include/        … <webrtc/...> と <absl/...> の解決用
 # include/webrtc/ … webrtc 公開ヘッダ内部の "api/..." "rtc_base/..." 相対 include 解決用
