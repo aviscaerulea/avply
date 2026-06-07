@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "OutputNamer.h"
 #include "Settings.h"
+#include "SpeechEnhancer.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QVBoxLayout>
@@ -69,9 +70,9 @@ const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // 後ろに "0"（Off）/ "1"（標準）/ "2"（強）を連結して表示する
 const QString kSpeechEnhancePrefix = "  Clarity:";
 
-// 音声強調の強度数（Off + 標準 + 強 の 3 状態）
-// cycleSpeechEnhance の循環剰余演算で参照する
-constexpr int kLevelCount = 3;
+// 音声強調の強度数（SpeechEnhancer::Level の総数）
+// cycleSpeechEnhance の循環剰余演算で参照する。Strong が enum の末尾要素である前提
+constexpr int kLevelCount = static_cast<int>(SpeechEnhancer::Level::Strong) + 1;
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
