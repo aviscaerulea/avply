@@ -142,6 +142,14 @@ int main(int argc, char* argv[])
     // main 冒頭で設定する。abort / std::terminate 経由は SEH を通らないため捕捉対象外
     SetUnhandledExceptionFilter(avplyCrashHandler);
 
+    // SetWindowsHookEx 経由のサードパーティ DLL 注入を遮断する
+    // DisplayFusion 等のウィンドウフック DLL が注入されてクラッシュするケースに対処する
+    PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY epPolicy = {};
+    epPolicy.DisableExtensionPoints = TRUE;
+    if (!SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy, &epPolicy, sizeof(epPolicy))) {
+        qWarning("DLL 注入遮断ポリシーの設定に失敗しました。(error=%lu)", GetLastError());
+    }
+
     // 再生速度変更時に pitchCompensation を有効化するため
     // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
