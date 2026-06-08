@@ -235,13 +235,26 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
             // sink が満タンなのでドレインせず次回まで待つ（enhancer 出力 FIFO 側で滞留させる）
             return;
         }
-        const qint64 toWrite = std::min<qint64>(free, m_pendingTail.size());
+        // bytesFree() は 4 の非倍数を返すことがある。applyVolume は bytes/sizeof(float) でサンプル数を
+        // 切り捨てるため、非倍数のまま渡すと末尾バイトが m_volumeWork の旧データで汚染される。
+        // float 境界へ切り下げて境界ずれを防ぐ。
+        const qint64 alignedFree = (free / static_cast<qint64>(sizeof(float))) * static_cast<qint64>(sizeof(float));
+        const qint64 toWrite = std::min<qint64>(alignedFree, m_pendingTail.size());
         const char*  outPtr  = applyVolume(m_pendingTail.constData(), toWrite);
         const qint64 written = m_sinkDev->write(outPtr, toWrite);
         totalInBytes  += toWrite;
         totalOutBytes += (written > 0 ? written : 0);
         ++writes;
-        const qint64 consumed = (written > 0) ? written : 0;
+        if (written < 0) {
+            qWarning() << "AudioWorker: pendingTail write failed, discarding" << toWrite << "bytes";
+            m_pendingTail.clear();
+            return;
+        }
+        if (written == 0 && toWrite > 0) {
+            ++underruns;
+            return;
+        }
+        const qint64 consumed = written;
         if (consumed < m_pendingTail.size()) {
             // 一部しか書けなかった分を先頭から除去して保持し、enhancer ドレインは次回まで持ち越す
             // pendingTail は pre-volume のまま remove するので、次回も最新音量が適用される
@@ -273,13 +286,19 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
         // sink の空きに収まる分のみ即時書き込み、残量は pre-volume のまま退避する。
         // m_workBuf は pre-volume（post-enhancer）状態のままで、音量は applyVolume 内でコピー適用する
-        const qint64 toWrite = std::min<qint64>(free, outBytes);
+        // pendingTail と同様に float 境界へ切り下げる
+        const qint64 alignedFree = (free / static_cast<qint64>(sizeof(float))) * static_cast<qint64>(sizeof(float));
+        const qint64 toWrite = std::min<qint64>(alignedFree, outBytes);
         const char*  outPtr  = applyVolume(m_workBuf.constData(), toWrite);
         const qint64 written = m_sinkDev->write(outPtr, toWrite);
         totalInBytes  += toWrite;
         totalOutBytes += (written > 0 ? written : 0);
         ++writes;
-        const qint64 consumed = (written > 0) ? written : 0;
+        if (written < 0) {
+            qWarning() << "AudioWorker: Stage 3 write failed, skipping";
+            break;
+        }
+        const qint64 consumed = written;
 
         // toWrite を超える残量は pre-volume のまま pendingTail に退避する
         if (toWrite < outBytes) {

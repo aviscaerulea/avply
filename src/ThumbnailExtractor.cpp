@@ -1,4 +1,5 @@
 #include "ThumbnailExtractor.h"
+#include <QDebug>
 #include <QProcess>
 #include <QImage>
 #include <QByteArray>
@@ -200,7 +201,9 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
                      QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                      proc, &QProcess::deleteLater);
     proc->kill();
-    proc->waitForFinished(50);
+    if (!proc->waitForFinished(50)) {
+        qWarning() << "ThumbnailExtractor: process did not terminate within 50ms; cleanup deferred to finished() signal";
+    }
 }
 
 void ThumbnailExtractor::putCache(int key, const QPixmap& pix)

@@ -1,4 +1,5 @@
 #include "Encoder.h"
+#include <QDebug>
 #include <QStringList>
 #include <QRegularExpression>
 #include <QFile>

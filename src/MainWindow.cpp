@@ -879,7 +879,9 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     }
     else {
         // 動画のアスペクト比をウィンドウ連動の基準として更新する
-        m_videoAspect = static_cast<double>(info.width) / info.height;
+        m_videoAspect = (info.height > 0)
+            ? static_cast<double>(info.width) / info.height
+            : 16.0 / 9.0;
 
         // 音声モードからの切替で残った setFixedHeight を解除する
         // setMinimumSize だけでは setFixedHeight が設定した最大高さが残るため、
