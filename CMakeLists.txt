@@ -103,7 +103,8 @@ target_link_libraries(avply PRIVATE
     Qt6::Quick
     SoundTouch
     ${WEBRTC_APM_LIBS}
-    winmm  # webrtc rtc_base の timeGetTime（SystemTimeNanos）が依存する
+    winmm    # webrtc rtc_base の timeGetTime（SystemTimeNanos）が依存する
+    dbghelp  # クラッシュ時の MiniDumpWriteDump（main.cpp の未処理例外フィルタ）が依存する
 )
 
 # Qt DLL を実行ファイルと同じディレクトリに配置する

@@ -2,6 +2,7 @@
 // 全 include より前に定義する
 #define NOMINMAX
 #include <windows.h>
+#include <DbgHelp.h>
 #include <shellapi.h>
 
 #include <QApplication>
@@ -94,10 +95,53 @@ QString firstArgumentUnicode()
     return result;
 }
 
+// 未処理例外フィルタ
+// クラッシュ時に %TEMP% へ minidump（avply_crash.dmp）を書き出す。
+// この関数はスタック破壊後に呼ばれ得るため、ヒープ確保（Qt / CRT）を避けて
+// Win32 API とスタック上のバッファのみで完結させる。DbgHelp は遅延ロードせず、
+// MiniDumpWithIndirectlyReferencedMemory でクラッシュ地点周辺のヒープも含める。
+LONG WINAPI avplyCrashHandler(EXCEPTION_POINTERS* ep)
+{
+    // ダンプ出力先を %TEMP%\avply_crash.dmp に組み立てる（パスもスタック上で完結させる）
+    // GetTempPathW は末尾に区切りを付けて返す。失敗時はカレントディレクトリへフォールバックする
+    wchar_t path[MAX_PATH] = {0};
+    const DWORD tlen = GetTempPathW(MAX_PATH, path);
+    if (tlen == 0 || tlen > MAX_PATH) {
+        path[0] = L'\0';
+    }
+    wcsncat_s(path, MAX_PATH, L"avply_crash.dmp", _TRUNCATE);
+
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        MINIDUMP_EXCEPTION_INFORMATION mei = {0};
+        mei.ThreadId = GetCurrentThreadId();
+        mei.ExceptionPointers = ep;
+        mei.ClientPointers = FALSE;
+
+        // クラッシュ地点が参照するヒープも含めて原因変数を追えるようにする
+        const MINIDUMP_TYPE type = static_cast<MINIDUMP_TYPE>(
+            MiniDumpWithIndirectlyReferencedMemory | MiniDumpScanMemory |
+            MiniDumpWithThreadInfo);
+
+        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
+                          file, type, &mei, nullptr, nullptr);
+        CloseHandle(file);
+    }
+
+    // 通常のクラッシュ処理（WER への通知）も継続させる
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
 {
+    // クラッシュ時の minidump 生成を最優先で登録する
+    // 以降の初期化で SEH 例外（アクセス違反等）が起きても avply_crash.dmp を残せるよう
+    // main 冒頭で設定する。abort / std::terminate 経由は SEH を通らないため捕捉対象外
+    SetUnhandledExceptionFilter(avplyCrashHandler);
+
     // 再生速度変更時に pitchCompensation を有効化するため
     // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
