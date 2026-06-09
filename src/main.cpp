@@ -165,12 +165,18 @@ int main(int argc, char* argv[])
     }
 
     // 単一インスタンス強制が ON のとき、自身が 2 個目以降なら引数を既存へ転送して即時終了する
-    // QApplication 構築前に判定することで、不要な GUI 初期化を避ける
+    // QApplication 構築前に判定することで、不要な GUI 初期化を避ける。
+    // 2 個目以降の判定は名前付き mutex で行う。パイプ接続成否による判定では、
+    // 先発プロセスが listen を開始する前の窓で後発も primary になる競合があった
     const bool singleInstanceEnabled = Settings::instance().singleInstance();
     const QString preliminaryArg = firstArgumentUnicode();
 
     if (singleInstanceEnabled) {
-        if (SingleInstance::tryForwardAndExit(preliminaryArg)) return 0;
+        if (!SingleInstance::tryBecomePrimary()) {
+            // 既存 primary あり。listen 開始待ちを含むリトライ付きで転送する
+            if (SingleInstance::forwardWithRetry(preliminaryArg)) return 0;
+            // 転送失敗（primary 異常終了等）は自身が primary として続行する
+        }
     }
 
     // プロセス優先度設定（レジストリ値が ON のときのみ ABOVE_NORMAL）

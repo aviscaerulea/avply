@@ -1,5 +1,11 @@
+// std::min / std::max と windows.h の min / max マクロが衝突しないよう
+// 全 include より前に定義する
+#define NOMINMAX
+#include <windows.h>
+
 #include "SingleInstance.h"
 #include "MainWindow.h"
+#include <QElapsedTimer>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPointer>
@@ -10,15 +16,30 @@
 #include <QDebug>
 
 namespace {
+// ユーザ識別子（ユーザディレクトリ末尾名）
+// 複数ユーザ同居環境で他ユーザのプロセスと干渉しないよう、パイプ名・mutex 名に付与する
+QString userName()
+{
+    const QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    return QFileInfo(home).fileName();
+}
+
 // パイプ名（ユーザスコープで一意）
-// 複数ユーザ同居環境で他ユーザのプロセスへ接続が届くのを防ぐため、ユーザディレクトリ末尾名を付与する。
 // 仮に同名パイプを掴まれてもプロトコルマジックで弾く二重防護
 QString pipeName()
 {
-    const QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-    const QString user = QFileInfo(home).fileName();
+    const QString user = userName();
     if (user.isEmpty()) return QStringLiteral("avply-ipc");
     return QStringLiteral("avply-ipc-") + user;
+}
+
+// mutex 名（ユーザスコープで一意、セッションローカル名前空間）
+// primary 決定をパイプ接続成否でなくカーネルオブジェクトのアトミック性で行うための名前
+QString mutexName()
+{
+    const QString user = userName();
+    if (user.isEmpty()) return QStringLiteral("Local\\avply-single");
+    return QStringLiteral("Local\\avply-single-") + user;
 }
 
 // プロトコルマジック
@@ -37,7 +58,43 @@ constexpr int kConnectTimeoutMs    = 500;
 constexpr int kWriteTimeoutMs      = 1000;
 constexpr int kAckTimeoutMs        = 1000;
 constexpr int kServerRecvTimeoutMs = 2000;
+
+// 転送リトライ
+// primary は Qt 初期化 + MainWindow 構築後に listen を開始するため、
+// その所要時間（通常 1 秒未満）を十分にカバーする上限とする
+constexpr int kForwardRetryIntervalMs = 150;
+constexpr int kForwardRetryTotalMs    = 5000;
 } // namespace
+
+bool SingleInstance::tryBecomePrimary()
+{
+    // CreateMutexW のアトミック性で primary を一意に決める
+    // 同時複数起動でも新規作成に成功するのは 1 プロセスのみ。
+    // ハンドルは意図的に保持し続ける（プロセス終了・クラッシュ時に OS が解放するため残留しない）。
+    // 転送失敗時のフォールバック primary もこの参照を保持しており、
+    // 以降の起動は ERROR_ALREADY_EXISTS でこのプロセスへ転送される
+    const HANDLE mutex = CreateMutexW(nullptr, FALSE,
+        reinterpret_cast<const wchar_t*>(mutexName().utf16()));
+    // エラーコードは直後に退避する（以降の処理による上書きを防ぐ防御）
+    const DWORD err = GetLastError();
+    if (!mutex) {
+        // 判定不能時は従来動作（パイプ接続成否のみ）へフォールバックする
+        qWarning("SingleInstance: CreateMutexW failed (error=%lu)", err);
+        return true;
+    }
+    return err != ERROR_ALREADY_EXISTS;
+}
+
+bool SingleInstance::forwardWithRetry(const QString& arg)
+{
+    QElapsedTimer timer;
+    timer.start();
+    for (;;) {
+        if (tryForwardAndExit(arg)) return true;
+        if (timer.elapsed() >= kForwardRetryTotalMs) return false;
+        Sleep(kForwardRetryIntervalMs);
+    }
+}
 
 bool SingleInstance::tryForwardAndExit(const QString& arg)
 {
