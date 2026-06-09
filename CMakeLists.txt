@@ -108,10 +108,17 @@ target_link_libraries(avply PRIVATE
 )
 
 # Qt DLL を実行ファイルと同じディレクトリに配置する
+# 配備物の絞り込み（いずれも実行時にロード経路がない死荷重の除外）：
+#   --no-opengl-sw        … ソフトウェア OpenGL（既定 RHI は d3d11、HW 失敗時も OS 同梱の WARP で代替）
+#   --no-translations     … Qt 翻訳カタログ（QTranslator 不使用）
+#   --skip-plugin-types   … qmltooling=QML デバッガ用、generic=TUIO タッチ入力用
 if(WIN32)
     add_custom_command(TARGET avply POST_BUILD
         COMMAND "${Qt6_DIR}/../../../bin/windeployqt.exe"
                 --qmldir "${CMAKE_SOURCE_DIR}/src"
+                --no-opengl-sw
+                --no-translations
+                --skip-plugin-types qmltooling,generic
                 "$<TARGET_FILE:avply>"
         COMMENT "Qt DLL を配置しています..."
     )
