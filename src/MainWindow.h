@@ -56,7 +56,7 @@ private slots:
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
 
-    // 同名上書きの置換直前に path を開いているファイルハンドルを解放する
+    // 同名上書きの退避リネーム直前に path を開いているファイルハンドルを解放する
     // Encoder::releaseFileRequested から direct 接続で同期実行される
     void onEncoderReleaseFile(const QString& path);
 
@@ -274,6 +274,11 @@ private:
     bool m_wasPlayingBeforeDrag = false;
 
     Encoder* m_encoder = nullptr;
+
+    // 同名上書きのためにプレイヤー等のファイルハンドルを解放済みかのフラグ
+    // onEncoderReleaseFile で立て、onEncoderFinished で落とす。
+    // 退避リネーム失敗等で置換に至らなかったとき、解放したファイルを開き直す判定に使う
+    bool m_fileReleasedForOverwrite = false;
 
     // 実行中の波形生成プロセス。新規ファイル読込時に kill して入れ替える
     QProcess* m_waveformProc = nullptr;

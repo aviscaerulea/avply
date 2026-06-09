@@ -48,7 +48,7 @@ signals:
     // 変換完了。ok=false の場合は err にエラー内容が入る
     void finished(bool ok, const QString& outputPath, const QString& err);
 
-    // 同名上書きの置換直前通知
+    // 同名上書きの退避リネーム直前通知
     // path を開いているファイルハンドル（再生中プレイヤー等）の解放を呼び出し側へ依頼する。
     // 同一スレッドの direct 接続で同期実行される前提
     void releaseFileRequested(const QString& path);

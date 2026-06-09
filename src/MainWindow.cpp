@@ -690,6 +690,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     setRunning(Operation::None);
 
     if (ok) {
+        m_fileReleasedForOverwrite = false;
         // 完了直後に出力ファイルを開き直す
         // loadFile→onProbeFinished が区間マーカー・進捗・各ラベルをリセットするため、
         // 進捗 100% や完了ラベルの設定は不要（直後に上書きされる）
@@ -699,6 +700,14 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
     // 中止・失敗時は進捗オーバーレイを除去して区間表示を元に戻す
     m_seekSlider->clearProgress();
+
+    // 同名上書きのために解放したファイルを開き直す
+    // 退避リネーム失敗等で置換に至らなかった場合、プレイヤーが空のまま残るため。
+    // 復元失敗の異常系では元ファイルが存在しないことがあり、そのときは開き直さない
+    if (m_fileReleasedForOverwrite) {
+        m_fileReleasedForOverwrite = false;
+        if (QFile::exists(m_filePath)) loadFile(m_filePath, false);
+    }
 
     // ユーザ中止：err 空文字 → ダイアログ抑制、ステータス表示もクリアのみ
     // 進捗オーバーレイの消失で中止は十分認識可能
@@ -728,6 +737,7 @@ void MainWindow::onEncoderReleaseFile(const QString& path)
     stopWaveformProcess();
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
     m_videoView->clear();
+    m_fileReleasedForOverwrite = true;
 }
 
 // ---- 内部ユーティリティ ----
