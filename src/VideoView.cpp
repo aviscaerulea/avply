@@ -249,7 +249,7 @@ void VideoView::setSource(const QString& filePath)
     m_player->setSource(QUrl::fromLocalFile(filePath));
 }
 
-void VideoView::clear()
+void VideoView::clear(bool keepVisible)
 {
     m_primeFirstFrame = false;
     m_pausingAtEnd = false;
@@ -261,7 +261,9 @@ void VideoView::clear()
         QMetaObject::invokeMethod(w, [w]() { w->forceReset(); }, Qt::BlockingQueuedConnection);
     }
     m_player->setSource(QUrl());
-    m_videoContainer->hide();
+    // コンテナの hide は音声のみソースで黒矩形が残る対策。
+    // 直後に映像を開き直す経路（keepVisible=true）では表示を維持してチラつきを抑える
+    if (!keepVisible) m_videoContainer->hide();
 }
 
 qint64 VideoView::position() const

@@ -23,7 +23,9 @@ public:
     void setSource(const QString& filePath);
 
     // ソースをクリアして待機状態に戻す
-    void clear();
+    // keepVisible=true でプレビューコンテナを隠さない（同名上書き直後の再ロードなど、
+    // 直後に同等の映像を開き直す経路でのチラつき軽減用）
+    void clear(bool keepVisible = false);
 
     // 現在の再生位置をミリ秒で返す
     qint64 position() const;

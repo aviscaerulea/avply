@@ -736,7 +736,7 @@ void MainWindow::onEncoderReleaseFile(const QString& path)
     // 直後の onEncoderFinished → loadFile で同パスを開き直すため、クリアは一瞬で済む
     stopWaveformProcess();
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
-    m_videoView->clear();
+    m_videoView->clear(/*keepVisible=*/true);
     m_fileReleasedForOverwrite = true;
 }
 
