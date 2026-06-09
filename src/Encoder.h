@@ -18,6 +18,7 @@ struct EncodeParams {
     double outSec = 0.0;       // カット終了位置（秒）
     int inputWidth = 0;        // 入力映像の幅（QWXGA 超判定に使用）
     bool hasVideo = true;      // 入力に映像ストリームを含むか（false なら音声のみ）
+    bool allowOverwrite = false; // 出力先が既存でも置換上書きを許可する（入力名が _mod 形式のとき）
 };
 
 // ffmpeg による動画変換を管理するクラス
@@ -46,6 +47,11 @@ signals:
 
     // 変換完了。ok=false の場合は err にエラー内容が入る
     void finished(bool ok, const QString& outputPath, const QString& err);
+
+    // 同名上書きの置換直前通知
+    // path を開いているファイルハンドル（再生中プレイヤー等）の解放を呼び出し側へ依頼する。
+    // 同一スレッドの direct 接続で同期実行される前提
+    void releaseFileRequested(const QString& path);
 
 private slots:
     void onReadyReadOutput();

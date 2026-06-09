@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <QThread>
 #include <QUuid>
 #include <algorithm>
 
@@ -14,6 +15,13 @@ namespace {
 // 出力映像の幅上限（px）
 // QWXGA = 2048 を上限とし、これを超える入力はアスペクト比維持でダウンスケールする
 constexpr int kMaxOutputWidth = 2048;
+
+// 同名上書き時の既存ファイル退避リトライ回数と間隔（ms）
+// releaseFileRequested 後も QMediaPlayer バックエンドの OS ハンドル解放は非同期の
+// 可能性があるため、短い間隔でリネームを再試行する。最悪 1 秒 GUI thread をブロックするが、
+// 通常はハンドル解放済みで初回に成功する
+constexpr int kReplaceRetryCount = 10;
+constexpr int kReplaceRetryIntervalMs = 100;
 
 } // namespace
 
@@ -250,20 +258,51 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     }
 
     // 一時ファイルを本来の出力パスへ移動する
-    // OutputNamer がユニーク名を生成してから本処理までの間に同名ファイルが現れた場合は
-    // TOCTOU で他プロセス・他ユーザ操作の成果物を上書きしてしまうため、ここで明示的にエラー終了させる。
-    // 既存ファイルを silent overwrite して破壊するより、ユーザに失敗を伝える方が安全
+    // 出力先に既存ファイルがある場合の扱いは allowOverwrite で分岐する。
+    //   - 不許可：OutputNamer のユニーク名生成から本処理までの TOCTOU で他プロセス・
+    //     他ユーザ操作の成果物を上書きしてしまうため、明示的にエラー終了させる
+    //   - 許可（入力名が _mod 形式の同名上書き）：既存ファイルを退避してから置換する
+    QString backupPath;
     if (QFile::exists(m_params.outputPath)) {
-        cleanupTemp();
-        emit finished(false, m_params.outputPath,
-                      "出力先に同名ファイルが存在します。別の avply プロセスや外部操作の可能性があります。競合ファイルを移動または削除してから再実行してください。");
-        return;
+        if (!m_params.allowOverwrite) {
+            cleanupTemp();
+            emit finished(false, m_params.outputPath,
+                          "出力先に同名ファイルが存在します。別の avply プロセスや外部操作の可能性があります。競合ファイルを移動または削除してから再実行してください。");
+            return;
+        }
+
+        // 既存ファイルの退避（バックアップへリネーム）
+        // 出力先 = 再生中の入力ファイルのケースがあるため、先に releaseFileRequested で
+        // 呼び出し側のファイルハンドル解放を依頼してからリネームをリトライする。
+        // 削除でなく退避にするのは、後段の移動が失敗したとき元ファイルを復元するため
+        emit releaseFileRequested(m_params.outputPath);
+        backupPath = m_params.outputPath + ".avply.bak";
+        QFile::remove(backupPath); // 前回異常終了の残骸を除去する
+        bool backedUp = false;
+        for (int i = 0; i < kReplaceRetryCount; ++i) {
+            if (QFile::rename(m_params.outputPath, backupPath)) {
+                backedUp = true;
+                break;
+            }
+            QThread::msleep(kReplaceRetryIntervalMs);
+        }
+        if (!backedUp) {
+            cleanupTemp();
+            emit finished(false, m_params.outputPath,
+                          "既存ファイルが他のプロセスに使用されているため上書きできませんでした");
+            return;
+        }
     }
     // %TEMP% が出力先と別ボリュームだと QFile::rename が失敗するため copy + remove にフォールバックする
     if (!QFile::rename(m_tempPath, m_params.outputPath)) {
         if (!QFile::copy(m_tempPath, m_params.outputPath)) {
             // 部分書き込みで生じた壊れた出力ファイルを除去してから失敗を通知する
             QFile::remove(m_params.outputPath);
+            // 同名上書き時は退避しておいた元ファイルを復元する
+            if (!backupPath.isEmpty() && !QFile::rename(backupPath, m_params.outputPath)) {
+                qWarning("Encoder: 退避ファイル %s の復元に失敗しました",
+                         qUtf8Printable(backupPath));
+            }
             cleanupTemp();
             emit finished(false, m_params.outputPath,
                           "一時ファイルから出力先への移動に失敗しました");
@@ -275,6 +314,12 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
             qWarning("Encoder: 一時ファイル %s の削除に失敗しました（%%TEMP%% に残存します）",
                      qUtf8Printable(m_tempPath));
         }
+    }
+
+    // 置換完了後に退避ファイルを削除する
+    if (!backupPath.isEmpty() && !QFile::remove(backupPath)) {
+        qWarning("Encoder: 退避ファイル %s の削除に失敗しました（出力フォルダに残存します）",
+                 qUtf8Printable(backupPath));
     }
 
     emit progressChanged(100);

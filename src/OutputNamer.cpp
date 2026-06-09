@@ -4,18 +4,25 @@
 #include <QRegularExpression>
 #include <QUuid>
 
+bool OutputNamer::isModName(const QString& inputPath)
+{
+    static const QRegularExpression modSuffix("_mod\\d*$");
+    return QFileInfo(inputPath).completeBaseName().contains(modSuffix);
+}
+
 QString OutputNamer::generate(const QString& inputPath, const QString& outputExt)
 {
     const QFileInfo fi(inputPath);
-
-    // 末尾の _mod サフィックスを剥がして元の名前（stem）を得る
-    // 既に処理済みのファイルを再処理しても _mod_mod とならないよう、_mod / _mod<数字> を取り除く
-    static const QRegularExpression modSuffix("_mod\\d*$");
-    QString stem = fi.completeBaseName();
-    stem.remove(modSuffix);
-
-    const QString base = fi.absolutePath() + "/" + stem + "_mod";
     const QString suffix = "." + outputExt;
+
+    // 既に _mod 形式の入力は同名へ上書き出力する
+    // 編集済みファイルの再編集は成果物の置き換えとみなし、シーケンス番号で増殖させない。
+    // 拡張子はモードに従う（トリムは入力と同一、変換はコンテナが変わると別になる）
+    if (isModName(inputPath)) {
+        return fi.absolutePath() + "/" + fi.completeBaseName() + suffix;
+    }
+
+    const QString base = fi.absolutePath() + "/" + fi.completeBaseName() + "_mod";
 
     QString path = base + suffix;
     if (!QFile::exists(path)) return path;

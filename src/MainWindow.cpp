@@ -655,6 +655,8 @@ void MainWindow::startOrCancel(EncodeMode mode)
     params.outSec       = effectiveOut;
     params.inputWidth   = m_info.width;
     params.hasVideo     = !isAudioOnly();
+    // 入力名が既に _mod 形式なら OutputNamer は同名パスを返すため、置換上書きを許可する
+    params.allowOverwrite = OutputNamer::isModName(m_filePath);
 
     // 旧 Encoder を破棄してから新規生成する
     if (m_encoder) {
@@ -665,6 +667,7 @@ void MainWindow::startOrCancel(EncodeMode mode)
     m_encoder = new Encoder(m_ffmpegPath, this);
     connect(m_encoder, &Encoder::progressChanged, this, &MainWindow::onEncoderProgress);
     connect(m_encoder, &Encoder::finished,        this, &MainWindow::onEncoderFinished);
+    connect(m_encoder, &Encoder::releaseFileRequested, this, &MainWindow::onEncoderReleaseFile);
 
     const Operation op = (mode == EncodeMode::StreamCopy) ? Operation::Trim : Operation::Convert;
     const QString label = (op == Operation::Trim) ? "トリム中" : "変換中";
@@ -706,6 +709,25 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 
     m_outputLabel->setText("  失敗しました：" + err);
     QMessageBox::critical(this, "変換エラー", err);
+}
+
+void MainWindow::onEncoderReleaseFile(const QString& path)
+{
+    // 解放対象が現在開いているファイルでなければ何もしない
+    // （変換でコンテナが変わると出力先が別パスの既存ファイルになるケースがある）
+    // Windows のパスは大文字小文字を区別しないため CaseInsensitive で比較する
+    if (QString::compare(QFileInfo(path).absoluteFilePath(),
+                         QFileInfo(m_filePath).absoluteFilePath(),
+                         Qt::CaseInsensitive) != 0) {
+        return;
+    }
+
+    // 波形生成・サムネイル抽出の ffmpeg 子プロセスも入力ファイルを開いている
+    // 可能性があるため、プレイヤー解放と合わせて同期停止する。
+    // 直後の onEncoderFinished → loadFile で同パスを開き直すため、クリアは一瞬で済む
+    stopWaveformProcess();
+    if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
+    m_videoView->clear();
 }
 
 // ---- 内部ユーティリティ ----

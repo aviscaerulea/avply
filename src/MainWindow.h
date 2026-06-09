@@ -56,6 +56,10 @@ private slots:
     void onEncoderProgress(int pct);
     void onEncoderFinished(bool ok, const QString& outputPath, const QString& err);
 
+    // 同名上書きの置換直前に path を開いているファイルハンドルを解放する
+    // Encoder::releaseFileRequested から direct 接続で同期実行される
+    void onEncoderReleaseFile(const QString& path);
+
     // シークバーのホバー位置を受信して、サムネイル + 時刻のプレビューを表示する
     void onSeekHoverMoved(int x, int sliderValue);
 
