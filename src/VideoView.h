@@ -9,7 +9,7 @@ class QThread;
 class AudioWorker;
 class QWheelEvent;
 
-// QMediaPlayer + QQuickView (VideoOutput) + QAudioOutput を束ねた動画プレビュー
+// QMediaPlayer + QQuickView (VideoOutput) + AudioWorker を束ねた動画プレビュー
 // 音声付き再生・シーク・状態通知・D&D 受付を担う。
 // QQuickView の threaded render loop により Win32 modal size/move loop 中も描画が継続する
 class VideoView : public QWidget {
@@ -84,6 +84,10 @@ signals:
     // shift = true は Shift 修飾子押下中（音量調整用）、ctrl = true は Ctrl 修飾子押下中（再生速度調整用）
     void wheelScrolled(bool forward, bool shift, bool ctrl);
 
+    // メディアのロードに失敗したとき emit する（InvalidMedia 遷移時）
+    // error は QMediaPlayer::errorString() の内容
+    void loadFailed(const QString& error);
+
     // 右クリックでコンテキストメニュー要求が発生したとき emit する
     // QQuickView はネイティブ子ウィンドウのため Win32 が右クリックを親 QWidget へ
     // 伝搬しない。プレビュー上のメニュー表示を実現するため QML 側で受けて転送する
@@ -109,7 +113,9 @@ private:
     QThread*            m_audioThread = nullptr;
     AudioWorker*        m_audioWorker = nullptr;
 
-    // 読み込み完了後に 1 フレームだけ描画するためのフラグ
+    // ロード完了検知フラグ
+    // 完了時に自動再生を開始し、映像ありの場合のみプレビューコンテナを初回可視化する。
+    // ロード中は旧ソースの遅延 positionChanged を破棄するゲートも兼ねる
     bool m_primeFirstFrame = false;
 
     // マウスクリックでの再生トグル許可フラグ

@@ -99,6 +99,9 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 {
     if (!m_sinkDev || !m_stretch || !m_sink || !m_enhancer) return;
 
+    // ソース切替中（forceReset 後〜resumeBuffers 前）は旧ソースの pending バッファを破棄する
+    if (m_suspended) return;
+
     // GUI thread から要求された再生速度を audio thread 上で SoundTouch に反映する。
     // setTempo はスレッド安全ではないため、必ずこの経路（onAudioBuffer = audio thread）でのみ呼ぶ。
     // decoder の rate 変更が反映されたバッファが届く前に tempo を合わせることで、
@@ -237,8 +240,11 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         }
         // bytesFree() は 4 の非倍数を返すことがある。applyVolume は bytes/sizeof(float) でサンプル数を
         // 切り捨てるため、非倍数のまま渡すと末尾バイトが m_volumeWork の旧データで汚染される。
-        // float 境界へ切り下げて境界ずれを防ぐ。
-        const qint64 alignedFree = (free / static_cast<qint64>(sizeof(float))) * static_cast<qint64>(sizeof(float));
+        // float 境界（4 バイト）止まりだと書き残し断片がフレーム中間で始まり、異常系で断片が
+        // sink 再起動なしに破棄された後 L/R 入替＋1 サンプルずれが残留するため、
+        // フレーム境界（channels × float）へ切り下げる
+        const qint64 frameBytes  = static_cast<qint64>(channels) * static_cast<qint64>(sizeof(float));
+        const qint64 alignedFree = (free / frameBytes) * frameBytes;
         const qint64 toWrite = std::min<qint64>(alignedFree, m_pendingTail.size());
         const char*  outPtr  = applyVolume(m_pendingTail.constData(), toWrite);
         const qint64 written = m_sinkDev->write(outPtr, toWrite);
@@ -286,8 +292,9 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
         // sink の空きに収まる分のみ即時書き込み、残量は pre-volume のまま退避する。
         // m_workBuf は pre-volume（post-enhancer）状態のままで、音量は applyVolume 内でコピー適用する
-        // pendingTail と同様に float 境界へ切り下げる
-        const qint64 alignedFree = (free / static_cast<qint64>(sizeof(float))) * static_cast<qint64>(sizeof(float));
+        // pendingTail と同様にフレーム境界へ切り下げる
+        const qint64 frameBytes  = static_cast<qint64>(channels) * static_cast<qint64>(sizeof(float));
+        const qint64 alignedFree = (free / frameBytes) * frameBytes;
         const qint64 toWrite = std::min<qint64>(alignedFree, outBytes);
         const char*  outPtr  = applyVolume(m_workBuf.constData(), toWrite);
         const qint64 written = m_sinkDev->write(outPtr, toWrite);
@@ -352,9 +359,9 @@ void AudioWorker::reset()
     // 50ms 以内の連打ではスロットリング側に流し、sink reset()→start() を間引く
     if (m_enhancer) m_enhancer->reset();
     if (m_stretch) m_stretch->clear();
-    // sink を捨てるため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）。
+    // sink を reset→start で再起動するため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）。
     // m_workBuf / m_volumeWork はシーク連打中の audio thread malloc/free スパイクを避けるため
-    // ここでは解放せず保持する（解放は teardown / forceReset でのみ行う）
+    // ここでは解放せず保持する（解放は forceReset でのみ行う）
     m_pendingTail.clear();
     // 1 秒集計ウィンドウもリセットする。リセット直後の集計区間が 1 秒超 / 未満で出ないようにする
     m_statsWinStart  = 0;
@@ -397,6 +404,10 @@ void AudioWorker::forceReset()
     m_statsWrites    = 0;
     m_statsUnderruns = 0;
     m_firstBufferReported = false;
+    // 旧ソースの pending バッファ混入を防ぐ破棄ゲートを立てる。
+    // 解除は新ソースの play() 直前に resumeBuffers() で行う。
+    // 新ソースのバッファは play() 開始後にしか届かないため取りこぼしは生じない
+    m_suspended = true;
     if (!m_sink) return;
     m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();
     m_sink->reset();
@@ -404,6 +415,11 @@ void AudioWorker::forceReset()
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed (after forceReset):" << m_sink->error();
     }
+}
+
+void AudioWorker::resumeBuffers()
+{
+    m_suspended = false;
 }
 
 void AudioWorker::setVolume(double volume)
@@ -435,9 +451,12 @@ void AudioWorker::setPlaybackRate(double rate)
 void AudioWorker::teardown()
 {
     // audio thread 上で QAudioSink・SoundTouch を安全に破棄する。
-    // QAudioSink は audio thread で生成しているため GUI thread からの delete は thread affinity 違反になる
+    // QAudioSink は audio thread で生成しているため GUI thread からの delete は thread affinity 違反になる。
+    // null 化だけで delete を残すと実破棄が ~VideoView の親子連鎖（GUI thread）に乗ってしまうため、
+    // ここで delete まで完結させる
     if (m_sink) {
         m_sink->stop();
+        delete m_sink;
         m_sink = nullptr;
         m_sinkDev = nullptr;
     }

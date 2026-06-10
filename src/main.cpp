@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QIcon>
 #include <QMessageLogContext>
 #include <QMutex>
@@ -27,7 +28,7 @@ namespace {
 // Qt メッセージのうち Warning / Critical / Fatal のみを exe と同フォルダの avply.log に書き出す。
 // Debug / Info はログ膨張を避けて除外する。起動ごとにファイルを上書きリセットし、
 // QMutex で複数スレッドからの同時書き込みを直列化する。
-// OutputDebugString 経路（VS デバッガ表示）は全レベル温存する。
+// OutputDebugString 経路（VS デバッガ表示）は GUI thread からは全レベル、非 GUI thread からは Warning 以上のみ通す。
 void avplyMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
     // QtMsgType は連番ではない（QtInfoMsg=4 が QtFatalMsg=3 より大きい）ため明示列挙する
@@ -150,8 +151,9 @@ int main(int argc, char* argv[])
         qWarning("DLL 注入遮断ポリシーの設定に失敗しました。(error=%lu)", GetLastError());
     }
 
-    // 再生速度変更時に pitchCompensation を有効化するため
-    // FFmpeg バックエンドを強制する（Media Foundation はピッチ保存非対応）
+    // FFmpeg バックエンドを明示的に固定する
+    // 音声経路（QAudioBufferOutput + SoundTouch）と HW デコーダ優先順位指定
+    // （QT_FFMPEG_DECODING_HW_DEVICE_TYPES）が FFmpeg バックエンド前提のため
     qputenv("QT_MEDIA_BACKEND", "ffmpeg");
 
     // FFmpeg バックエンドの HW デコード優先順位を avply.toml から取得して反映する。
@@ -173,8 +175,13 @@ int main(int argc, char* argv[])
 
     if (singleInstanceEnabled) {
         if (!SingleInstance::tryBecomePrimary()) {
-            // 既存 primary あり。listen 開始待ちを含むリトライ付きで転送する
-            if (SingleInstance::forwardWithRetry(preliminaryArg)) return 0;
+            // 既存 primary あり。listen 開始待ちを含むリトライ付きで転送する。
+            // 相対パス指定の CLI 起動でも primary 側（作業ディレクトリが異なる）で
+            // ファイルを解決できるよう、転送前に絶対パスへ正規化する
+            const QString forwardArg = preliminaryArg.trimmed().isEmpty()
+                ? QString()
+                : QFileInfo(preliminaryArg).absoluteFilePath();
+            if (SingleInstance::forwardWithRetry(forwardArg)) return 0;
             // 転送失敗（primary 異常終了等）は自身が primary として続行する
         }
     }

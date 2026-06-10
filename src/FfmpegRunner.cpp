@@ -133,8 +133,15 @@ QProcess* probeAsync(
 
         // finished 経路と二重発火しないよう、ここで disconnect する
         QObject::disconnect(proc, nullptr, nullptr, nullptr);
-        proc->deleteLater();
-        callback(VideoInfo{}, FfmpegResult{false, "ffprobe の起動に失敗しました"});
+        // callback はキューイングして start() のリターン後に発火させる。
+        // Windows の QProcess は CreateProcess 失敗時に errorOccurred を start() の
+        // スタック内で同期 emit するため、ここで callback を同期実行すると
+        // 呼び出し元の「戻り値 QProcess* をメンバへ代入」より先に callback 内の
+        // ポインタクリアが走り、削除予約済みポインタがメンバへ書き戻される
+        QMetaObject::invokeMethod(proc, [proc, callback]() {
+            callback(VideoInfo{}, FfmpegResult{false, "ffprobe の起動に失敗しました"});
+            proc->deleteLater();
+        }, Qt::QueuedConnection);
     });
 
     proc->start(ffprobePath, args);
@@ -230,8 +237,11 @@ QProcess* generateWaveform(
 
         // finished 経路と二重発火しないよう、ここで disconnect する
         QObject::disconnect(proc, nullptr, nullptr, nullptr);
-        proc->deleteLater();
-        callback(false, QString());
+        // callback のキューイングは probeAsync と同じ理由（FailedToStart の同期 emit 対策）
+        QMetaObject::invokeMethod(proc, [proc, callback]() {
+            callback(false, QString());
+            proc->deleteLater();
+        }, Qt::QueuedConnection);
     });
 
     proc->start(ffmpegPath, args);

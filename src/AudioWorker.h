@@ -45,8 +45,15 @@ public slots:
 
     // ソース切替時の強制リセット
     // 前ソースのサンプルが WASAPI バッファに残らないよう必ず sink reset()→start() を実行する。
-    // throttle 適用外。reset() と異なり m_workBuf / m_volumeWork も解放する
+    // throttle 適用外。reset() と異なり m_workBuf / m_volumeWork もサイズゼロ化する。
+    // あわせて m_suspended を立て、resumeBuffers() が呼ばれるまで受信バッファを破棄する
     void forceReset();
+
+    // forceReset で立てた suspend を解除する
+    // 新ソースの再生開始（LoadedMedia 後の play() 直前）に GUI thread から
+    // BlockingQueuedConnection で呼ぶ。forceReset 後も配送され続ける旧ソースの
+    // pending バッファが新ソースの先頭へ混入するのを防ぐ
+    void resumeBuffers();
 
     // 再生音量を更新する（0.0〜1.0）
     void setVolume(double volume);
@@ -101,6 +108,11 @@ private:
     // audio thread 上で最後に適用済みの SoundTouch tempo
     // m_pendingRate との差分検知に使う（毎回 setTempo を呼ばない最適化）
     double       m_appliedRate = 1.0;
+    // ソース切替中のバッファ破棄ゲート
+    // forceReset で true にし resumeBuffers で false に戻す。true の間 onAudioBuffer は
+    // 受信バッファを破棄する。QueuedConnection の配送キューに残った旧ソースのバッファが
+    // forceReset 後に届いて新ソースの先頭へ混入するのを防ぐ
+    bool         m_suspended = false;
     // 等速再生時の SoundTouch バイパス状態
     // rate が 1.0 のときは時間圧縮が不要なため SoundTouch を通さず raw を直接 DSP へ送る。
     // SoundTouch は tempo 1.0 でも WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を生み、

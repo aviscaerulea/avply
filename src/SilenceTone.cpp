@@ -110,7 +110,14 @@ SilenceTone::SilenceTone(QObject* parent)
         // 直接 onAudioOutputsChanged を呼ぶと、同時に pending な audioOutputsChanged
         // → m_restartDebounce タイマと衝突し closeSink/openSink が連続実行されて
         // サイレンストーンが一瞬切れる（closeSink 内 stop() の同期ブロックで GUI も短時間劣化する）
-        if (m_started && !m_sink) {
+        // sink 喪失（!m_sink）だけでなく、デバイス消失等で停止・エラー状態のまま
+        // 残った sink も不健全として作り直す。UnderrunError はサイレンストーンの
+        // 供給遅延で日常的に発生し sink 自体は健全なため除外する
+        const bool unhealthy = !m_sink
+            || m_sink->state() == QAudio::StoppedState
+            || (m_sink->error() != QAudio::NoError
+                && m_sink->error() != QAudio::UnderrunError);
+        if (m_started && unhealthy) {
             m_restartDebounce.start();
         }
     });
@@ -184,7 +191,7 @@ void SilenceTone::openSink()
         return;
     }
 
-    // parent=nullptr で生成し、stop() の delete を唯一の所有経路とする
+    // parent=nullptr で生成し、closeSink() の delete を唯一の所有経路とする
     std::unique_ptr<QAudioSink> sink(new QAudioSink(dev, fmt, nullptr));
     // バッファアンダーフロー対策で大きめに確保する（約 kSinkBufferMs 分のヒント）。
     // setBufferSize は backend によりヒント扱いで実際の値は bufferSize() で確認する

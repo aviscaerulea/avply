@@ -257,6 +257,19 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
         return;
     }
 
+    // 空出力の検証
+    // ffmpeg は選択区間に実データが 1 フレームも乗らない場合、「Output file is empty」と
+    // 警告しつつヘッダのみのコンテナを書いて exit 0 で終わることがある（メタデータ duration が
+    // 実ストリーム長より長い破損録画のトリム等で実機再現済み）。そのまま置換すると
+    // _mod 上書き経路で元データが再生不能な空コンテナへ不可逆に置き換わるため、置換前に弾く
+    if (QFileInfo(m_tempPath).size() == 0
+        || m_outputTail.contains(QLatin1String("Output file is empty"))) {
+        cleanupTemp();
+        emit finished(false, m_params.outputPath,
+                      "出力にデータが含まれていません（指定区間に有効なストリームがない可能性があります）");
+        return;
+    }
+
     // 一時ファイルを本来の出力パスへ移動する
     // 出力先に既存ファイルがある場合の扱いは allowOverwrite で分岐する。
     //   - 不許可：OutputNamer のユニーク名生成から本処理までの TOCTOU で他プロセス・

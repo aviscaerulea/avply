@@ -22,16 +22,18 @@ Item {
         anchors.fill: parent
     }
 
-    // DropArea は MouseArea より前に宣言する。
-    // QML は後宣言ほど前面に配置するため、MouseArea を後にしてクリック・ホイールが
-    // DropArea に吸収されないようにする
+    // DropArea はドラッグ＆ドロップ系イベントのみを受け、MouseArea のマウス・ホイール
+    // イベントとは処理対象が重ならないため、宣言順（重なり順）による干渉はない
     DropArea {
         anchors.fill: parent
         onDropped: function(drop) {
             if (drop.urls.length > 0) {
                 root.fileDropped(drop.urls[0].toString())
             }
-            drop.accept()
+            // 常にコピー扱いで受理する
+            // 提案アクションのまま受理すると Shift ドラッグの MoveAction を返してしまい、
+            // Explorer が「移動完了」と解釈して元ファイルを削除する
+            drop.accept(Qt.CopyAction)
         }
     }
 
@@ -47,6 +49,9 @@ Item {
             }
         }
         onWheel: function(wheel) {
+            // チルトホイールやタッチパッドの水平スクロール（縦成分ゼロ）を
+            // 「後退」として誤発火させない（C++ 側の delta != 0 ガードと対称）
+            if (wheel.angleDelta.y === 0) return
             root.wheelScrolled(
                 wheel.angleDelta.y > 0,
                 (wheel.modifiers & Qt.ShiftModifier) !== 0,

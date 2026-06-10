@@ -134,6 +134,16 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     });
     connect(m_videoView, &VideoView::wheelScrolled,
             this, &MainWindow::handleWheelInput);
+    // QMediaPlayer のロード失敗（InvalidMedia）をユーザへ通知する
+    // ffprobe は成功するが Qt backend がデコードできないケース（コーデック非対応等）で発火する
+    connect(m_videoView, &VideoView::loadFailed,
+            this, [this](const QString& error) {
+        m_videoView->clear();
+        m_loadInhibited = true;
+        QMessageBox::critical(this, "エラー",
+                              "メディアを再生できませんでした：\n" + error);
+        m_loadInhibited = false;
+    });
     // QQuickView はネイティブ子ウィンドウのため右クリックが MainWindow へ伝搬しない。
     // VideoView から転送されたシグナルでメニューを表示する
     connect(m_videoView, &VideoView::contextMenuRequested,
@@ -293,7 +303,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     setCentralWidget(central);
 
-    // --- ステータスバー：左から動画情報・出力状況、右に再生位置と再生速度 ---
+    // --- ステータスバー：左から動画情報・出力状況、右に再生位置・再生速度・音量・音声強調 ---
     // 項目間の縦罫線を非表示にして、ラベル先頭の半角スペースのみで間隔を作る
     statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
     statusBar()->addWidget(m_videoInfoLabel);
@@ -483,7 +493,11 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
     if (!event->mimeData()->hasUrls()) return;
     for (const QUrl& url : event->mimeData()->urls()) {
         if (url.isLocalFile() && isAcceptedMedia(url.toLocalFile())) {
-            event->acceptProposedAction();
+            // 常にコピー扱いで受理する
+            // 提案アクションのまま受理すると Shift ドラッグの MoveAction を返してしまい、
+            // Explorer が「移動完了」と解釈して元ファイルを削除する
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
             return;
         }
     }
@@ -496,7 +510,9 @@ void MainWindow::dropEvent(QDropEvent* event)
         const QString path = url.toLocalFile();
         if (isAcceptedMedia(path)) {
             loadFile(path);
-            event->acceptProposedAction();
+            // dragEnterEvent と同じ理由でコピー扱いに固定する
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
             return;
         }
     }
@@ -775,6 +791,11 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     if (m_probeProc) {
         disconnect(m_probeProc, nullptr, this, nullptr);
         m_probeProc->kill();
+        // kill 後の終了を待ってから削除予約する。Running のまま遅延削除に乗ると
+        // ~QProcess() の waitForFinished(30000) が GUI thread で同期実行されるため、
+        // デストラクタ側と同じ waitForFinished + setParent(nullptr) で防御する
+        m_probeProc->waitForFinished(1000);
+        m_probeProc->setParent(nullptr);
         m_probeProc->deleteLater();
         m_probeProc = nullptr;
     }
@@ -1001,7 +1022,7 @@ void MainWindow::updateMenuActionEnabled()
 bool MainWindow::isTrimMeaningful() const
 {
     // 実効範囲（IN/OUT 未指定なら全長）が動画全長と一致する場合、トリムは無意味
-    // 浮動小数比較は秒数のため数 ms 程度の誤差を吸収するしきい値で判定する
+    // 浮動小数比較は秒数のため 1ms のしきい値で誤差を吸収して判定する
     if (m_info.duration <= 0.0) return false;
     const double effectiveIn  = m_inSet  ? m_inSec  : 0.0;
     const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
@@ -1210,8 +1231,10 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     if (event->type() != QEvent::KeyPress) {
         return QMainWindow::eventFilter(watched, event);
     }
-    // モーダルダイアログ表示中は素通しする（ファイル選択や警告ダイアログを誤動作させない）
-    if (QApplication::activeModalWidget()) {
+    // モーダルダイアログ・ポップアップ表示中は素通しする
+    // （ファイル選択や警告ダイアログ、コンテキストメニューを誤動作させない。
+    // QMenu はモーダル扱いされないため activePopupWidget の併用が必要）
+    if (QApplication::activeModalWidget() || QApplication::activePopupWidget()) {
         return QMainWindow::eventFilter(watched, event);
     }
     // 実行中（変換またはトリム）はメディア操作キー（Space / ←→ / ↑↓ / . , / N / G / R）のみ
@@ -1238,10 +1261,11 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 
     switch (ke->key()) {
     case Qt::Key_Left:
-        seekRelative(-m_seekLeftMs);
+        // 0 以下の設定はシーク無効（avply.toml [seek] の文書仕様、ホイール側ガードと統一）
+        if (m_seekLeftMs > 0) seekRelative(-m_seekLeftMs);
         return true;
     case Qt::Key_Right:
-        seekRelative(m_seekRightMs);
+        if (m_seekRightMs > 0) seekRelative(m_seekRightMs);
         return true;
     case Qt::Key_Space:
         if (m_info.duration > 0.0) m_videoView->togglePlay();
@@ -1610,7 +1634,7 @@ void MainWindow::stopWaveformProcess()
     m_waveformProc->waitForFinished(1000);
 
     // 親子破棄経路に乗せると ~QProcess() の waitForFinished(30000) が
-    // ここで上乗せされ最長 33 秒ブロックする。setParent(nullptr) + deleteLater で切り離す
+    // ここで上乗せされ最長 31 秒ブロックする。setParent(nullptr) + deleteLater で切り離す
     // （probeProc・Encoder と同じ終了応答性パターン）
     m_waveformProc->setParent(nullptr);
     m_waveformProc->deleteLater();

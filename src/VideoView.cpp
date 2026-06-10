@@ -160,11 +160,36 @@ VideoView::VideoView(QWidget* parent)
             m_primeFirstFrame = false;
             // hasVideo が true のときのみ QQuickView コンテナを表示する。
             // 音声のみのソースで表示すると VideoOutput に何も描画されず黒矩形が残るため、
-            // 描画対象が確定したフレームでだけコンテナを可視化する
+            // 描画対象が確定したフレームでだけコンテナを可視化する。
+            // 動画→音声切替時は clear(keepVisible=true) 経路でコンテナが表示されたまま
+            // 残るため、明示的に隠して旧ソースの最終フレーム残留を解消する
             if (m_player->hasVideo()) {
                 m_videoContainer->show();
             }
+            else {
+                m_videoContainer->hide();
+            }
+            // forceReset で立てた suspend ゲートを play() 直前に解除する。
+            // Blocking で audio thread と同期し、解除前に配送済みの旧ソースバッファが
+            // すべて破棄済みであることを確定させる。新ソースのバッファは play() 後に
+            // しか届かないため取りこぼしは生じない。
+            // isRunning ガードは audio thread 停止中の Blocking 永久待ちへの防御
+            if (m_audioWorker && m_audioThread && m_audioThread->isRunning()) {
+                AudioWorker* w = m_audioWorker;
+                QMetaObject::invokeMethod(w, [w]() { w->resumeBuffers(); },
+                                          Qt::BlockingQueuedConnection);
+            }
             m_player->play();
+            return;
+        }
+        // ロード失敗時はフラグを落として通知する
+        // m_primeFirstFrame が立ったまま残ると以後の positionChanged が
+        // 永続的に破棄され、シークバーが動かなくなる
+        if (m_primeFirstFrame && s == QMediaPlayer::InvalidMedia) {
+            m_primeFirstFrame = false;
+            qWarning() << "VideoView: メディアのロードに失敗しました:"
+                       << m_player->errorString();
+            emit loadFailed(m_player->errorString());
             return;
         }
         // 末尾到達時の pause（Qt が自動で StoppedState へ遷移して位置 0 にリセット
@@ -183,6 +208,14 @@ VideoView::VideoView(QWidget* parent)
                 m_player->setPosition(dur);
             }
         }
+    });
+
+    // 再生エラーを avply.log へ記録する
+    // ロード失敗（InvalidMedia）以外の再生中エラーは UI 通知せずログのみ残す
+    connect(m_player, &QMediaPlayer::errorOccurred,
+            this, [](QMediaPlayer::Error error, const QString& errorString) {
+        qWarning() << "VideoView: QMediaPlayer error:"
+                   << static_cast<int>(error) << errorString;
     });
 }
 
@@ -227,7 +260,7 @@ void VideoView::setSource(const QString& filePath)
     m_primeFirstFrame = true;
     m_pausingAtEnd = false;
     // ソース切替時に sink の積み残しサンプルと SpeechEnhancer 状態を強制リセットする。
-    // forceReset は throttle 適用外で必ず sink stop()→start() を実行するため、
+    // forceReset は throttle 適用外で必ず sink reset()→start() を実行するため、
     // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ。
     // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する。
     // BlockingQueuedConnection は GUI thread を audio thread の DSP リセット完了まで
