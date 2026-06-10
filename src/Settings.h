@@ -2,7 +2,7 @@
 #include <QSettings>
 
 // HKEY_CURRENT_USER\Software\avply\avply 配下に保存する UI 由来の永続設定
-// QApplication::setOrganizationName("avply")／setApplicationName("avply") を前提とする。
+// QSettings へ組織名・アプリ名を明示して構築するため QApplication 側の設定に依存しない。
 // TOML の設定（avply.toml）は責務を分離し、こちらでは扱わない
 class Settings {
 public:

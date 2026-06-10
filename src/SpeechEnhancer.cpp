@@ -10,7 +10,7 @@ namespace {
 
 // 出力 FIFO 圧縮閾値
 // 取り出し済みプレフィックスがこのサンプル数を超えたら先頭詰めして再確保を抑える。
-constexpr qsizetype kOutCompactThreshold = 48000; // 約 1 秒（48kHz interleaved 換算で十分小さい）
+constexpr qsizetype kOutCompactThreshold = 48000; // 約 0.5 秒（48kHz 2ch interleaved 換算で十分小さい）
 
 // APM 入力プリアッテネーション係数（約 -6dB）
 // WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提に設計されており、
@@ -21,7 +21,7 @@ constexpr qsizetype kOutCompactThreshold = 48000; // 約 1 秒（48kHz interleav
 constexpr float kInputPreGain = 0.5f;
 
 // AGC2 適応ブースト上限（dB）
-// adaptive_digital.max_gain_db。会議音声の小声は headroom で決まる出力ターゲット（約 -28dB 相当）
+// adaptive_digital.max_gain_db。会議音声の小声は headroom で決まる出力ターゲット
 // までの持ち上げで足り、適応ゲインがこの天井に届くことはない。offline 計測で 30/40/50dB の
 // いずれでも小声・大声の出力レベル・クリップ指標が完全に一致したため、強度別に分けても無意味と
 // 判明した。極端な小声向けの保険として中庸な 40dB をコード固定する（toml 非公開）。

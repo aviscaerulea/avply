@@ -50,7 +50,7 @@ constexpr const char* kHelloMagic = "AVPLY1:";
 constexpr const char* kAckMagic   = "AVPLY1-OK";
 
 // ペイロード上限
-// 受信バッファ無制限による OOM を避ける。Windows のフルパス上限（32KiB 程度）を十分に上回る値
+// 受信バッファ無制限による OOM を避ける。実用上のフルパス長を十分に上回る値
 constexpr int kMaxPayloadBytes = 65536;
 
 // 各種タイムアウト

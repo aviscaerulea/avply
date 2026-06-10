@@ -148,7 +148,7 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
 // 全 toml ファイル読込後に一度だけ呼ぶ。範囲外の入力が QMediaPlayer や QAudioOutput に渡るのを防ぐ
 void clampConfig(AppConfig& cfg)
 {
-    // 再生速度は MainWindow の上下キー操作と同じ範囲（0.05〜4.0）に丸める
+    // 再生速度は MainWindow の . / , キー操作と同じ範囲（0.05〜4.0）に丸める
     cfg.playbackSpeed = std::clamp(cfg.playbackSpeed, 0.05, 4.0);
     // モニタ比率は 0.1〜1.0 にクランプ（0 以下で初期サイズ破綻、1.0 超でタスクバー侵入）
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);

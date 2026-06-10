@@ -30,7 +30,7 @@ FetchContent_MakeAvailable(SoundTouch)
 # WebRTC Audio Processing (APM): AGC2 + ノイズ抑制 + ハイパスフィルタ（BSD）
 # vcpkg にポートが無いため meson + ninja で事前ビルドした静的 lib とヘッダを同梱して参照する。
 # ベンダ配置は third_party/webrtc-audio-processing 配下とし、WEBRTC_APM_ROOT で上書き可能。
-#   include/  … 公開ヘッダ（webrtc/... と api/... のツリー）
+#   include/  … 公開ヘッダ（webrtc/... と absl/... のツリー）
 #   lib/      … 静的 lib 群（webrtc-audio-processing 本体と abseil 依存を含む全 .lib）
 # meson は abseil をサブプロジェクトとして個別 lib に分けて出力するため、lib/ の全 .lib を一括リンクする
 set(WEBRTC_APM_ROOT "${CMAKE_SOURCE_DIR}/third_party/webrtc-audio-processing"

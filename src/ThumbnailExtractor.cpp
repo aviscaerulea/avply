@@ -192,7 +192,7 @@ void ThumbnailExtractor::cancelInflight(bool synchronous)
         return;
     }
 
-    // 非同期モード：setSource からのファイル切替時のみ呼ばれる（連続ホバーでは呼ばれない）。
+    // 非同期モード：ファイル切替・ホバー離脱から呼ばれる（連続ホバーでは呼ばれない）。
     // 旧プロセスの kill が Windows 上で遅延すると新規 ffmpeg と並走して GPU/I/O 競合を招くため、
     // 50ms だけ終端を待って新規プロセスとの並走を緩和する。
     // 終了時に自動で解放されるよう finished から自身の deleteLater を直結する。

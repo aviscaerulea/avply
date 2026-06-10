@@ -21,8 +21,8 @@ struct EncodeParams {
     bool allowOverwrite = false; // 出力先が既存でも置換上書きを許可する（入力名が _mod 形式のとき）
 };
 
-// ffmpeg による動画変換を管理するクラス
-// 変換の開始・中断・進捗通知を担う
+// ffmpeg による変換・トリムを管理するクラス
+// 再エンコード / ストリームコピーの開始・中断・進捗通知を担う
 class Encoder : public QObject {
     Q_OBJECT
 public:

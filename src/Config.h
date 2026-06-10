@@ -56,7 +56,7 @@ struct AppConfig {
 namespace Config {
     // 実行ファイルと同階層の avply.toml を読み、avply.local.toml が
     // 存在すれば同キーを後勝ちで上書きする。
-    // ffmpeg_path 未設定時は scoop デフォルトパスにフォールバックする。
+    // [ffmpeg].path 未設定時は scoop デフォルトパス → PATH 解決の順にフォールバックする。
     AppConfig load();
 
     // 実行ファイルのあるディレクトリ絶対パス

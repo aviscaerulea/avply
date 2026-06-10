@@ -181,7 +181,7 @@ void RangeSlider::paintEvent(QPaintEvent* /*event*/)
     // トラック背景（暗灰色）。アプリ背景より暗くして輪郭を出す
     painter.fillRect(trackRect, kTrackBgColor);
 
-    // 波形 PNG をトラック全体にスケール描画。波形なし時は中央基線を 1px 描画
+    // 波形 PNG をトラック全体にスケール描画。波形なし時は基線指定があれば中央基線を 1px 描画
     if (!m_waveform.isNull()) {
         painter.drawPixmap(trackRect, m_waveform);
     }
