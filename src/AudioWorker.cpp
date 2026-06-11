@@ -51,26 +51,7 @@ void AudioWorker::start()
     // 所属スレッド（audio thread）で QAudioSink を生成して start する。
     // QAudioSink / QIODevice の thread affinity を所属スレッドで一貫させるため、
     // コンストラクタ側では生成せず必ず本スロット経由で生成する
-    m_sink = new QAudioSink(m_format, this);
-
-    // 内部バッファを 200ms 相当に拡張する（48kHz stereo Float の場合 76800 バイト）。
-    // デフォルトの WASAPI バッファは数 ms と極小で、1.5x 等の高速再生時にデコーダから
-    // バーストで届くサンプルを吸収しきれず write が partial になり音が欠ける。
-    // setBufferSize は start() より前に呼ぶ必要がある
-    const qsizetype bytesPerSec =
-        static_cast<qsizetype>(m_format.bytesForDuration(1000 * 1000));
-    m_sink->setBufferSize(bytesPerSec / 5);
-
-    m_sinkDev = m_sink->start();
-    if (!m_sinkDev) {
-        qWarning() << "AudioWorker: QAudioSink::start() failed:" << m_sink->error();
-    }
-    // 起動時情報は qDebug 経由とする。HighPriority audio thread からの周期 qInfo は
-    // OutputDebugString 同期 I/O で数 ms ブロックし sink underrun の引き金になり得るため、
-    // audio thread からのログは原則 Debug 出力に抑える
-    qDebug() << "AudioWorker: QAudioSink bufferSize="
-             << m_sink->bufferSize()
-             << "bytes (requested" << (bytesPerSec / 5) << ")";
+    createAndStartSink();
 
     // SoundTouch を所属スレッドで生成する。
     // QAudioBufferOutput が pitchCompensation を無視するため、AudioWorker 側で
@@ -95,12 +76,79 @@ void AudioWorker::start()
     m_appliedRate = initialRate;
 }
 
+void AudioWorker::createAndStartSink()
+{
+    m_sink = new QAudioSink(m_format, this);
+
+    // 内部バッファを 200ms 相当に拡張する（48kHz stereo Float の場合 76800 バイト）。
+    // デフォルトの WASAPI バッファは数 ms と極小で、1.5x 等の高速再生時にデコーダから
+    // バーストで届くサンプルを吸収しきれず write が partial になり音が欠ける。
+    // setBufferSize は start() より前に呼ぶ必要がある
+    const qsizetype bytesPerSec =
+        static_cast<qsizetype>(m_format.bytesForDuration(1000 * 1000));
+    m_sink->setBufferSize(bytesPerSec / 5);
+
+    m_sinkDev = m_sink->start();
+    if (!m_sinkDev) {
+        qWarning() << "AudioWorker: QAudioSink::start() failed:" << m_sink->error();
+    }
+    // 起動時情報は qDebug 経由とする。HighPriority audio thread からの周期 qInfo は
+    // OutputDebugString 同期 I/O で数 ms ブロックし sink underrun の引き金になり得るため、
+    // audio thread からのログは原則 Debug 出力に抑える
+    qDebug() << "AudioWorker: QAudioSink bufferSize="
+             << m_sink->bufferSize()
+             << "bytes (requested" << (bytesPerSec / 5) << ")";
+}
+
+void AudioWorker::recoverSink()
+{
+    // 旧セッション時代に DSP 段へ蓄積したサンプルは現行再生位置に対して遅延しているため、
+    // reset() と同様に破棄して現行デコード位置から鳴らし直す
+    if (m_enhancer) m_enhancer->reset();
+    if (m_stretch) m_stretch->clear();
+    m_pendingTail.clear();
+    m_firstBufferReported = false;
+
+    // 旧 sink を破棄して作り直す。delete はデバイス未指定生成のため、
+    // 再生成時点のデフォルト出力デバイスへ束縛し直す効果も持つ（デバイス切替にも追従）
+    delete m_sink;
+    m_sink    = nullptr;
+    m_sinkDev = nullptr;
+    createAndStartSink();
+
+    // 直後の reset() が 50ms 以内に sink restart を重ねないようスロットリング時刻を更新する
+    m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();
+}
+
 void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 {
-    if (!m_sinkDev || !m_stretch || !m_sink || !m_enhancer) return;
+    if (!m_sink || !m_stretch || !m_enhancer) return;
 
     // ソース切替中（forceReset 後〜resumeBuffers 前）は旧ソースの pending バッファを破棄する
     if (m_suspended) return;
+
+    // sink 死活チェック（外部要因で無効化された WASAPI セッションからの自己回復）
+    // 画面録画ソフト等がシステム音声キャプチャ開始時にオーディオエンドポイントを再構成すると、
+    // 既存セッションが AUDCLNT_E_DEVICE_INVALIDATED で無効化され sink は停止状態へ落ちる。
+    // 放置すると bytesFree() が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて
+    // 次のシーク（reset）まで無音が継続する（Aiseesoft Screen Recorder の録画開始で実機再現）。
+    // SilenceTone::healthCheck と同条件で不健全を検知し、sink を再生成して自動復帰する。
+    // 能動停止は teardown のみ（直後に m_sink=nullptr）のため、ここでの StoppedState は異常確定。
+    // UnderrunError は供給遅延（pause 後のドレイン等）で日常的に発生するため除外する。
+    // デバイス完全消失時に毎バッファ再生成が空振りし続けるのを避けるため再試行は 1 秒間隔に絞る
+    const bool unhealthy = !m_sinkDev
+        || m_sink->state() == QAudio::StoppedState
+        || (m_sink->error() != QAudio::NoError
+            && m_sink->error() != QAudio::UnderrunError);
+    if (unhealthy) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (nowMs - m_lastSinkRecoverMs < 1000) return;
+        m_lastSinkRecoverMs = nowMs;
+        qWarning() << "AudioWorker: sink unhealthy (state=" << m_sink->state()
+                   << "error=" << m_sink->error() << ") — recreating sink";
+        recoverSink();
+        if (!m_sinkDev) return;
+    }
 
     // GUI thread から要求された再生速度を audio thread 上で SoundTouch に反映する。
     // setTempo はスレッド安全ではないため、必ずこの経路（onAudioBuffer = audio thread）でのみ呼ぶ。

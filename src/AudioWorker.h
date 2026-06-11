@@ -72,6 +72,17 @@ public slots:
     void teardown();
 
 private:
+    // QAudioSink の生成・起動
+    // start()（初回）と recoverSink()（再生成）で共用する。audio thread からのみ呼ぶ。
+    // デバイス未指定で生成するため、呼び出し時点のデフォルト出力デバイスへ束縛される
+    void createAndStartSink();
+
+    // 不健全 sink の再生成による自己回復
+    // 外部要因（録画ソフトのエンドポイント再構成等）で WASAPI セッションが無効化された際、
+    // onAudioBuffer 冒頭の死活チェックから呼ばれる。DSP 蓄積分は旧セッション時代の
+    // 遅延サンプルのため破棄し、現行デコード位置から鳴らし直す
+    void recoverSink();
+
     QAudioFormat m_format;
     // 音声強調 DSP（WebRTC APM ラッパ）
     // APM は ApplyConfig / ProcessStream / Initialize を同一スレッドから呼ぶ前提のため、
@@ -137,6 +148,10 @@ private:
     // 一切スキップし、上位 DSP リセットのみで応答する。WASAPI バッファに残る旧サンプルは
     // 新規入力で上書きされるに任せる
     qint64       m_lastSinkRestartMs = 0;
+    // sink 再生成（recoverSink）の再試行スロットリング用タイムスタンプ
+    // デバイス完全消失中は再生成しても start が失敗し続けるため、
+    // 毎バッファの空振り再生成（QAudioSink 生成コスト＋警告ログ連発）を 1 秒間隔へ抑える
+    qint64       m_lastSinkRecoverMs = 0;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;
