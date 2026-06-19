@@ -2,6 +2,7 @@
 
 会議録画を「速く・聞きやすく・必要な所だけ」見直すためのメディアプレイヤー。
 起動の速さと、倍速・音声強調・キーフレームトリムで視聴時間を削る。
+起動が軽いため、会議録画に限らず普段の動画・音声再生にも使える。
 
 ![avply スクリーンショット](docs/images/screenshot.png)
 
@@ -29,8 +30,9 @@
 ## 動作要件
 
 - Windows 11
-- [ffmpeg](https://www.gyan.dev/ffmpeg/builds/)（別途インストール）
-- NVIDIA GPU（**動画を「変換」する場合のみ必要。** AV1 NVENC 対応 / RTX 30 シリーズ以降推奨。音声のみの変換は CPU の libopus で動作するため不要）
+- [ffmpeg](https://www.gyan.dev/ffmpeg/builds/)（別途インストール）  
+  再生時もメディア情報の取得に ffprobe を使用するため、変換・トリムを行わない場合でも必要だ。
+- NVIDIA GPU（**動画を「変換」する場合のみ必要。** AV1 NVENC 対応 / RTX 30 シリーズ以降推奨。トリムはストリームコピーのため GPU 不要。音声のみの変換も CPU の libopus で動作するため不要）
 
 ## インストール方法
 
