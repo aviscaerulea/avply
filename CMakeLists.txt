@@ -132,3 +132,11 @@ add_custom_command(TARGET avply POST_BUILD
             "$<TARGET_FILE_DIR:avply>/avply.toml"
     COMMENT "avply.toml を配置中..."
 )
+
+# ユニットテスト（既定 OFF）
+# AVPLY_BUILD_TESTS=ON で tests/ を構築する。本体 avply ターゲットには一切影響しない
+option(AVPLY_BUILD_TESTS "Build unit tests" OFF)
+if(AVPLY_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

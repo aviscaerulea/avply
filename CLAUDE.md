@@ -47,6 +47,46 @@ meson compile -C builddir
 
 `CMakeLists.txt` は `WEBRTC_APM_ROOT` 配下の `include/` と `include/webrtc/` を include パスへ追加し、`lib/*.lib` を一括リンクする。`timeGetTime`（rtc_base の `SystemTimeNanos`）依存のため `winmm` もリンクする。
 
+## テスト方法
+
+### 実行
+
+```powershell
+# AVPLY_BUILD_TESTS=ON で再構成 → ビルド → ctest を一気通貫実行
+pwsh.exe -File build-and-test.ps1
+
+# クリーンビルドし直す場合
+pwsh.exe -File build-and-test.ps1 -Reconfigure
+```
+
+`build-and-test.ps1` は `build.ps1` と独立した経路だ。`build.ps1` は本体 `avply.exe` のみ、`build-and-test.ps1` は `-DAVPLY_BUILD_TESTS=ON` でテストバイナリも含めて構築する。本体出力先は同じ `out/Release/` のため両方走らせると相互上書きする点に注意する。
+
+ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Software\avply\avply` の値を退避→初期化→復元する設計のため、並列実行すると同一キーへの競合が発生する。
+
+ヘッドレス環境向けに `QT_QPA_PLATFORM=offscreen` を環境変数で渡しているため、GUI ディスプレイ無しでも動作する。
+
+### 対象
+
+`tests/` 配下のテストバイナリ群。ユニットテスト対象は副作用の無い純粋ロジックに限定し、`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance` などの I/O・状態機械を含むコンポーネントは対象外としている。
+
+| テスト | 対象 | 検証内容 |
+|--------|------|----------|
+| `test_OutputNamer` | `OutputNamer` | `_mod` シーケンス命名、衝突回避、Unicode パス、UUID フォールバック |
+| `test_Settings` | `Settings` | デフォルト値、setter/getter ラウンドトリップ、`speechEnhanceLevel` のクランプ |
+| `test_FfmpegRunner_path` | `Ffmpeg::ffprobePath` | 拡張子置換、空白を含むパス、相対パス絶対化 |
+| `test_RangeSlider` | `RangeSlider` | ホイール・ホバー・ドラッグの各シグナル発火パターン |
+| `test_SeekPreview` | `SeekPreview` | `showAt` のジオメトリ算出（中央配置・端クランプ・上下フリップ） |
+
+### test_Settings 実装上の注意
+
+`Settings` は `static` シングルトンで内部 `QSettings` を `NativeFormat / UserScope / "avply" / "avply"` で構築する。レジストリ位置は `HKCU\Software\avply\avply` 固定で、テスト側から差し替えられない（Native format は `QSettings::setPath` の対象外）。
+
+当初 `RegOverridePredefKey` で `HKEY_CURRENT_USER` をテンポラリキーへリダイレクトする方式を試したが、`QSettings` の内部キャッシュとリダイレクトの相性で setter の書き込みが反映されない事象が起きたため不採用とした。
+
+最終的に **実体 HKCU の退避→初期化→復元** 方式を採用している。`backupAndClear()` で `topmostWhilePlaying` / `singleInstance` / `aboveNormalPriority` / `speechEnhanceLevel` の現値を退避してキーを削除し、テスト終了時に `restore()` で元の値を書き戻す。テスト完走時は開発者環境のレジストリに影響を残さない。
+
+ただしテスト中に SIGSEGV 等で abort した場合は `restore()` が走らない。その場合は `regedit` で `HKCU\Software\avply\avply` 配下の 4 値を再設定する（あるいは avply を起動して右クリック設定メニューから操作する）必要がある。
+
 ## プロジェクト構成
 
 ```

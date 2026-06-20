@@ -68,7 +68,6 @@ void SeekPreview::showAt(const QPoint& cursorGlobal,
 {
     adjustSize();
     const QSize sz = size();
-    constexpr int kMargin = 6;
 
     // 水平：カーソル X を中心に。画面端でクランプして全体が画面内に収まるようにする
     int x = cursorGlobal.x() - sz.width() / 2;

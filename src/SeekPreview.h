@@ -10,6 +10,10 @@ class QLabel;
 class SeekPreview : public QWidget {
     Q_OBJECT
 public:
+    // showAt のクランプ・フリップ判定で使う画面端マージン（px）
+    // テストが期待値算出に使うため public 公開する
+    static constexpr int kMargin = 6;
+
     explicit SeekPreview(QWidget* parent = nullptr);
 
     // サムネイル + 時刻文字列をまとめて反映する
