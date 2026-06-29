@@ -116,8 +116,9 @@ src/
 - 動画：mp4 / mkv / mov / avi / webm
 - 音声：mp3 / wav / flac / ogg / opus
 
-「動画か音声のみか」は ffprobe 結果（`VideoInfo.codec` と `width`）から判定する（`MainWindow::isAudioOnly()`）。
-拡張子ではなく中身で分岐するため、コンテナと中身が一致しないケース（例：mkv 内が音声のみ）にも追従する。
+「動画か音声のみか」は `MainWindow::isAudioOnly()` で判定する。
+対応音声拡張子（mp3 / wav / flac / ogg / opus）は中身に関わらず音声扱いに倒す。mp3 等は ID3v2 APIC（アルバムアート）が `disposition.attached_pic` 付き video stream として ffprobe から返るため、ffprobe 結果だけで判定すると動画 UI に倒れてしまう。
+動画拡張子（mp4 / mkv / mov / avi / webm）は ffprobe 結果（`VideoInfo.codec` と `width`）で判定する。中身が音声のみのコンテナ（例：mkv 内が音声のみ）はコンパクト UI へ追従する。
 
 ### エンコード仕様
 

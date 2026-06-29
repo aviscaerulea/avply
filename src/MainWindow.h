@@ -80,13 +80,23 @@ private:
     static bool isAcceptedMedia(const QString& path);
 
     // 拡張子から音声ファイル（mp3/wav/flac/ogg/opus）かを判定する
-    // ロード前の初期ウィンドウ構成に使う簡易判定。コンテナ内が実際に音声のみかは ffprobe で再判定する
+    // ロード前の初期ウィンドウ構成と、ロード後の isAudioOnly() 判定の両方で使う。
+    // 対応音声拡張子は中身に関わらず音声扱いに倒すため、isAudioOnly() の判定第一項として参照する
     static bool isAudioByExtension(const QString& path);
 
-    // ffprobe 結果が音声のみ（映像ストリーム未検出）であるかを返す
-    // probe 未完了時は false（動画扱い）を返す。
-    // VideoInfo メンバを probe 完了前に参照すると、設定済みの旧情報を流用してフリッカ要因になるため
-    bool isAudioOnly() const { return m_info.valid && (m_info.codec.isEmpty() || m_info.width <= 0); }
+    // 音声のみ扱い（プレビュー領域を省略し変換は libopus のみ）の判定
+    // probe 未完了時は false（動画扱い）を返す。VideoInfo を probe 完了前に参照すると
+    // 旧情報を流用してフリッカ要因になるため m_info.valid をガードに使う。
+    // 対応音声拡張子（mp3/wav/flac/ogg/opus）は ID3v2 APIC 等の埋め込み画像で
+    // attached_pic 付き video stream が返るため、中身ではなく拡張子で音声側へ倒す。
+    // 動画拡張子（mp4/mkv/mov/avi/webm）は中身が音声のみのコンテナ（例：mkv 内音声のみ）
+    // にも追従できるよう ffprobe 結果を見る
+    bool isAudioOnly() const {
+        return m_info.valid
+            && (isAudioByExtension(m_filePath)
+                || m_info.codec.isEmpty()
+                || m_info.width <= 0);
+    }
 
     // UI 有効/無効を切り替える（変換中は無効化）
     void setUiEnabled(bool enabled);
