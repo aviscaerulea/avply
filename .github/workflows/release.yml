@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B out `
-            -G "Visual Studio 17 2022" `
+            -G "Visual Studio 18 2026" `
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
