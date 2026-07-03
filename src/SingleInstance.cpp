@@ -173,6 +173,10 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
                 return;
             }
 
+            // パス内容の検証（UNC パス拒否等）はあえて行わない。
+            // 同一ユーザの別プロセスは avply.exe を直接 UNC 引数付きで起動できるため、
+            // IPC 経路だけ弾いても攻撃面は減らない。NAS 上のメディア再生は正当ユースケースであり、
+            // 妥当性検証は MainWindow 側の isAcceptedMedia（拡張子）+ QFile::exists に委ねる
             const QString path = QString::fromUtf8(
                 buf->mid(magic.size(), nl - magic.size()));
 

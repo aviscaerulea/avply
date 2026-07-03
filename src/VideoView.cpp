@@ -121,11 +121,10 @@ VideoView::VideoView(QWidget* parent)
     // TimeCriticalPriority は OS スケジューラ独占リスクがあるため避ける
     m_audioThread->start(QThread::HighPriority);
 
-    // pitchCompensation の呼び出し（Qt 将来バージョン互換のための予約）
     // Qt 6.10 の QAudioBufferOutput パスでは setPitchCompensation(true) は無視され、
-    // 実際のピッチ補正は AudioWorker 内の SoundTouch が担う。
-    // 将来 QAudioBufferOutput パスで Qt がピッチ補正を実装した場合の自動有効化を兼ねて呼ぶ。
-    // availability ログは「Qt 側で実装が入った時点を検知する診断」用に残す
+    // 実際のピッチ補正は AudioWorker 内の SoundTouch が担う。将来 Qt が本パスへ補正を
+    // 実装すると SoundTouch と二重補正になるため、availability ログでその時点を検知し
+    // Qt 更新時に SoundTouch 側の無効化を判断する
     qDebug() << "pitchCompensationAvailability:"
              << static_cast<int>(m_player->pitchCompensationAvailability());
     m_player->setPitchCompensation(true);
@@ -368,7 +367,9 @@ void VideoView::play()
     // 末尾到達 pause 状態からの再生要求は先頭から再生する。
     // setPosition() 経由で AudioWorker::reset を発出し、前回再生末尾の
     // partial-write 残量（SoundTouch 内部バッファと m_pendingTail）が
-    // 先頭区間に貼り付くプチノイズを防ぐ
+    // 先頭区間に貼り付くプチノイズを防ぐ。
+    // reset（QueuedConnection）と play() 直後の decoder バッファ送出の処理順は
+    // 保証されないが、setPosition 内の race と同根の既知許容（実害は感知しづらい）
     if (m_pausingAtEnd) {
         setPosition(0);
     }

@@ -1,5 +1,7 @@
 #include "Settings.h"
 
+#include <algorithm>
+
 namespace {
 constexpr const char* kKeyTopmost        = "topmostWhilePlaying";
 constexpr const char* kKeySingleInstance = "singleInstance";
@@ -58,16 +60,13 @@ void Settings::setAboveNormalPriority(bool value)
 
 int Settings::speechEnhanceLevel() const
 {
-    const int v = readInt(kKeySpeechEnhance, kSpeechEnhanceDefault);
-    if (v < kSpeechEnhanceMin) return kSpeechEnhanceMin;
-    if (v > kSpeechEnhanceMax) return kSpeechEnhanceMax;
-    return v;
+    return std::clamp(readInt(kKeySpeechEnhance, kSpeechEnhanceDefault),
+                      kSpeechEnhanceMin, kSpeechEnhanceMax);
 }
 
 void Settings::setSpeechEnhanceLevel(int value)
 {
-    if (value < kSpeechEnhanceMin) value = kSpeechEnhanceMin;
-    if (value > kSpeechEnhanceMax) value = kSpeechEnhanceMax;
+    value = std::clamp(value, kSpeechEnhanceMin, kSpeechEnhanceMax);
     // 同値書込は QSettings::sync の不要なディスク I/O を発生させるため早期 return する。
     // applyPlaybackState（g キー一括リセット）からのノーオプ呼び出しでも writeInt が走るのを抑止する
     if (speechEnhanceLevel() == value) return;

@@ -167,11 +167,9 @@ bool checkAv1Nvenc(const QString& ffmpegPath)
     proc->start(ffmpegPath, {"-hide_banner", "-encoders"});
     const bool finished = proc->waitForFinished(5000);
 
-    // タイムアウト時はキャッシュ汚染を避けるため結果を確定せず返す
-    // 一時的な AV ソフト介入による遅延で false が永続キャッシュされると、
-    // 以降のセッション全体で NVENC が使えないと誤判定される。
-    // 副作用：cachedPath も更新しないため次回呼び出し時に再 spawn する。
-    // AV ソフトが ffmpeg を常時掴む環境では変換ボタン押下のたびに 5〜6 秒のブロックが繰り返される
+    // タイムアウト時はキャッシュせず false を返す（次回呼び出しで再 spawn する）
+    // 一時的な遅延による誤判定 false の永続キャッシュを防ぐためで、ffmpeg が常時応答しない
+    // 環境では呼び出しのたびに 5〜6 秒のブロックが繰り返される既知の副作用がある
     if (!finished) {
         proc->kill();
         proc->waitForFinished(1000);

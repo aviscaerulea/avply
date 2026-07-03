@@ -178,12 +178,17 @@ void SpeechEnhancer::setLevel(Level level)
         m_impl->apm->ApplyConfig(m_impl->buildConfig(level));
         if (wasOff) {
             // Off → On 遷移時：素通しで積まれた outBuf を破棄し、AGC 追従状態をリセットする。
-            // outBuf を残すと素通しサンプルと APM 処理済みサンプルが混在してポップノイズになる
+            // outBuf を残すと full-scale の素通しサンプルと Initialize 直後の処理済みサンプル
+            // （プリアッテネーション + ゲイン立ち上がり中）が混在し、段差がポップノイズになる
             m_impl->outBuf.clear();
             m_impl->outRead = 0;
             m_impl->apm->Initialize();
         }
     }
+    // On → Off 遷移では outBuf を意図的にクリアしない。（Off → On と非対称）
+    // 残量は正しい時系列の処理済みサンプルで、破棄すると FIFO 残量分（最大数十 ms）の
+    // 音声欠落そのものが不連続音源になる。処理済み → 素通しの繋ぎ目はサンプル列として
+    // 連続しており、音質・音量の変化はレベル操作の期待動作の範囲に収まる
 }
 
 SpeechEnhancer::Level SpeechEnhancer::level() const

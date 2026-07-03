@@ -20,7 +20,6 @@
 #include <QTimer>
 #include <QStatusBar>
 #include <QKeyEvent>
-#include <QApplication>
 #include <QGuiApplication>
 #include <QScreen>
 #include <QStyle>
@@ -46,7 +45,9 @@
 #include <windows.h>
 
 // シークスライダーの分解能
-// 0〜10000 で 0.01% 刻み相当。フレーム単位より十分細かく int 範囲で完結する
+// 0〜10000 の固定分解能だ。（duration の 0.01% 刻み）
+// 短尺ではフレーム未満の精度、長尺（30fps で約 5.5 分超）では 1 目盛が複数フレームに相当する。
+// トリム開始位置はキーフレーム丸めが支配的なため、この精度で実用上問題ない
 static constexpr int kSliderMax = 10000;
 
 // 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
@@ -69,6 +70,11 @@ const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
 // 後ろに "0"（Off）/ "1"（標準）/ "2"（強）を連結して表示する
 const QString kSpeechEnhancePrefix = "  Clarity:";
+
+// メニューの角丸抑制スタイル
+// Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする。
+// コンテキストメニューとその設定サブメニューの両方へ適用する
+const QString kMenuStyle = QStringLiteral("QMenu { border-radius: 2px; }");
 
 // 音声強調の強度数（SpeechEnhancer::Level の総数）
 // cycleSpeechEnhance の循環剰余演算で参照する。Strong が enum の末尾要素である前提
@@ -803,7 +809,9 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     const QString ffprobePath = Ffmpeg::ffprobePath(m_ffmpegPath);
     m_probeProc = Ffmpeg::probeAsync(ffprobePath, path, this,
         [this, path, centerOnMonitor](const VideoInfo& info, const FfmpegResult& result) {
-        // callback 内では m_probeProc 自身が deleteLater 予約済みのためポインタを先に解放する
+        // callback 返却後に FfmpegRunner 側が m_probeProc を deleteLater するため、
+        // 解放済みポインタへの再アクセス（次回 loadFile 時の kill/waitForFinished 等）を
+        // 避けるためポインタのみ先にクリアする
         m_probeProc = nullptr;
 
         if (!result.ok) {
@@ -1509,11 +1517,7 @@ void MainWindow::contextMenuEvent(QContextMenuEvent* event)
 void MainWindow::showContextMenuAt(const QPoint& globalPos)
 {
     QMenu menu(this);
-
-    // メニューの角丸抑制スタイル
-    // Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする
-    const QString menuStyle = "QMenu { border-radius: 2px; }";
-    menu.setStyleSheet(menuStyle);
+    menu.setStyleSheet(kMenuStyle);
 
     // アプリ名・バージョン項目
     // クリックで GitHub のプロジェクトページをブラウザで開く
@@ -1532,7 +1536,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     menu.addSeparator();
 
     QMenu* settings = menu.addMenu("設定");
-    settings->setStyleSheet(menuStyle);
+    settings->setStyleSheet(kMenuStyle);
     settings->addAction(m_actTopmost);
     settings->addAction(m_actSingleInst);
     settings->addAction(m_actPriority);
