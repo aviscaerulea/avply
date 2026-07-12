@@ -87,24 +87,6 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 ただしテスト中に SIGSEGV 等で abort した場合は `restore()` が走らない。その場合は `regedit` で `HKCU\Software\avply\avply` 配下の 4 値を再設定する（あるいは avply を起動して右クリック設定メニューから操作する）必要がある。
 
-## プロジェクト構成
-
-```
-src/
-  main.cpp            エントリポイント
-  MainWindow.h/cpp    UI・イベント処理（D&D 含む）
-  FfmpegRunner.h/cpp  ffprobe/ffmpeg 実行ユーティリティ
-  VideoView.h/cpp     QMediaPlayer + QQuickView (VideoOutput) + AudioWorker による音声付きプレビュー
-  VideoOutput.qml     プレビュー領域の QML（クリック・右クリック・ホイール受付）
-  RangeSlider.h/cpp   開始〜終了区間を赤系でハイライト表示するスライダー
-  Encoder.h/cpp       変換実行・進捗通知
-  OutputNamer.h/cpp   出力ファイル名生成（{base}_mod.mp4 形式）
-  Config.h/cpp        avply.toml 読み込み（ffmpeg_path 等）
-  SilenceTone.h/cpp   BT アイドル復帰プチノイズ抑制用の常時不可聴トーン出力
-  SpeechEnhancer.h/cpp WebRTC APM ラッパ（NS + AGC2 + HPF による音声強調 DSP）
-  AudioWorker.h/cpp   専用スレッドで SpeechEnhancer DSP と QAudioSink 書き込みを担うワーカ
-```
-
 ## 実装上の注意点
 
 ### ビルド環境の注意
