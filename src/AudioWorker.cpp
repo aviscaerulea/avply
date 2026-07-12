@@ -1,4 +1,5 @@
 #include "AudioWorker.h"
+#include "AudioSinkHealth.h"
 #include <QAudioSink>
 #include <QIODevice>
 #include <QByteArray>
@@ -132,14 +133,10 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     // 既存セッションが AUDCLNT_E_DEVICE_INVALIDATED で無効化され sink は停止状態へ落ちる。
     // 放置すると bytesFree() が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて
     // 次のシーク（reset）まで無音が継続する（Aiseesoft Screen Recorder の録画開始で実機再現）。
-    // SilenceTone::healthCheck と同条件で不健全を検知し、sink を再生成して自動復帰する。
+    // SilenceTone::healthCheck と共通の isSinkUnhealthy で不健全を検知し、sink を再生成して自動復帰する。
     // 能動停止は teardown のみ（直後に m_sink=nullptr）のため、ここでの StoppedState は異常確定。
-    // UnderrunError は供給遅延（pause 後のドレイン等）で日常的に発生するため除外する。
     // デバイス完全消失時に毎バッファ再生成が空振りし続けるのを避けるため再試行は 1 秒間隔に絞る
-    const bool unhealthy = !m_sinkDev
-        || m_sink->state() == QAudio::StoppedState
-        || (m_sink->error() != QAudio::NoError
-            && m_sink->error() != QAudio::UnderrunError);
+    const bool unhealthy = !m_sinkDev || isSinkUnhealthy(m_sink);
     if (unhealthy) {
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
         if (nowMs - m_lastSinkRecoverMs < 1000) return;

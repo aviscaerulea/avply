@@ -1257,45 +1257,37 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     if (QApplication::activeModalWidget() || QApplication::activePopupWidget()) {
         return QMainWindow::eventFilter(watched, event);
     }
-    // 実行中（変換またはトリム）はメディア操作キー（Space / ←→ / ↑↓ / . , / N / G / R）のみ
-    // 無効化する。Alt+F4・Tab・Ctrl+C 等のシステムキーやアプリ全体のショートカットは素通しし、
-    // ウィンドウ閉鎖やフォーカス移動をブロックしないようにする
+    // 実行中（変換またはトリム）はメディア操作キーのみ無効化する。
+    // Alt+F4・Tab・Ctrl+C 等のシステムキーやアプリ全体のショートカットは default で素通しし、
+    // ウィンドウ閉鎖やフォーカス移動をブロックしない。
+    // 「メディア操作キーの集合」は下の switch の case 列挙が唯一の定義であり、
+    // 各 case 先頭の running ガード（消費のみして処理しない）で実行中無効化を実現する。
+    // キー追加時は case を足せば実行中無効化も同時に効き、抑止リストとの二重管理は生じない
     const auto* ke = static_cast<QKeyEvent*>(event);
-    if (m_runningOp != Operation::None) {
-        switch (ke->key()) {
-        case Qt::Key_Left:
-        case Qt::Key_Right:
-        case Qt::Key_Space:
-        case Qt::Key_Up:
-        case Qt::Key_Down:
-        case Qt::Key_Period:
-        case Qt::Key_Comma:
-        case Qt::Key_G:
-        case Qt::Key_R:
-        case Qt::Key_N:
-            return true;
-        default:
-            return QMainWindow::eventFilter(watched, event);
-        }
-    }
+    const bool running = (m_runningOp != Operation::None);
 
     switch (ke->key()) {
     case Qt::Key_Left:
         // 0 以下の設定はシーク無効（avply.toml [seek] の文書仕様、ホイール側ガードと統一）
+        if (running) return true;
         if (m_seekLeftMs > 0) seekRelative(-m_seekLeftMs);
         return true;
     case Qt::Key_Right:
+        if (running) return true;
         if (m_seekRightMs > 0) seekRelative(m_seekRightMs);
         return true;
     case Qt::Key_Space:
+        if (running) return true;
         if (m_info.duration > 0.0) m_videoView->togglePlay();
         return true;
     case Qt::Key_Up:
     case Qt::Key_Down: {
         // 音量 ±0.05
+        // 実行中は修飾子の有無に関わらず消費する（従来の抑止リストと同挙動）。
         // 修飾子付き（Shift/Ctrl/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
         // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のため
         // マスクから除外し、テンキー ↑/↓ も同じ動作で扱う
+        if (running) return true;
         const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
         if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
@@ -1305,19 +1297,23 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     }
     case Qt::Key_Period:
         // 再生速度 +0.05
+        if (running) return true;
         changePlaybackRate(0.05);
         return true;
     case Qt::Key_Comma:
         // 再生速度 -0.05
+        if (running) return true;
         changePlaybackRate(-0.05);
         return true;
     case Qt::Key_G:
         // 再生条件（速度/音量/音声強調）の全リセット ↔ 起動時デフォルト復元のトグル
+        if (running) return true;
         toggleGReset();
         return true;
     case Qt::Key_R:
         // 区間マーカーのみクリア（再生位置・再生状態は維持する）
         // onStop は再生位置を 0 に戻すため別実装
+        if (running) return true;
         if (m_info.valid) {
             m_inSet  = false;
             m_outSet = false;
@@ -1327,6 +1323,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         }
         return true;
     case Qt::Key_N:
+        if (running) return true;
         cycleSpeechEnhance();
         return true;
     default:

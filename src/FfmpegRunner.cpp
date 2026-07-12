@@ -87,6 +87,23 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
 
 } // namespace
 
+void connectStartFailureGuard(QProcess* proc, QObject* context,
+                              std::function<void()> onFailed)
+{
+    // 契約・キューイング理由はヘッダ宣言コメント参照
+    QObject::connect(proc, &QProcess::errorOccurred, context,
+        [proc, onFailed](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart) return;
+
+        // finished 経路と二重発火しないよう、ここで disconnect する
+        QObject::disconnect(proc, nullptr, nullptr, nullptr);
+        QMetaObject::invokeMethod(proc, [proc, onFailed]() {
+            onFailed();
+            proc->deleteLater();
+        }, Qt::QueuedConnection);
+    });
+}
+
 QProcess* probeAsync(
     const QString& ffprobePath,
     const QString& filePath,
@@ -125,23 +142,9 @@ QProcess* probeAsync(
 
     // 起動失敗を捕捉する
     // FailedToStart のとき finished は発火しないため、
-    // ここで callback を確実に呼ばないと呼び出し元が永久待機しプロセスもリークする。
-    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
-    QObject::connect(proc, &QProcess::errorOccurred, parent,
-        [proc, callback](QProcess::ProcessError err) {
-        if (err != QProcess::FailedToStart) return;
-
-        // finished 経路と二重発火しないよう、ここで disconnect する
-        QObject::disconnect(proc, nullptr, nullptr, nullptr);
-        // callback はキューイングして start() のリターン後に発火させる。
-        // Windows の QProcess は CreateProcess 失敗時に errorOccurred を start() の
-        // スタック内で同期 emit するため、ここで callback を同期実行すると
-        // 呼び出し元の「戻り値 QProcess* をメンバへ代入」より先に callback 内の
-        // ポインタクリアが走り、削除予約済みポインタがメンバへ書き戻される
-        QMetaObject::invokeMethod(proc, [proc, callback]() {
-            callback(VideoInfo{}, FfmpegResult{false, "ffprobe の起動に失敗しました"});
-            proc->deleteLater();
-        }, Qt::QueuedConnection);
+    // ここで callback を確実に呼ばないと呼び出し元が永久待機しプロセスもリークする
+    connectStartFailureGuard(proc, parent, [callback]() {
+        callback(VideoInfo{}, FfmpegResult{false, "ffprobe の起動に失敗しました"});
     });
 
     proc->start(ffprobePath, args);
@@ -227,19 +230,9 @@ QProcess* generateWaveform(
 
     // 起動失敗を捕捉する
     // FailedToStart のとき finished は発火しないため、
-    // ここで callback を確実に呼ばないとプロセスがリークし callback も不発になる。
-    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
-    QObject::connect(proc, &QProcess::errorOccurred, parent,
-        [proc, callback](QProcess::ProcessError err) {
-        if (err != QProcess::FailedToStart) return;
-
-        // finished 経路と二重発火しないよう、ここで disconnect する
-        QObject::disconnect(proc, nullptr, nullptr, nullptr);
-        // callback のキューイングは probeAsync と同じ理由（FailedToStart の同期 emit 対策）
-        QMetaObject::invokeMethod(proc, [proc, callback]() {
-            callback(false, QString());
-            proc->deleteLater();
-        }, Qt::QueuedConnection);
+    // ここで callback を確実に呼ばないとプロセスがリークし callback も不発になる
+    connectStartFailureGuard(proc, parent, [callback]() {
+        callback(false, QString());
     });
 
     proc->start(ffmpegPath, args);

@@ -34,6 +34,16 @@ struct FfmpegResult {
 
 // ffprobe/ffmpeg 実行ユーティリティ
 namespace Ffmpeg {
+    // QProcess の起動失敗（FailedToStart）を捕捉する共通ガード
+    // FailedToStart 時に proc の全接続を切り、onFailed をキューイングして start() の
+    // リターン後に発火させ、実行後に proc を削除予約する。起動成功後の Crashed 等は
+    // finished が発火するため対象外。キューイングするのは、Windows の QProcess が
+    // CreateProcess 失敗時に errorOccurred を start() のスタック内で同期 emit するため。
+    // 同期実行すると呼び出し元の「戻り値 QProcess* をメンバへ代入」より先に
+    // callback 内のポインタクリアが走り、削除予約済みポインタがメンバへ書き戻される
+    void connectStartFailureGuard(QProcess* proc, QObject* context,
+                                  std::function<void()> onFailed);
+
     // ffprobe で動画情報を非同期取得する
     // QProcess は parent の子として生成され、完了時に callback を呼んだ後 deleteLater される。
     // 戻り値は呼び出し側で保持し、新ファイル読込時の kill キャンセル用ハンドルとして使う

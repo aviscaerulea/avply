@@ -66,6 +66,7 @@ qt_add_executable(avply WIN32
     src/Settings.cpp
     src/SingleInstance.h
     src/SingleInstance.cpp
+    src/AudioSinkHealth.h
     src/SilenceTone.h
     src/SilenceTone.cpp
     src/SpeechEnhancer.h

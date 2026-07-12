@@ -1,4 +1,5 @@
 #include "ThumbnailExtractor.h"
+#include "FfmpegRunner.h"
 #include <QDebug>
 #include <QProcess>
 #include <QImage>
@@ -151,17 +152,12 @@ void ThumbnailExtractor::request(int seconds,
     // 起動失敗を捕捉する
     // FailedToStart のとき finished は発火しないため、
     // ここで callback を確実に呼ばないと呼び出し元が永久待機する。
-    // 起動成功後の Crashed 等は finished も発火するためここでは無視する
-    QObject::connect(proc, &QProcess::errorOccurred, this,
-        [this, proc, callback](QProcess::ProcessError err) {
-        if (err != QProcess::FailedToStart) return;
-
-        // finished 経路と二重発火しないよう、ここで disconnect する
-        disconnect(proc, nullptr, this, nullptr);
+    // 共通ガード経由で callback がキューイングされるため、request() のスタック内で
+    // 同期発火せずヘッダの「非同期発火」契約とも整合する
+    Ffmpeg::connectStartFailureGuard(proc, this, [this, proc, callback]() {
         if (m_proc == proc) {
             m_proc = nullptr;
         }
-        proc->deleteLater();
         callback(false, QPixmap());
     });
 
