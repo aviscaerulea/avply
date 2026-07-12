@@ -242,7 +242,9 @@ VideoView::~VideoView()
             disconnect(m_audioBuf, nullptr, m_audioWorker, nullptr);
         }
         if (m_audioWorker) {
-            QMetaObject::invokeMethod(m_audioWorker, "teardown", Qt::BlockingQueuedConnection);
+            // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する（setSource と同じ理由）
+            AudioWorker* w = m_audioWorker;
+            QMetaObject::invokeMethod(w, [w]() { w->teardown(); }, Qt::BlockingQueuedConnection);
         }
         m_audioThread->quit();
         m_audioThread->wait();
@@ -321,11 +323,10 @@ void VideoView::setPlaybackRate(qreal rate)
     // 同じ rate ぶんの時間圧縮 / 伸長を行わないと sink 流入と消費がミスマッチを起こす。
     // QMediaPlayer の rate 変更で decoder の流入レートが変わる前に tempo を合わせることで、
     // 旧 tempo 前提の入力が SoundTouch 内に滞留して sink underrun を引き起こすのを防ぐ。
-    // DirectConnection で呼び出すが、setPlaybackRate 側は atomic 経由で受け取るため
-    // GUI thread から直接呼んでもスレッド安全
+    // setPlaybackRate 側は atomic 経由で受け取るため GUI thread から直接呼んでもスレッド安全
+    // （従来の DirectConnection 版 invokeMethod と同義で、直接呼び出しはコンパイル時に検知される）
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setPlaybackRate", Qt::DirectConnection,
-                                  Q_ARG(double, static_cast<double>(rate)));
+        m_audioWorker->setPlaybackRate(static_cast<double>(rate));
     }
     m_player->setPlaybackRate(rate);
 }
@@ -333,16 +334,19 @@ void VideoView::setPlaybackRate(qreal rate)
 void VideoView::setVolume(double volume)
 {
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setVolume", Qt::QueuedConnection,
-                                  Q_ARG(double, qBound(0.0, volume, 1.0)));
+        // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する（setSource と同じ理由）
+        AudioWorker* w = m_audioWorker;
+        const double clamped = qBound(0.0, volume, 1.0);
+        QMetaObject::invokeMethod(w, [w, clamped]() { w->setVolume(clamped); }, Qt::QueuedConnection);
     }
 }
 
 void VideoView::setSpeechEnhanceLevel(int level)
 {
     if (m_audioWorker) {
-        QMetaObject::invokeMethod(m_audioWorker, "setSpeechEnhanceLevel", Qt::QueuedConnection,
-                                  Q_ARG(int, level));
+        // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する（setSource と同じ理由）
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w, level]() { w->setSpeechEnhanceLevel(level); }, Qt::QueuedConnection);
     }
 }
 

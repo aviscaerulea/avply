@@ -296,6 +296,12 @@ private:
     // 実行中の ffprobe プロセス。新規ファイル読込時に kill して旧結果を破棄する
     QProcess* m_probeProc = nullptr;
 
+    // loadFile の世代番号（呼び出しごとに加算）
+    // 旧 probe 破棄の waitForFinished(1000) はイベントループを再入させるため、
+    // その間に D&D / IPC 経由の loadFile が割り込み得る。待機明けに世代が進んでいたら
+    // 自分は追い越された古いロードなので、以降の処理を放棄して新しいロードへ全面的に譲る
+    quint64 m_loadGeneration = 0;
+
     // 現在生成中プロセスの出力先 PNG パス。kill 時に部分書き込みファイルを削除するため保持する
     QString m_waveformProcOutPath;
 

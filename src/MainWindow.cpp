@@ -792,19 +792,31 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
 
+    // 再入検出用の世代番号を進める（m_loadGeneration のヘッダコメント参照）
+    const quint64 gen = ++m_loadGeneration;
+
     // 旧 probe を破棄してから新規発行する。
-    // 連続 D&D などで前ファイルの probe 結果が遅れて到着し、新ファイルの状態を上書きするのを防ぐ
+    // 連続 D&D などで前ファイルの probe 結果が遅れて到着し、新ファイルの状態を上書きするのを防ぐ。
+    // メンバは破棄処理の前にローカルへ切り離す。waitForFinished 中のイベントループ再入で
+    // ネストした loadFile が m_probeProc を新プロセスへ差し替えても、
+    // 後続の破棄処理が旧プロセスだけを対象とし、稼働中の新 probe を巻き込まないため
     if (m_probeProc) {
-        disconnect(m_probeProc, nullptr, this, nullptr);
-        m_probeProc->kill();
+        QProcess* oldProbe = m_probeProc;
+        m_probeProc = nullptr;
+        disconnect(oldProbe, nullptr, this, nullptr);
+        oldProbe->kill();
         // kill 後の終了を待ってから削除予約する。Running のまま遅延削除に乗ると
         // ~QProcess() の waitForFinished(30000) が GUI thread で同期実行されるため、
         // デストラクタ側と同じ waitForFinished + setParent(nullptr) で防御する
-        m_probeProc->waitForFinished(1000);
-        m_probeProc->setParent(nullptr);
-        m_probeProc->deleteLater();
-        m_probeProc = nullptr;
+        oldProbe->waitForFinished(1000);
+        oldProbe->setParent(nullptr);
+        oldProbe->deleteLater();
     }
+
+    // 待機中の再入で新しいロードに追い越されていたら以降を放棄する。
+    // ここで probe を発行すると、ネストしたロードが発行済みの probe と二重になり、
+    // 後着の結果が先着の状態を上書きして表示と加工対象が食い違う
+    if (gen != m_loadGeneration) return;
 
     const QString ffprobePath = Ffmpeg::ffprobePath(m_ffmpegPath);
     m_probeProc = Ffmpeg::probeAsync(ffprobePath, path, this,
