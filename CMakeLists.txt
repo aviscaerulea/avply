@@ -5,6 +5,21 @@ project(avply VERSION 1.0.0 LANGUAGES CXX)
 # リリースビルド時は GHA ワークフローが -DAVPLY_VERSION=<git-tag> で上書きする
 set(AVPLY_VERSION "${PROJECT_VERSION}" CACHE STRING "アプリ表示バージョン（リリース時は git タグで上書き）")
 
+# VERSIONINFO 用の数値バージョン（カンマ区切り 4 数値）
+# AVPLY_VERSION は git タグ由来で "1.2.3-rc1" 等の形も取り得るため、先頭の major.minor.patch のみ採用する。
+# 第 4 数値は 0 固定とする。解釈できない値のときは 0,0,0,0 とする
+if(AVPLY_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    set(AVPLY_VERSION_NUM "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+else()
+    set(AVPLY_VERSION_NUM "0,0,0,0")
+endif()
+
+# app.rc が include するバージョン定義ヘッダを生成する
+# 生成先はビルドディレクトリのため、rc.exe から解決できるよう include パスへ追加する（後段の
+# target_include_directories を参照）
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/version.rc.h.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/version.rc.h" @ONLY)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -81,17 +96,20 @@ qt_add_executable(avply WIN32
 # main.cpp の setApplicationVersion で参照し、コンテキストメニューの About 項目に表示する
 target_compile_definitions(avply PRIVATE AVPLY_VERSION="${AVPLY_VERSION}")
 
-# include/        … <webrtc/...> と <absl/...> の解決用
-# include/webrtc/ … webrtc 公開ヘッダ内部の "api/..." "rtc_base/..." 相対 include 解決用
+# ビルドディレクトリ … app.rc が include する生成物 version.rc.h の解決用
+# include/          … <webrtc/...> と <absl/...> の解決用
+# include/webrtc/   … webrtc 公開ヘッダ内部の "api/..." "rtc_base/..." 相対 include 解決用
 target_include_directories(avply PRIVATE src
+    "${CMAKE_CURRENT_BINARY_DIR}"
     "${WEBRTC_APM_ROOT}/include"
     "${WEBRTC_APM_ROOT}/include/webrtc")
 
 # BOM なし UTF-8 ソースを正しくコンパイルする（MSVC デフォルトは CP932）
 if(MSVC)
     target_compile_options(avply PRIVATE /utf-8)
-    # rc.exe を UTF-8 codepage で実行する（VERSIONINFO 等で日本語を含めても文字化けしないため）
-    target_compile_options(avply PRIVATE $<$<COMPILE_LANGUAGE:RC>:/c65001>)
+    # rc.exe の UTF-8 解釈は app.rc 冒頭の `#pragma code_page(65001)` で担保する。
+    # Visual Studio ジェネレータは `$<COMPILE_LANGUAGE:RC>` genex を捨てるため、
+    # target_compile_options 経由では /c65001 が rc.exe に届かない（vcxproj / tlog で実測確認済み）
 endif()
 
 target_link_libraries(avply PRIVATE

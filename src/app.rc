@@ -1,1 +1,49 @@
+// 本ファイルは BOM なし UTF-8 で日本語コメントを含む。code_page 指定が無いと rc.exe が実行環境の
+// ANSI コードページ（日本語 Windows では CP932）で MBCS 走査し、行末のバイトがリードバイト範囲に
+// 当たると改行を食って次行が消える。
+// CMake の `$<COMPILE_LANGUAGE:RC>` genex は Visual Studio ジェネレータで捨てられ /c65001 が
+// rc.exe に届かないため、ジェネレータ非依存の pragma で UTF-8 解釈を確定させる。
+#pragma code_page(65001)
+
+#include <winver.h>
+
 IDI_ICON1 ICON "app.ico"
+
+// バージョン情報リソース
+// FileDescription と ProductName が空だと、Windows の各種アプリ一覧 UI（音量ミキサー、
+// ファイアウォールの許可アプリ等）がアプリ名のフォールバックとして exe の親フォルダ名を採用する。
+// Scoop 配置は `apps\avply\<version>\avply.exe` のため、名称がバージョン番号に見えてしまう。
+// この誤認を防ぐ目的で埋め込む。
+// APP_VERSION_NUM（カンマ区切り 4 数値）と APP_VERSION_STR（表示用文字列）は
+// CMake が AVPLY_VERSION からビルドディレクトリへ生成する。（version.rc.h.in が雛形）
+#include "version.rc.h"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    APP_VERSION_NUM
+PRODUCTVERSION APP_VERSION_NUM
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0x0L
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0409 = 米国英語、04B0 = Unicode。日本語環境でも文字化けせず読める組み合わせである
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "aviscaerulea"
+            VALUE "FileDescription",  "avply"
+            VALUE "FileVersion",      APP_VERSION_STR
+            VALUE "InternalName",     "avply"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Nikai,Takayuki"
+            VALUE "OriginalFilename", "avply.exe"
+            VALUE "ProductName",      "avply"
+            VALUE "ProductVersion",   APP_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 0x04B0
+    END
+END
