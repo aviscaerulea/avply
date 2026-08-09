@@ -139,11 +139,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // ffprobe は成功するが Qt backend がデコードできないケース（コーデック非対応等）で発火する
     connect(m_videoView, &VideoView::loadFailed,
             this, [this](const QString& error) {
-        m_videoView->clear();
-        m_loadInhibited = true;
-        QMessageBox::critical(this, "エラー",
-                              "メディアを再生できませんでした：\n" + error);
-        m_loadInhibited = false;
+        showLoadError("メディアを再生できませんでした：\n" + error);
     });
     // QQuickView はネイティブ子ウィンドウのため右クリックが MainWindow へ伝搬しない。
     // VideoView から転送されたシグナルでメニューを表示する
@@ -759,6 +755,14 @@ void MainWindow::onEncoderReleaseFile(const QString& path)
 
 // ---- 内部ユーティリティ ----
 
+void MainWindow::showLoadError(const QString& message)
+{
+    m_videoView->clear();
+    m_loadInhibited = true;
+    QMessageBox::critical(this, "エラー", message);
+    m_loadInhibited = false;
+}
+
 void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
 {
     if (m_loadInhibited) return;
@@ -822,17 +826,11 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
         m_probeProc = nullptr;
 
         if (!result.ok) {
-            m_videoView->clear();
-            m_loadInhibited = true;
-            QMessageBox::critical(this, "エラー", "動画情報を取得できませんでした：\n" + result.err);
-            m_loadInhibited = false;
+            showLoadError("動画情報を取得できませんでした：\n" + result.err);
             return;
         }
         if (!info.valid || info.duration <= 0.0) {
-            m_videoView->clear();
-            m_loadInhibited = true;
-            QMessageBox::critical(this, "エラー", "有効なメディアファイルではありません。");
-            m_loadInhibited = false;
+            showLoadError("有効なメディアファイルではありません。");
             return;
         }
         onProbeFinished(path, info, centerOnMonitor);

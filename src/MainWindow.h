@@ -108,6 +108,11 @@ private:
     // パス未設定と実体消失の双方を都度判定する（起動後の削除・移動にも追従するため状態を持たない）
     bool isFfmpegAvailable() const;
 
+    // ロード失敗をユーザへ通知する
+    // 再生をクリアした上でダイアログを出す。表示中のネストイベントループで D&D 等から
+    // loadFile が再入するのを防ぐため m_loadInhibited を立てて囲う
+    void showLoadError(const QString& message);
+
     // 実行中の操作種別。None ならアイドル
     enum class Operation { None, Convert, Trim };
 
