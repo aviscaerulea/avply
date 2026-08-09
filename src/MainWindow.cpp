@@ -49,6 +49,13 @@
 // トリム開始位置はキーフレーム丸めが支配的なため、この精度で実用上問題ない
 static constexpr int kSliderMax = 10000;
 
+// 再生速度の増減刻み（`.` / `,` キー、Ctrl + ホイール）
+static constexpr qreal kPlaybackRateStep = 0.05;
+// 音量の増減刻み（↑ / ↓ キー、Shift + ホイール）
+static constexpr qreal kVolumeStep = 0.05;
+// 再生速度の下限（これ以下は音声の時間伸張が破綻するため許可しない）
+static constexpr qreal kPlaybackRateMin = 0.05;
+
 // 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
 // 動画ロード後に動画サイズへリサイズするまでの暫定表示用
 static constexpr int kInitialWindowW = 500;
@@ -1290,18 +1297,18 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
-        changeVolume((ke->key() == Qt::Key_Up) ? 0.05 : -0.05);
+        changeVolume((ke->key() == Qt::Key_Up) ? kVolumeStep : -kVolumeStep);
         return true;
     }
     case Qt::Key_Period:
         // 再生速度 +0.05
         if (running) return true;
-        changePlaybackRate(0.05);
+        changePlaybackRate(kPlaybackRateStep);
         return true;
     case Qt::Key_Comma:
         // 再生速度 -0.05
         if (running) return true;
-        changePlaybackRate(-0.05);
+        changePlaybackRate(-kPlaybackRateStep);
         return true;
     case Qt::Key_G:
         // 再生条件（速度/音量/音声強調）の全リセット ↔ 起動時デフォルト復元のトグル
@@ -1342,7 +1349,7 @@ void MainWindow::changePlaybackRate(qreal delta)
     if (m_info.duration <= 0.0) return;
     // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
     const qreal next = std::round((m_playbackRate + delta) * 100.0) / 100.0;
-    m_playbackRate = qBound(qreal(0.05), next, qreal(4.0));
+    m_playbackRate = qBound(kPlaybackRateMin, next, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
     m_gResetActive = false;
@@ -1385,11 +1392,11 @@ void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
 {
     if (m_runningOp != Operation::None) return;
     if (ctrl) {
-        changePlaybackRate(forward ? 0.05 : -0.05);
+        changePlaybackRate(forward ? kPlaybackRateStep : -kPlaybackRateStep);
         return;
     }
     if (shift) {
-        changeVolume(forward ? 0.05 : -0.05);
+        changeVolume(forward ? kVolumeStep : -kVolumeStep);
         return;
     }
     const int ms = forward ? m_seekWheelForwardMs : m_seekWheelBackMs;
@@ -1416,7 +1423,7 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol)
 {
     // 速度・音量を反映し、音声強調は OFF へ倒す
     // 各 setter 経由で AudioWorker への伝搬も同時に行う
-    m_playbackRate = qBound(qreal(0.05), rate, qreal(4.0));
+    m_playbackRate = qBound(kPlaybackRateMin, rate, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
 
