@@ -1401,20 +1401,20 @@ void MainWindow::toggleGReset()
     if (m_info.duration <= 0.0) return;
     if (!m_gResetActive) {
         // 1 回目：全リセット（速度 1.00、音量 100%、音声強調 OFF）
-        applyPlaybackState(1.0, 1.0, false);
+        applyPlaybackState(1.0, 1.0);
         m_gResetActive = true;
     }
     else {
         // 2 回目：速度・音量を起動時のデフォルト値（TOML 初回読込値）へ復元
         // 音声強調は永続化しない仕様のため起動時デフォルトは常に OFF
-        applyPlaybackState(m_initialPlaybackRate, m_initialVolume, false);
+        applyPlaybackState(m_initialPlaybackRate, m_initialVolume);
         m_gResetActive = false;
     }
 }
 
-void MainWindow::applyPlaybackState(qreal rate, qreal vol, bool enhanceEnabled)
+void MainWindow::applyPlaybackState(qreal rate, qreal vol)
 {
-    // 速度・音量・音声強調を一括反映する
+    // 速度・音量を反映し、音声強調は OFF へ倒す
     // 各 setter 経由で AudioWorker への伝搬も同時に行う
     m_playbackRate = qBound(qreal(0.05), rate, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
@@ -1424,8 +1424,9 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol, bool enhanceEnabled)
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
 
-    m_speechEnhanceEnabled = enhanceEnabled;
-    m_videoView->setSpeechEnhanceEnabled(enhanceEnabled);
+    // 音声強調は常に OFF へ倒す（永続化しない仕様のため復元対象にならない）
+    m_speechEnhanceEnabled = false;
+    m_videoView->setSpeechEnhanceEnabled(false);
     updateSpeechEnhanceDisplay();
 }
 

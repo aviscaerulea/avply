@@ -194,9 +194,10 @@ private:
     // 2 回目で速度・音量を起動時に読み込んだ TOML 値へ復元する（音声強調は両回とも OFF）
     void toggleGReset();
 
-    // 再生速度・音量・音声強調の 3 項目を一括適用する
-    // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない（呼び出し側で管理）
-    void applyPlaybackState(qreal rate, qreal vol, bool enhanceEnabled);
+    // 再生速度・音量を一括適用し、音声強調は常に OFF へ倒す
+    // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない。（呼び出し側で管理）
+    // 音声強調は永続化しない仕様のため、中立値復元・起動時値復元のいずれでも OFF が正となる
+    void applyPlaybackState(qreal rate, qreal vol);
 
     // 再生状態に応じてウィンドウの最前面表示を切り替える
     // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
