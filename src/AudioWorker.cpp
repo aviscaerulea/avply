@@ -56,7 +56,7 @@ void AudioWorker::start()
     // SoundTouch の既定は音楽向けの自動設定で、会議音声の 1.2 倍程度ではシーケンスの
     // つなぎ目に微小なサンプル不連続・局所ピークが出る。後段 APM の AGC ゲインが
     // これを増幅し、可聴なプチノイズ化していた。公式 README（TDStretch.h）が speech 用途に
-    // 推奨する固定値（SEQUENCE 40 / SEEKWINDOW 15 / OVERLAP 8 ms）に切り替えてつなぎ目の
+    // 推奨する固定値（SEQUENCE 40 / SEEKWINDOW 15 / OVERLAP 8ms）に切り替えてつなぎ目の
     // アーティファクト自体を抑える。AA フィルタは既定（有効）のまま品質を優先する
     m_stretch->setSetting(SETTING_SEQUENCE_MS,   40);
     m_stretch->setSetting(SETTING_SEEKWINDOW_MS, 15);

@@ -17,7 +17,7 @@ namespace {
 constexpr double kInt16FullScale = 32767.0;
 
 // QAudioFormat の固定パラメータ
-// 互換性重視で 48 kHz / Stereo / S16 を採用する（大半の OS / BT スタックがネイティブ対応）
+// 互換性重視で 48kHz / Stereo / S16 を採用する（大半の OS / BT スタックがネイティブ対応）
 constexpr int kSinkSampleRate     = 48000;
 constexpr int kSinkChannelCount   = 2;
 constexpr int kSinkBytesPerSample = 2;
@@ -94,7 +94,7 @@ SilenceTone::SilenceTone(QObject* parent)
 {
     // BT 接続/切断や USB DAC 抜き挿しで出力デバイスリストが変化した時、
     // 古い sink は stalled state のまま残るため、リスナで sink を作り直す。
-    // 100 ms の debounce で短時間の連続発火（接続シーケンス中の複数通知）を 1 回に集約する
+    // 100ms の debounce で短時間の連続発火（接続シーケンス中の複数通知）を 1 回に集約する
     m_restartDebounce.setSingleShot(true);
     m_restartDebounce.setInterval(100);
     connect(&m_restartDebounce, &QTimer::timeout,
@@ -163,7 +163,7 @@ void SilenceTone::openSink()
 {
     if (m_sink) return;
 
-    // 互換性重視で 48 kHz / Int16 / Stereo を要求する。
+    // 互換性重視で 48kHz / Int16 / Stereo を要求する。
     // 大半の OS / BT スタックがネイティブ対応する形式
     QAudioFormat fmt;
     fmt.setSampleRate(kSinkSampleRate);

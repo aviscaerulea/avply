@@ -150,8 +150,8 @@ void clampConfig(AppConfig& cfg)
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
     // 音量は QAudioOutput::setVolume の有効範囲（0.0〜1.0）にクランプ
     cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 1.0);
-    // サイレンストーン周波数は 20〜20000 Hz、振幅は 0.0〜0.01 にクランプ
-    // 振幅 0.01（-40 dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
+    // サイレンストーン周波数は 20〜20000Hz、振幅は 0.0〜0.01 にクランプ
+    // 振幅 0.01（-40dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
 }
