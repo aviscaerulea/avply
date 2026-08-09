@@ -702,6 +702,8 @@ void MainWindow::onEncoderProgress(int pct)
 
 void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QString& err)
 {
+    // 失敗表示に使う種別は setRunning(None) で m_runningOp が消える前に退避する
+    const QString label = (m_runningOp == Operation::Trim) ? "トリム失敗" : "変換失敗";
     setRunning(Operation::None);
 
     if (ok) {
@@ -731,7 +733,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
         return;
     }
 
-    m_outputLabel->setText("  失敗しました：" + err);
+    m_outputLabel->setText(QString("  %1：%2").arg(label, err));
     QMessageBox::critical(this, "変換エラー", err);
 }
 
