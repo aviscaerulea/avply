@@ -70,7 +70,7 @@ bool SingleInstance::tryBecomePrimary()
 {
     // CreateMutexW のアトミック性で primary を一意に決める
     // 同時複数起動でも新規作成に成功するのは 1 プロセスのみ。
-    // ハンドルは意図的に保持し続ける（プロセス終了・クラッシュ時に OS が解放するため残留しない）。
+    // ハンドルは意図的に保持し続ける。（プロセス終了・クラッシュ時に OS が解放するため残留しない）
     // 転送失敗時のフォールバック primary もこの参照を保持しており、
     // 以降の起動は ERROR_ALREADY_EXISTS でこのプロセスへ転送される
     const HANDLE mutex = CreateMutexW(nullptr, FALSE,
@@ -208,8 +208,8 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
 
             // MainWindow への呼び出しは GUI thread へキューイングする
             // functor 型 invokeMethod を使うことで MainWindow::loadFileFromIpc の
-            // シグネチャ変更をコンパイル時に検知できる（string-based の "loadFileFromIpc" 解決は
-            // メタオブジェクトに該当 slot がない場合 silent fail するため避ける）。
+            // シグネチャ変更をコンパイル時に検知できる。（string-based の "loadFileFromIpc" 解決は
+            // メタオブジェクトに該当 slot がない場合 silent fail するため避ける）
             // QueuedConnection 経由とすることで receiver 破棄後にディスパッチされる
             // invokeMethod イベントを Qt 側で安全に破棄させる
             if (winSafe) {

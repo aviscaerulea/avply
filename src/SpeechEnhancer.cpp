@@ -24,7 +24,7 @@ constexpr float kInputPreGain = 0.5f;
 // adaptive_digital.max_gain_db。会議音声の小声は headroom で決まる出力ターゲット
 // までの持ち上げで足り、適応ゲインがこの天井に届くことはない。offline 計測で 30/40/50dB の
 // いずれでも小声・大声の出力レベル・クリップ指標が完全に一致した。
-// 極端な小声向けの保険として中庸な 40dB をコード固定する（toml 非公開）。
+// 極端な小声向けの保険として中庸な 40dB をコード固定する。（toml 非公開）
 constexpr float kMaxGainDb = 40.0f;
 
 // NS（ノイズ抑制）レベル
@@ -52,7 +52,7 @@ struct SpeechEnhancer::Impl {
     qsizetype outRead = 0;
 
     // ON 用 Config 構築
-    // NS / AGC2 / HPF を有効化し、AEC は使わない（再生済み音声のため）。
+    // NS / AGC2 / HPF を有効化し、AEC は使わない。（再生済み音声のため）
     webrtc::AudioProcessing::Config buildConfig() const
     {
         webrtc::AudioProcessing::Config c;
@@ -74,7 +74,7 @@ struct SpeechEnhancer::Impl {
         // ゲイン収束速度の上限（小声発話冒頭の立ち上がりを速める）
         // 既定 6dB/s では小声を +24dB 持ち上げるのに約 4 秒かかり、発話冒頭がゲイン追従に
         // 間に合わず聞こえない。レートリミッタを大きく開放してゲインが目標へほぼ即座に追従するようにする。
-        // 速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。
+        // 速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない。（実測）
         // 100dB/s 以上は全体平均が頭打ち（実質の律速は AGC 内部の小声検知レイテンシ）だが、
         // 各発話冒頭の追従を可能な限りタイトにするため余裕を持って 300dB/s を採る。
         c.gain_controller2.adaptive_digital.max_gain_change_db_per_second = 300.0f;

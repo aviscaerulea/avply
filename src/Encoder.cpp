@@ -211,7 +211,7 @@ void Encoder::onReadyReadOutput()
     // 短い区間（例：100ms 切り出し）では m_totalDuration*2.0 が極小になり、ffmpeg 初期の
     // 「00:00:00.50」等の進捗が上限を超えて以降の emit が全部抑制されるため、最低 10 秒の下限フロアを設ける。
     // 短区間で latestSec が m_totalDuration を超えうるが、下流の qBound(0, pct, 99) が
-    // 100% 化を吸収するため UI への悪影響はない（ffmpeg 初期異常値の遮断と短区間進捗の両立を優先）。
+    // 100% 化を吸収するため UI への悪影響はない。（ffmpeg 初期異常値の遮断と短区間進捗の両立を優先）
     // 0 未満は捕捉漏れ（初期値の -1.0）として下流に流さない
     const double upperBound = std::max(m_totalDuration * 2.0, 10.0);
     if (latestSec >= 0.0 && latestSec <= upperBound) {
@@ -259,8 +259,8 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
 
     // 空出力の検証
     // ffmpeg は選択区間に実データが 1 フレームも乗らない場合、「Output file is empty」と
-    // 警告しつつヘッダのみのコンテナを書いて exit 0 で終わることがある（メタデータ duration が
-    // 実ストリーム長より長い破損録画のトリム等で実機再現済み）。そのまま置換すると
+    // 警告しつつヘッダのみのコンテナを書いて exit 0 で終わることがある。（メタデータ duration が
+    // 実ストリーム長より長い破損録画のトリム等で実機再現済み）そのまま置換すると
     // _mod 上書き経路で元データが再生不能な空コンテナへ不可逆に置き換わるため、置換前に弾く
     if (QFileInfo(m_tempPath).size() == 0
         || m_outputTail.contains(QLatin1String("Output file is empty"))) {

@@ -92,7 +92,7 @@ QString dialogFilterFromExts()
 
 // 古い波形キャッシュ PNG を削除する
 // mtime キーで命名済みのため、ユーザがソースを更新すると古い PNG が残り続ける。
-// 60 日 atime/mtime しきい値で削除する（再生頻度の低いファイル分のみ自動清掃）。
+// 60 日 atime/mtime しきい値で削除する。（再生頻度の低いファイル分のみ自動清掃）
 // 起動時に QThreadPool 経由でワーカースレッドから呼び出す（UI スレッドの I/O ブロックを避けるため）
 void purgeOldWaveformCache()
 {
@@ -909,7 +909,7 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     }
 
     // ホバープレビューのソース更新
-    // 音声のみは抽出抑止（QSize() を渡す）。動画は scale フィルタが force_original_aspect_ratio
+    // 音声のみは抽出抑止。（QSize() を渡す）動画は scale フィルタが force_original_aspect_ratio
     // で縦横比を保つため、固定サイズを渡せば実際の出力 PNG は元動画比に合わせて縮小される
     if (m_seekPreview) m_seekPreview->hide();
     if (m_thumbExtractor) {
@@ -926,7 +926,7 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     m_videoView->setPlaybackRate(m_playbackRate);
 
     // ウィンドウサイズを決定する：動画はアスペクト比連動、音声は下部 UI 高にあわせる
-    // primaryScreen() も null を返しうる（QGuiApplication 初期化失敗時など）。
+    // primaryScreen() も null を返しうる。（QGuiApplication 初期化失敗時など）
     // スクリーン取得不能ならサイズ調整・センタリングをスキップして安全側で抜ける
     const QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen();
     if (!sc) return;
@@ -1276,7 +1276,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     case Qt::Key_Up:
     case Qt::Key_Down: {
         // 音量 ±0.05
-        // 実行中は修飾子の有無に関わらず消費する（従来の抑止リストと同挙動）。
+        // 実行中は修飾子の有無に関わらず消費する。（従来の抑止リストと同挙動）
         // 修飾子付き（Shift/Ctrl/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
         // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のため
         // マスクから除外し、テンキー ↑/↓ も同じ動作で扱う
@@ -1559,7 +1559,7 @@ void MainWindow::onTogglePriority(bool checked)
 {
     // プロセス優先度のトグル即時反映
     // SetPriorityClass はジョブオブジェクト制限やポリシーで失敗することがあるため、
-    // 戻り値を確認し失敗時は Settings に保存しない（UI チェックは次回起動時にレジストリ値で整合する）。
+    // 戻り値を確認し失敗時は Settings に保存しない。（UI チェックは次回起動時にレジストリ値で整合する）
     // ※ 失敗時の UI 即時巻き戻しは codereview-issue.local.md に「現状維持」判断で持ち越し
     const DWORD priority = checked ? ABOVE_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
     if (SetPriorityClass(GetCurrentProcess(), priority)) {
@@ -1685,7 +1685,7 @@ void MainWindow::onSeekHoverMoved(int x, int sliderValue)
     // 旧情報のサムネ抽出が走らないよう valid ガードを併記する
     if (!m_info.valid || isAudioOnly() || !m_thumbExtractor) return;
 
-    // 走行中なら request() 内で破棄される（完走優先）。
+    // 走行中なら request() 内で破棄される。（完走優先）
     // 走行中ジョブの finished で connect された callback がここを再帰呼びして最新位置を取りに行く
     requestHoverThumbnail();
 }
@@ -1705,7 +1705,7 @@ void MainWindow::requestHoverThumbnail()
         if (!ok) return;
         if (!m_seekPreview->isVisible()) return;
 
-        // 完走したサムネは常に表示する（MPC-HC 風：時刻は最新ホバー位置、サムネは多少遅れて追従）。
+        // 完走したサムネは常に表示する。（MPC-HC 風：時刻は最新ホバー位置、サムネは多少遅れて追従）
         // target == m_hoverPendingSec の同期チェックは行わない。マウス移動中に不一致が続いて
         // 何も表示されない事態を避ける
         const int displaySec = (m_hoverPendingSec >= 0) ? m_hoverPendingSec : target;

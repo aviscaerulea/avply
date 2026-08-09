@@ -10,7 +10,7 @@ namespace SingleInstance {
 
 // primary 確定を試みる（名前付き mutex によるアトミック判定）
 // 同時複数起動でも primary は必ず 1 プロセスに決まる。
-// プロセス内で 1 回だけ呼ぶ前提（呼ぶ度に mutex ハンドルがひとつ増える）。
+// プロセス内で 1 回だけ呼ぶ前提。（呼ぶ度に mutex ハンドルがひとつ増える）
 // 戻り値 true：自身が primary（CreateMutexW 失敗で判定不能の場合も primary として続行）
 // 戻り値 false：既存 primary あり、forwardWithRetry で転送すべき
 // mutex ハンドルは意図的に保持し続ける（プロセス終了時に OS が解放する）
