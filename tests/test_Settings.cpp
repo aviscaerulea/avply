@@ -39,7 +39,6 @@ const QStringList& trackedKeys()
         QStringLiteral("topmostWhilePlaying"),
         QStringLiteral("singleInstance"),
         QStringLiteral("aboveNormalPriority"),
-        QStringLiteral("speechEnhanceLevel"),
     };
     return keys;
 }
@@ -126,16 +125,11 @@ private slots:
     void topmost_defaultIsFalse();
     void singleInstance_defaultIsFalse();
     void aboveNormalPriority_defaultIsFalse();
-    void speechEnhanceLevel_defaultIsOne();
 
     // setter / getter のラウンドトリップ
     void topmost_setTrue_persists();
     void singleInstance_setTrue_persists();
     void aboveNormalPriority_setTrue_persists();
-
-    // speechEnhanceLevel のクランプ挙動
-    void speechEnhanceLevel_clampsBelowToZero();
-    void speechEnhanceLevel_clampsAboveToTwo();
 };
 
 void TestSettings::init()
@@ -169,12 +163,6 @@ void TestSettings::aboveNormalPriority_defaultIsFalse()
     QCOMPARE(Settings::instance().aboveNormalPriority(), false);
 }
 
-void TestSettings::speechEnhanceLevel_defaultIsOne()
-{
-    // 仕様：speechEnhanceLevel は未書込時に 1（Standard）を返す
-    QCOMPARE(Settings::instance().speechEnhanceLevel(), 1);
-}
-
 void TestSettings::topmost_setTrue_persists()
 {
     Settings::instance().setTopmostWhilePlaying(true);
@@ -197,18 +185,6 @@ void TestSettings::aboveNormalPriority_setTrue_persists()
     QCOMPARE(Settings::instance().aboveNormalPriority(), true);
     Settings::instance().setAboveNormalPriority(false);
     QCOMPARE(Settings::instance().aboveNormalPriority(), false);
-}
-
-void TestSettings::speechEnhanceLevel_clampsBelowToZero()
-{
-    Settings::instance().setSpeechEnhanceLevel(-5);
-    QCOMPARE(Settings::instance().speechEnhanceLevel(), 0);
-}
-
-void TestSettings::speechEnhanceLevel_clampsAboveToTwo()
-{
-    Settings::instance().setSpeechEnhanceLevel(10);
-    QCOMPARE(Settings::instance().speechEnhanceLevel(), 2);
 }
 
 // テスト用エントリポイント

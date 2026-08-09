@@ -121,10 +121,6 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "audio"    && key == "silence_tone_freq_hz") assignDouble(cfg.silenceToneFreqHz);
         if (section == "audio"    && key == "silence_tone_amp")     assignDouble(cfg.silenceToneAmp);
 
-        // 音声強調強度別の NS レベル（Standard/Strong の 2 段で個別指定）
-        if (section == "speech_enhance" && key == "ns_level_standard") assignInt(cfg.speechEnhanceNsLevelStandard);
-        if (section == "speech_enhance" && key == "ns_level_strong")   assignInt(cfg.speechEnhanceNsLevelStrong);
-
         // 真偽値（true / false / 1 / 0 を受理。それ以外は無視）
         auto assignBool = [&](bool& target) {
             const QString v = value.trimmed().toLower();
@@ -158,11 +154,6 @@ void clampConfig(AppConfig& cfg)
     // 振幅 0.01（-40 dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
-
-    // 音声強調 NS レベル範囲
-    // ns_level: 0〜3（Low / Moderate / High / VeryHigh）
-    cfg.speechEnhanceNsLevelStandard = std::clamp(cfg.speechEnhanceNsLevelStandard, 0, 3);
-    cfg.speechEnhanceNsLevelStrong   = std::clamp(cfg.speechEnhanceNsLevelStrong,   0, 3);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

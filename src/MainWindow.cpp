@@ -2,7 +2,6 @@
 #include "Config.h"
 #include "OutputNamer.h"
 #include "Settings.h"
-#include "SpeechEnhancer.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QVBoxLayout>
@@ -68,17 +67,13 @@ namespace {
 const QString kSpeedPrefix     = QString::fromUtf8("  \xf0\x9f\x8e\xac ");
 const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
-// 後ろに "0"（Off）/ "1"（標準）/ "2"（強）を連結して表示する
+// 後ろに "ON" / "OFF" を連結して表示する
 const QString kSpeechEnhancePrefix = "  Clarity:";
 
 // メニューの角丸抑制スタイル
 // Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする。
 // コンテキストメニューとその設定サブメニューの両方へ適用する
 const QString kMenuStyle = QStringLiteral("QMenu { border-radius: 2px; }");
-
-// 音声強調の強度数（SpeechEnhancer::Level の総数）
-// cycleSpeechEnhance の循環剰余演算で参照する。Strong が enum の末尾要素である前提
-constexpr int kLevelCount = static_cast<int>(SpeechEnhancer::Level::Strong) + 1;
 
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
@@ -168,8 +163,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
-    // --- 音声強調ラベル（常時表示。Off=0、標準=1、強=2） ---
-    m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "0");
+    // --- 音声強調ラベル（常時表示。ON/OFF） ---
+    m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "OFF");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -344,7 +339,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 以降にユーザ操作で m_playbackRate / m_volume / Settings 値が変わっても、ここの値は維持する
     m_initialPlaybackRate = m_playbackRate;
     m_initialVolume       = m_volume;
-    m_initialEnhanceLevel = Settings::instance().speechEnhanceLevel();
 
     m_videoView->setVolume(m_volume);
     updateSpeedDisplay();
@@ -383,9 +377,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actPriority->setChecked(Settings::instance().aboveNormalPriority());
     connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
 
-    // 起動時の音声強調強度を VideoView（AudioWorker）に反映し、ラベル表示を初期化する
-    // QAction は持たず N キー押下のみで循環するため、コンテキストメニュー項目は作らない
-    m_videoView->setSpeechEnhanceLevel(Settings::instance().speechEnhanceLevel());
+    // 音声強調は永続化しない仕様のため起動時は常に OFF（AudioWorker も初期 OFF で生成済み）
+    // QAction は持たず N キー押下のみでトグルするため、コンテキストメニュー項目は作らない
     updateSpeechEnhanceDisplay();
 
     updateMenuActionEnabled();
@@ -1324,7 +1317,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     case Qt::Key_N:
         if (running) return true;
-        cycleSpeechEnhance();
+        toggleSpeechEnhance();
         return true;
     default:
         return QMainWindow::eventFilter(watched, event);
@@ -1370,24 +1363,17 @@ void MainWindow::updateVolumeDisplay()
     m_volumeLabel->setText(kVolumePrefix + QString::asprintf("%.0f%%", m_volume * 100.0));
 }
 
-void MainWindow::cycleSpeechEnhance()
+void MainWindow::toggleSpeechEnhance()
 {
-    // 3 状態循環：Off → 標準 → 強 → Off ...
-    // 強度値（0=Off / 1=標準 / 2=強）の剰余で素直に表現する。
-    // レジストリ永続化と AudioWorker への反映、ラベル更新を一度にまとめる
-    const int next = (Settings::instance().speechEnhanceLevel() + 1) % kLevelCount;
-    Settings::instance().setSpeechEnhanceLevel(next);
-    m_videoView->setSpeechEnhanceLevel(next);
+    m_speechEnhanceEnabled = !m_speechEnhanceEnabled;
+    m_videoView->setSpeechEnhanceEnabled(m_speechEnhanceEnabled);
     updateSpeechEnhanceDisplay();
     m_gResetActive = false;
 }
 
 void MainWindow::updateSpeechEnhanceDisplay()
 {
-    // Off=0、標準=1、強=2 を常時表示する
-    // レジストリ改ざん等で 0〜2 外の値が来ても表示文字列が崩れないよう qBound でガードする
-    const int level = qBound(0, Settings::instance().speechEnhanceLevel(), 2);
-    m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + QString::number(level));
+    m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + (m_speechEnhanceEnabled ? "ON" : "OFF"));
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)
@@ -1409,21 +1395,22 @@ void MainWindow::toggleGReset()
 {
     if (m_info.duration <= 0.0) return;
     if (!m_gResetActive) {
-        // 1 回目：全リセット（速度 1.00、音量 100%、音声強調 Off）
-        applyPlaybackState(1.0, 1.0, 0);
+        // 1 回目：全リセット（速度 1.00、音量 100%、音声強調 OFF）
+        applyPlaybackState(1.0, 1.0, false);
         m_gResetActive = true;
     }
     else {
-        // 2 回目：起動時のデフォルト値（TOML / レジストリ初回読込値）へ復元
-        applyPlaybackState(m_initialPlaybackRate, m_initialVolume, m_initialEnhanceLevel);
+        // 2 回目：速度・音量を起動時のデフォルト値（TOML 初回読込値）へ復元
+        // 音声強調は永続化しない仕様のため起動時デフォルトは常に OFF
+        applyPlaybackState(m_initialPlaybackRate, m_initialVolume, false);
         m_gResetActive = false;
     }
 }
 
-void MainWindow::applyPlaybackState(qreal rate, qreal vol, int enhanceLevel)
+void MainWindow::applyPlaybackState(qreal rate, qreal vol, bool enhanceEnabled)
 {
     // 速度・音量・音声強調を一括反映する
-    // 各 setter / Settings 経由で AudioWorker への伝搬とレジストリ永続化も同時に行う
+    // 各 setter 経由で AudioWorker への伝搬も同時に行う
     m_playbackRate = qBound(qreal(0.05), rate, qreal(4.0));
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
@@ -1432,9 +1419,8 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol, int enhanceLevel)
     m_videoView->setVolume(m_volume);
     updateVolumeDisplay();
 
-    const int e = qBound(0, enhanceLevel, 2);
-    Settings::instance().setSpeechEnhanceLevel(e);
-    m_videoView->setSpeechEnhanceLevel(e);
+    m_speechEnhanceEnabled = enhanceEnabled;
+    m_videoView->setSpeechEnhanceEnabled(enhanceEnabled);
     updateSpeechEnhanceDisplay();
 }
 

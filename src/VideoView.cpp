@@ -1,7 +1,5 @@
 #include "VideoView.h"
 #include "AudioWorker.h"
-#include "Config.h"
-#include "Settings.h"
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QQuickView>
@@ -97,16 +95,11 @@ VideoView::VideoView(QWidget* parent)
     // 音声経路を QAudioBufferOutput + 専用スレッド AudioWorker + QAudioSink で構成する。
     // decoder thread → audio thread の QueuedConnection 経路により、
     // GUI thread が modal loop でブロックされても音声経路が独立稼働する。
-    // 初期 DSP 状態は Settings（強度レベル）から、強度別パラメータは avply.toml から読み込む。
-    // Config::load() は MainWindow でも別途呼ばれるが、ステートレスかつ起動時 1 回のため重複コストは無視できる
+    // 音声強調は永続化しない仕様のため初期 OFF で生成する
     const QAudioFormat audioFmt = makeAudioFormat();
-    const AppConfig    cfg      = Config::load();
     m_audioBuf    = new QAudioBufferOutput(audioFmt, this);
     m_audioThread = new QThread(this);
-    m_audioWorker = new AudioWorker(audioFmt,
-                                    Settings::instance().speechEnhanceLevel(),
-                                    cfg.speechEnhanceNsLevelStandard,
-                                    cfg.speechEnhanceNsLevelStrong);
+    m_audioWorker = new AudioWorker(audioFmt);
     m_audioWorker->moveToThread(m_audioThread);
 
     connect(m_audioThread, &QThread::started, m_audioWorker, &AudioWorker::start);
@@ -341,12 +334,12 @@ void VideoView::setVolume(double volume)
     }
 }
 
-void VideoView::setSpeechEnhanceLevel(int level)
+void VideoView::setSpeechEnhanceEnabled(bool enabled)
 {
     if (m_audioWorker) {
         // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する（setSource と同じ理由）
         AudioWorker* w = m_audioWorker;
-        QMetaObject::invokeMethod(w, [w, level]() { w->setSpeechEnhanceLevel(level); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(w, [w, enabled]() { w->setSpeechEnhanceEnabled(enabled); }, Qt::QueuedConnection);
     }
 }
 

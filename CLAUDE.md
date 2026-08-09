@@ -72,7 +72,7 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 | テスト | 対象 | 検証内容 |
 |--------|------|----------|
 | `test_OutputNamer` | `OutputNamer` | `_mod` シーケンス命名、衝突回避、Unicode パス、UUID フォールバック |
-| `test_Settings` | `Settings` | デフォルト値、setter/getter ラウンドトリップ、`speechEnhanceLevel` のクランプ |
+| `test_Settings` | `Settings` | デフォルト値、setter/getter ラウンドトリップ |
 | `test_FfmpegRunner_path` | `Ffmpeg::ffprobePath` | 拡張子置換、空白を含むパス、相対パス絶対化 |
 | `test_RangeSlider` | `RangeSlider` | ホイール・ホバー・ドラッグの各シグナル発火パターン |
 | `test_SeekPreview` | `SeekPreview` | `showAt` のジオメトリ算出（中央配置・端クランプ・上下フリップ） |
@@ -83,9 +83,9 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 当初 `RegOverridePredefKey` で `HKEY_CURRENT_USER` をテンポラリキーへリダイレクトする方式を試したが、`QSettings` の内部キャッシュとリダイレクトの相性で setter の書き込みが反映されない事象が起きたため不採用とした。
 
-最終的に **実体 HKCU の退避→初期化→復元** 方式を採用している。`backupAndClear()` で `topmostWhilePlaying` / `singleInstance` / `aboveNormalPriority` / `speechEnhanceLevel` の現値を退避してキーを削除し、テスト終了時に `restore()` で元の値を書き戻す。テスト完走時は開発者環境のレジストリに影響を残さない。
+最終的に **実体 HKCU の退避→初期化→復元** 方式を採用している。`backupAndClear()` で `topmostWhilePlaying` / `singleInstance` / `aboveNormalPriority` の現値を退避してキーを削除し、テスト終了時に `restore()` で元の値を書き戻す。テスト完走時は開発者環境のレジストリに影響を残さない。
 
-ただしテスト中に SIGSEGV 等で abort した場合は `restore()` が走らない。その場合は `regedit` で `HKCU\Software\avply\avply` 配下の 4 値を再設定する（あるいは avply を起動して右クリック設定メニューから操作する）必要がある。
+ただしテスト中に SIGSEGV 等で abort した場合は `restore()` が走らない。その場合は `regedit` で `HKCU\Software\avply\avply` 配下の 3 値を再設定する（あるいは avply を起動して右クリック設定メニューから操作する）必要がある。
 
 ## 実装上の注意点
 
@@ -165,31 +165,31 @@ UI からの編集はせず、実行ファイルと同階層の `avply.toml`（�
 
 ### 再生条件の一括リセット（G キー）
 
-`G` キーで再生速度・音量・音声強調レベルの 3 項目をトグルする。
-1 回目で「中立値」（速度 1.00、音量 1.00、音声強調 0）へ、2 回目で「起動時のデフォルト値」へ復元する。
+`G` キーで再生速度・音量・音声強調の 3 項目をトグルする。
+1 回目で「中立値」（速度 1.00、音量 1.00、音声強調 OFF）へ、2 回目で速度・音量を「起動時のデフォルト値」へ復元する。音声強調は永続化しない仕様のため、1 回目・2 回目とも OFF になる。
 
-起動時のデフォルト値は `MainWindow` コンストラクタで `m_initial*` メンバへスナップショットする（TOML 由来の速度・音量、レジストリ由来の音声強調レベル）。ユーザが後段でこれらを変更しても、スナップショット値は維持される。
+起動時のデフォルト値は `MainWindow` コンストラクタで `m_initial*` メンバへスナップショットする（TOML 由来の速度・音量）。ユーザが後段でこれらを変更しても、スナップショット値は維持される。
 
 リセット状態の追跡フラグ `m_gResetActive` は以下のように管理する。
 
-- `toggleGReset` 内で `applyPlaybackState` 経由で直接 setter / Settings を更新する（`changePlaybackRate` 等の公開関数は経由しない）
-- 公開関数 `changePlaybackRate` / `changeVolume` / `cycleSpeechEnhance` の末尾で `m_gResetActive = false` にクリアする
+- `toggleGReset` 内で `applyPlaybackState` 経由で直接 setter を更新する（`changePlaybackRate` 等の公開関数は経由しない）
+- 公開関数 `changePlaybackRate` / `changeVolume` / `toggleSpeechEnhance` の末尾で `m_gResetActive = false` にクリアする
 - これによりリセット状態中にユーザが任意の関連項目を手動操作すると自動でフラグが落ち、次の `G` 押下は再び「中立値リセット」として動作する
 
 ### 音声強調設定
 
 再生時の WebRTC Audio Processing（APM）による会議音声のレベル均し機能。ノイズ抑制（NS）+ 自動ゲイン制御（AGC2）+ ハイパスフィルタ（HPF）を一括適用する。話者間の音量バラつきを自動で均し、マイク直結で小さく録れた発言を AGC2 の adaptive ゲインで持ち上げる。NS + HPF がこもり除去・低域カブリ抑制を兼ねる。
 
-- 強度は 3 段階：Off / 標準 / 強（デフォルト：標準。`Settings::speechEnhanceLevel` の既定値 `1`）
-- 切替操作：`N` キーのみ。押下する度に Off → 標準 → 強 → Off の順で循環する
-- 状態表示：ステータスバーに「Clarity:0〜2」を常時表示する（0=Off / 1=標準 / 2=強）
-- 永続化：レジストリ（`HKEY_CURRENT_USER\Software\avply\avply\speechEnhanceLevel`、int 値 0〜2）
+- 状態は ON/OFF の 2 値。切替操作は `N` キーのみ（トグル）
+- 状態表示：ステータスバーに「Clarity:ON/OFF」を常時表示する
+- 永続化はしない：起動時は常に OFF。インスタンス生存中はファイル切替をまたいで状態を保持する（再生速度と同じ扱い）
+- 旧版はレジストリ `speechEnhanceLevel`（0〜2 の 3 段階）で永続化していたが撤去した。旧値は掃除せず放置する（実害のない残留 int 値 1 個のために削除コードを持たない）
 
 DSP チェーンは `SoundTouch（音程保持の時間圧縮）→ SpeechEnhancer（APM）→ 音量 → sink` の順だ。APM はテンポ・ピッチを変えないため、倍速再生時も音程は SoundTouch により保たれる。
 
 **モノラル処理**
 
-APM は AEC（エコーキャンセラ）非使用時に内部でモノラルへダウンミックスするため、`SpeechEnhancer` は明示的にモノラルで処理する。interleaved stereo をダウンミックス → APM 1ch 処理 → 同一サンプルを左右へ複製して interleaved へ戻す。Off 時は APM を通さずステレオのまま素通しする。
+APM は AEC（エコーキャンセラ）非使用時に内部でモノラルへダウンミックスするため、`SpeechEnhancer` は明示的にモノラルで処理する。interleaved stereo をダウンミックス → APM 1ch 処理 → 同一サンプルを左右へ複製して interleaved へ戻す。OFF 時は APM を通さずステレオのまま素通しする。
 
 **10ms フレーム蓄積**
 
@@ -197,34 +197,20 @@ APM は 10ms 固定フレーム（48kHz で 480 サンプル）・deinterleaved 
 
 **スレッド前提**
 
-APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドから呼ぶ必要がある。そのため `SpeechEnhancer` の生成は `AudioWorker::start()` スロット（audio thread）で行い、affinity を確定する。`setLevel` も `setSpeechEnhanceLevel` スロット経由で audio thread からのみ呼ぶ。
+APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドから呼ぶ必要がある。そのため `SpeechEnhancer` の生成は `AudioWorker::start()` スロット（audio thread）で行い、affinity を確定する。`setEnabled` も `setSpeechEnhanceEnabled` スロット経由で audio thread からのみ呼ぶ。
 
 **プチノイズ（クリックノイズ）対策**
 
 APM の最終リミッタはピークを 1.0 へ頭打ちにする。WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提とするため、既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、リミッタがハードクリップして単発クリックを生む。対策として以下を恒久適用する。
 
-- 入力プリアッテネーション：APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったまま全強度でクリップを根絶する。実測で -6dB なら Off / 標準 / 強すべてでクリップフレーム 0
-- `fixed_digital.gain_db = 0` 固定：adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源であり、プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した。強度差は NS レベルのみで決まる
-- `headroom_db = 4` / `initial_gain_db = 6`：headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。小さいほどターゲットが上がり小声を強く持ち上げる。大声は既にターゲット以上のため影響を受けず、クリップ耐性もプリアッテネーションで担保されるため変わらない。4dB で小声を十分持ち上げつつ全強度でクリップフレーム 0 を維持する（実測）。`initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える
+- 入力プリアッテネーション：APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったままクリップを根絶する。実測で -6dB ならクリップフレーム 0
+- `fixed_digital.gain_db = 0` 固定：adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源であり、プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した
+- `headroom_db = 4` / `initial_gain_db = 6`：headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。小さいほどターゲットが上がり小声を強く持ち上げる。大声は既にターゲット以上のため影響を受けず、クリップ耐性もプリアッテネーションで担保されるため変わらない。4dB で小声を十分持ち上げつつクリップフレーム 0 を維持する。（実測）`initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える
 - `max_gain_change_db_per_second = 300`：適応ゲインが目標へ収束する速度の上限。既定 6dB/s では小声を +24dB 持ち上げるのに約 4 秒かかり、発話冒頭がゲイン追従に間に合わず聞こえない。レートリミッタを大きく開放して各発話冒頭の追従を可能な限りタイトにする。速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。なお 100 dB/s 以上は全体平均が頭打ちで、実質の律速は AGC 内部の小声検知レイテンシ（Config 非公開）。`initial_gain_db` を上げれば初期位置から速く立ち上がるが、再生開始直後の大音量がリミッタを叩きクリップが再発するため 6 に据え置く
 
-強度差は NS（ノイズ抑制）レベルのみで付く。強度別の NS レベルは `avply.toml` の `[speech_enhance]` セクションで指定する。
+NS（ノイズ抑制）レベルは `SpeechEnhancer.cpp` の `kNsLevel = kModerate` でコード固定する。High 以上は声質が削れ、Low ではこもり除去が不足するため中庸を採る。旧 3 段階（標準=Moderate / 強=High）を ON/OFF へ簡素化した際、副作用の少ない標準相当へ一本化し、toml の `[speech_enhance]` セクションも撤去した。
 
-| パラメータ | 標準 | 強 |
-|-----------|------|----|
-| NS レベル（0=Low / 1=Moderate / 2=High / 3=VeryHigh） | 1 | 2 |
-
-avply.toml 設定例（既定値）：
-
-```toml
-[speech_enhance]
-ns_level_standard = 1
-ns_level_strong   = 2
-```
-
-NS レベルは 0〜3 にクランプする。`3`（VeryHigh）は声まで削るため非推奨。
-
-AGC2 適応上限（`adaptive_digital.max_gain_db`）は強度別に分けず `SpeechEnhancer.cpp` の `kMaxGainDb = 40.0f` でコード固定する。offline 計測で会議音声の小声は headroom で決まる出力ターゲットまでの持ち上げで足り、適応ゲインが天井に届かず 30/40/50dB のいずれでも出力レベル・クリップ指標が完全に一致したため、強度別に分けても無意味と判明した。入力プリアッテネーションと並び、クリップ耐性・有効性に直結する内部定数のため toml では調整できない。
+AGC2 適応上限（`adaptive_digital.max_gain_db`）は `SpeechEnhancer.cpp` の `kMaxGainDb = 40.0f` でコード固定する。offline 計測で会議音声の小声は headroom で決まる出力ターゲットまでの持ち上げで足り、適応ゲインが天井に届かず 30/40/50dB のいずれでも出力レベル・クリップ指標が完全に一致した。入力プリアッテネーションと並び、クリップ耐性・有効性に直結する内部定数のため toml では調整できない。
 `reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
 
 **高速再生時のサンプル欠落対策（SoundTouch WSOLA）**

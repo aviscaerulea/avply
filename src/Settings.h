@@ -20,21 +20,12 @@ public:
     bool aboveNormalPriority() const;
     void setAboveNormalPriority(bool value);
 
-    // 再生時の音声強調（WebRTC APM）強度
-    // 0=Off / 1=標準 / 2=強（デフォルト 1=標準）
-    // 値は SpeechEnhancer::Level と 1:1 対応する。enum を直接公開しないのは
-    // QSettings の永続化が int で完結するため、依存の方向性を Settings → SpeechEnhancer 単方向に保つため
-    int  speechEnhanceLevel() const;
-    void setSpeechEnhanceLevel(int value);
-
 private:
     Settings();
 
     // setValue 直後に sync() で flush し、レジストリへ即時反映する
     void writeBool(const char* key, bool value);
     bool readBool(const char* key, bool defaultValue) const;
-    void writeInt(const char* key, int value);
-    int  readInt(const char* key, int defaultValue) const;
 
     mutable QSettings m_settings;
 };

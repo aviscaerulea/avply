@@ -21,13 +21,8 @@ class AudioWorker : public QObject {
     Q_OBJECT
 public:
     // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // initialSpeechEnhanceLevel で音声強調強度を確定する
-    // （0=Off / 1=Standard / 2=Strong、SpeechEnhancer::Level と対応）。
-    // nsStandard / nsStrong は強度別の NS レベルを avply.toml の値で渡す（AGC はコード固定）
+    // 音声強調は初期 OFF で生成する（永続化なし。起動時は常に OFF の仕様）
     explicit AudioWorker(const QAudioFormat& format,
-                         int  initialSpeechEnhanceLevel,
-                         int  nsStandard,
-                         int  nsStrong,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
 
@@ -58,10 +53,9 @@ public slots:
     // 再生音量を更新する（0.0〜1.0）
     void setVolume(double volume);
 
-    // 音声強調の強度を切り替える
-    // 値は SpeechEnhancer::Level に対応（0=Off / 1=Standard / 2=Strong）
+    // 音声強調の ON/OFF を切り替える
     // ApplyConfig を内部で呼ぶため audio thread からのみ実行する
-    void setSpeechEnhanceLevel(int level);
+    void setSpeechEnhanceEnabled(bool enabled);
 
     // 再生速度を SoundTouch に設定する（音程を保ったまま時間圧縮 / 伸長する）
     // QAudioBufferOutput が pitchCompensation を無視するため AudioWorker 側で時間圧縮する
@@ -86,12 +80,8 @@ private:
     QAudioFormat m_format;
     // 音声強調 DSP（WebRTC APM ラッパ）
     // APM は ApplyConfig / ProcessStream / Initialize を同一スレッドから呼ぶ前提のため、
-    // 生成は start() スロット（audio thread）で行い affinity を確定する。
-    // 構築引数は下記メンバへ退避して start() まで保持する
+    // 生成は start() スロット（audio thread）で行い affinity を確定する
     std::unique_ptr<SpeechEnhancer> m_enhancer;
-    int                       m_initialEnhanceLevel;
-    int                       m_nsStandard;
-    int                       m_nsStrong;
     QAudioSink*  m_sink    = nullptr;
     QIODevice*   m_sinkDev = nullptr;
     double       m_volume  = 1.0;

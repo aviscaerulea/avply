@@ -13,20 +13,12 @@
 #include <pmmintrin.h>
 
 AudioWorker::AudioWorker(const QAudioFormat& format,
-                         int  initialSpeechEnhanceLevel,
-                         int  nsStandard,
-                         int  nsStrong,
                          QObject* parent)
     : QObject(parent)
     , m_format(format)
-    , m_initialEnhanceLevel(std::clamp(initialSpeechEnhanceLevel,
-                                       static_cast<int>(SpeechEnhancer::Level::Off),
-                                       static_cast<int>(SpeechEnhancer::Level::Strong)))
-    , m_nsStandard(nsStandard)
-    , m_nsStrong(nsStrong)
 {
     // SpeechEnhancer（APM）の生成は start()（audio thread）で行う。
-    // APM は生成・設定・処理を同一スレッドで完結させる前提のため、構築引数だけ退避する
+    // APM は生成・設定・処理を同一スレッドで完結させる前提のためここでは生成しない
 }
 
 AudioWorker::~AudioWorker() = default;
@@ -45,9 +37,7 @@ void AudioWorker::start()
     // ApplyConfig / ProcessStream / Initialize の呼び出しスレッドを一貫させるため、
     // コンストラクタ側では生成せず必ず本スロット経由で生成する
     m_enhancer = std::make_unique<SpeechEnhancer>(
-        m_format.sampleRate(), m_format.channelCount(),
-        m_nsStandard, m_nsStrong,
-        static_cast<SpeechEnhancer::Level>(m_initialEnhanceLevel));
+        m_format.sampleRate(), m_format.channelCount());
 
     // 所属スレッド（audio thread）で QAudioSink を生成して start する。
     // QAudioSink / QIODevice の thread affinity を所属スレッドで一貫させるため、
@@ -472,13 +462,10 @@ void AudioWorker::setVolume(double volume)
     m_volume = volume;
 }
 
-void AudioWorker::setSpeechEnhanceLevel(int level)
+void AudioWorker::setSpeechEnhanceEnabled(bool enabled)
 {
     if (!m_enhancer) return;
-    const int clamped = std::clamp(level,
-                                   static_cast<int>(SpeechEnhancer::Level::Off),
-                                   static_cast<int>(SpeechEnhancer::Level::Strong));
-    m_enhancer->setLevel(static_cast<SpeechEnhancer::Level>(clamped));
+    m_enhancer->setEnabled(enabled);
 }
 
 void AudioWorker::setPlaybackRate(double rate)

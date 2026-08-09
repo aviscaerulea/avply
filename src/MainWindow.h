@@ -171,22 +171,23 @@ private:
     void onToggleSingleInstance(bool checked);
     void onTogglePriority(bool checked);
 
-    // 音声強調の強度を 1 段階進める（Off → 標準 → 強 → Off の 3 状態循環）
-    // N キー押下から呼ばれる。レジストリ永続化と AudioWorker への反映、ラベル更新をまとめて行う
-    void cycleSpeechEnhance();
+    // 音声強調の ON/OFF をトグルする
+    // N キー押下から呼ばれる。AudioWorker への反映とラベル更新をまとめて行う。
+    // 永続化はしない（起動時は常に OFF。インスタンス生存中はファイル切替をまたいで保持）
+    void toggleSpeechEnhance();
 
-    // 音声強調ラベルの強度表記を現在の設定に応じて更新する
-    // 常時表示で「Clarity:0/1/2」（0=Off / 1=標準 / 2=強）の数値を表示する
+    // 音声強調ラベルの表示を現在の状態に応じて更新する
+    // 常時表示で「Clarity:ON/OFF」を表示する
     void updateSpeechEnhanceDisplay();
 
     // g キー押下時のトグル動作
     // 1 回目で再生速度/音量/音声強調を全て「中立値」へ揃え、
-    // 2 回目で起動時に読み込んだ TOML / レジストリ値へ復元する
+    // 2 回目で速度・音量を起動時に読み込んだ TOML 値へ復元する（音声強調は両回とも OFF）
     void toggleGReset();
 
     // 再生速度・音量・音声強調の 3 項目を一括適用する
     // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない（呼び出し側で管理）
-    void applyPlaybackState(qreal rate, qreal vol, int enhanceLevel);
+    void applyPlaybackState(qreal rate, qreal vol, bool enhanceEnabled);
 
     // 再生状態に応じてウィンドウの最前面表示を切り替える
     // Settings::topmostWhilePlaying が true かつ playing なら topmost、それ以外は解除
@@ -230,11 +231,14 @@ private:
     // 現在の再生音量（0.0〜1.0）
     qreal m_volume = 1.0;
 
+    // 現在の音声強調 ON/OFF
+    // 永続化しないためインスタンス生存中のみ保持する（起動時は常に OFF）
+    bool m_speechEnhanceEnabled = false;
+
     // g キーで参照する起動時デフォルト値のスナップショット
-    // TOML / レジストリから初回読込した値をコンストラクタで保存する
+    // TOML から初回読込した値をコンストラクタで保存する
     qreal m_initialPlaybackRate   = 1.0;
     qreal m_initialVolume         = 1.0;
-    int   m_initialEnhanceLevel   = 0;
 
     // g キーによる「全リセット状態」フラグ
     // true の間に手動で速度/音量/音声強調のいずれかが変わると自動で false に戻り、

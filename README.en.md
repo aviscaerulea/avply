@@ -35,7 +35,8 @@ When you load an audio file, the window switches to a compact layout without the
 
 In meeting recordings, remarks made far from the microphone sound quiet while nearby ones sound loud.
 Voice enhancement combines noise suppression and automatic gain control to even out that difference during playback.
-There are three levels — Off, Standard, and Strong — and pressing the N key cycles through them.
+Pressing the N key toggles it on and off.
+It always starts off at launch, and the setting is not saved.
 
 ## Installation
 
@@ -94,8 +95,8 @@ Trimming controls are as follows.
 | Clear the range only (playback position kept) | R | |
 | Run / cancel trimming | | ✂ button |
 
-The first press of G returns to neutral values (speed 1.00, volume 100%, voice enhancement Off), and the second press restores the values from startup.
-The bottom of the window always shows the current playback speed, volume, and voice enhancement level.
+The first press of G returns to neutral values (speed 1.00, volume 100%, voice enhancement off), and the second press restores the speed and volume from startup.
+The bottom of the window always shows the current playback speed, volume, and voice enhancement state.
 
 ### Trimming and conversion
 
@@ -132,7 +133,6 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
-| `[speech_enhance]` | Noise suppression level for voice enhancement |
 
 The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
 No configuration is needed if ffmpeg is available through Scoop or `PATH`.
