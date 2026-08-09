@@ -20,8 +20,9 @@ namespace soundtouch { class SoundTouch; }
 class AudioWorker : public QObject {
     Q_OBJECT
 public:
-    // format は QAudioBufferOutput に渡したフォーマットと一致させること
-    // 音声強調は初期 OFF で生成する（永続化なし。起動時は常に OFF の仕様）
+    // コンストラクタ
+    // format は QAudioBufferOutput に渡したフォーマットと一致させること。
+    // 音声強調の初期状態は OFF（生成は start() で行う。永続化なしで起動時は常に OFF の仕様）
     explicit AudioWorker(const QAudioFormat& format,
                          QObject* parent = nullptr);
     ~AudioWorker() override;
