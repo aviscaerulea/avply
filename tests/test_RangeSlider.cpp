@@ -79,7 +79,6 @@ private slots:
 
     // ドラッグ
     void dragStarted_firesOnFirstMoveAfterPress();
-    void dragEnded_firesOnReleaseAfterDrag();
 
 private:
     RangeSlider* m_slider = nullptr;
@@ -172,17 +171,6 @@ void TestRangeSlider::dragStarted_firesOnFirstMoveAfterPress()
     releaseLeft(m_slider, 120);
     QCOMPARE(startSpy.count(), 1);
     QCOMPARE(endSpy.count(),   1);
-}
-
-void TestRangeSlider::dragEnded_firesOnReleaseAfterDrag()
-{
-    QSignalSpy endSpy(m_slider, &RangeSlider::dragEnded);
-
-    pressLeft  (m_slider, 30);
-    moveLeft   (m_slider, 80);
-    releaseLeft(m_slider, 80);
-
-    QCOMPARE(endSpy.count(), 1);
 }
 
 QTEST_MAIN(TestRangeSlider)
