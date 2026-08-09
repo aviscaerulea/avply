@@ -219,14 +219,21 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
             }
         };
 
-        // 受信：改行検出または上限超過で確定
-        QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket, buf, deliver]() {
-            buf->append(socket->readAll());
+        // 受信データの取り込み
+        // 上限超過は即 abort、改行検出で deliver へ渡す。readyRead と
+        // 接続時点で既に到着済みのケースの双方から同一手順で呼ぶ
+        auto consume = [buf, deliver](QLocalSocket* s) {
+            buf->append(s->readAll());
             if (buf->size() > kMaxPayloadBytes) {
-                socket->abort();
+                s->abort();
                 return;
             }
-            if (buf->contains('\n')) deliver(socket);
+            if (buf->contains('\n')) deliver(s);
+        };
+
+        // 受信：改行検出または上限超過で確定
+        QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket, consume]() {
+            consume(socket);
         });
 
         // 受信タイムアウト：マジック・改行が来ないまま放置されたら切断
@@ -238,12 +245,7 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
         // 起動直後に既にデータが到着しているケース
         // newConnection 受信時点で readyRead が発火済みなら今後 readyRead は来ない
         if (socket->bytesAvailable() > 0) {
-            buf->append(socket->readAll());
-            if (buf->size() > kMaxPayloadBytes) {
-                socket->abort();
-                return;
-            }
-            if (buf->contains('\n')) deliver(socket);
+            consume(socket);
         }
     });
 }
