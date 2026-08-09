@@ -607,7 +607,7 @@ void MainWindow::startOrCancel(EncodeMode mode)
     }
 
     // --- バリデーション ---
-    if (m_ffmpegPath.isEmpty() || !QFile::exists(m_ffmpegPath)) {
+    if (!isFfmpegAvailable()) {
         QMessageBox::warning(this, "設定エラー",
             "ffmpeg.exe のパスが正しく設定されていません。\n"
             "avply.toml を確認してください。");
@@ -1003,7 +1003,7 @@ void MainWindow::setUiEnabled(bool enabled)
 {
     // ファイル依存ボタンは「enabled かつ動画読込済」のときのみ活性化する
     const bool fileLoaded = enabled && m_info.valid;
-    const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
+    const bool ffmpegOk = isFfmpegAvailable();
     m_seekSlider->setEnabled(fileLoaded);
     m_playPauseBtn->setEnabled(fileLoaded);
     m_stopBtn->setEnabled(fileLoaded);
@@ -1018,7 +1018,7 @@ void MainWindow::updateMenuActionEnabled()
     // 「開く」は実行中以外（m_runningOp==None）なら常に許可
     // 「変換」「トリム」はファイル読込済 + ffmpeg 存在を要求し、トリムはさらに範囲が有効である必要がある
     const bool idle      = (m_runningOp == Operation::None);
-    const bool ffmpegOk  = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
+    const bool ffmpegOk  = isFfmpegAvailable();
     const bool fileReady = m_info.valid;
 
     if (m_actOpen)     m_actOpen->setEnabled(idle);
@@ -1043,6 +1043,11 @@ bool MainWindow::isTrimMeaningful() const
     const double effectiveOut = m_outSet ? m_outSec : m_info.duration;
     constexpr double eps = 0.001;
     return effectiveIn > eps || effectiveOut < m_info.duration - eps;
+}
+
+bool MainWindow::isFfmpegAvailable() const
+{
+    return !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
 }
 
 void MainWindow::setRunning(Operation op)
@@ -1208,7 +1213,7 @@ void MainWindow::updateRangeMarkers()
 
     // 区間変化に追従してトリムボタンの活性状態を更新する
     // 実行中はこの直後に setRunning() → setUiEnabled(false) で再度無効化される
-    const bool ffmpegOk = !m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath);
+    const bool ffmpegOk = isFfmpegAvailable();
     m_trimBtn->setEnabled(m_info.valid && ffmpegOk && isTrimMeaningful());
 
     // 区間更新でメニュー側の「トリム」項目の活性条件も変わる
@@ -1436,7 +1441,7 @@ QString MainWindow::openDialogStartDir() const
 
 void MainWindow::validateFfmpegPath()
 {
-    if (!m_ffmpegPath.isEmpty() && QFile::exists(m_ffmpegPath)) return;
+    if (isFfmpegAvailable()) return;
 
     // 変換ボタンの活性は setUiEnabled が QFile::exists で都度判定するためここでは状態を持たない
     QMessageBox::warning(this, "設定エラー",
@@ -1472,7 +1477,7 @@ void MainWindow::startWaveformGeneration(const QString& inputPath)
     stopWaveformProcess();
 
     // ffmpeg パスが無効なら波形生成は諦める。シークバーは波形なしのまま
-    if (m_ffmpegPath.isEmpty() || !QFile::exists(m_ffmpegPath)) return;
+    if (!isFfmpegAvailable()) return;
 
     const QString cachePath = waveformCachePath(inputPath);
 

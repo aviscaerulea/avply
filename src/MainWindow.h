@@ -104,6 +104,10 @@ private:
     // トリムが意味を持つか（実効範囲が動画全長と異なるか）を判定する
     bool isTrimMeaningful() const;
 
+    // ffmpeg 実行ファイルが利用可能か
+    // パス未設定と実体消失の双方を都度判定する（起動後の削除・移動にも追従するため状態を持たない）
+    bool isFfmpegAvailable() const;
+
     // 実行中の操作種別。None ならアイドル
     enum class Operation { None, Convert, Trim };
 
