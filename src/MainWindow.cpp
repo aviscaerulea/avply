@@ -159,7 +159,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_speedLabel = new QLabel(kSpeedPrefix + "x1.00");
 
     // --- 音量ラベル（再生速度の右に配置） ---
-    // 初期値は avply.toml の [audio].volume から取得し、Shift+カーソルキーで動的に変更する
+    // 初期値は avply.toml の [audio].volume から取得し、カーソルキー（上下）と Shift+ホイールで動的に変更する
     // 先頭の 🔊 はラベル種別の視覚的区別のため付与する
     m_volumeLabel = new QLabel(kVolumePrefix + "100%");
 
