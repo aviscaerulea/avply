@@ -247,7 +247,7 @@ void Encoder::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     if (exitCode != 0) {
         cleanupTemp();
         // ffmpeg 出力末尾を付加してデバッグ可能性を確保する
-        QString detail = QString("変換に失敗しました（終了コード: %1）").arg(exitCode);
+        QString detail = QString("変換に失敗しました（終了コード：%1）").arg(exitCode);
         const QString tail = m_outputTail.trimmed();
         if (!tail.isEmpty()) {
             detail.append(QStringLiteral("\n----- ffmpeg 出力末尾 -----\n"));

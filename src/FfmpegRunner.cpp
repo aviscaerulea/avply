@@ -40,7 +40,7 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(jsonBytes, &parseError);
     if (parseError.error != QJsonParseError::NoError) {
-        result = {false, "ffprobe JSON パースエラー: " + parseError.errorString()};
+        result = {false, "ffprobe JSON パースエラー：" + parseError.errorString()};
         return info;
     }
 
@@ -130,7 +130,7 @@ QProcess* probeAsync(
             result = {false, "ffprobe が異常終了しました"};
         }
         else if (code != 0) {
-            result = {false, "ffprobe の実行に失敗しました: "
+            result = {false, "ffprobe の実行に失敗しました："
                              + QString::fromUtf8(proc->readAllStandardError())};
         }
         else {
