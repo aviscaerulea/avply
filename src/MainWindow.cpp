@@ -707,6 +707,8 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
 {
     // 失敗表示に使う種別は setRunning(None) で m_runningOp が消える前に退避する
     const QString label = (m_runningOp == Operation::Trim) ? "トリム失敗" : "変換失敗";
+    // ダイアログタイトルは label と語彙が異なるため別に退避する
+    const QString title = (m_runningOp == Operation::Trim) ? "トリムエラー" : "変換エラー";
     setRunning(Operation::None);
 
     if (ok) {
@@ -737,7 +739,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     }
 
     m_outputLabel->setText(QString("  %1：%2").arg(label, err));
-    QMessageBox::critical(this, "変換エラー", err);
+    QMessageBox::critical(this, title, err);
 }
 
 void MainWindow::onEncoderReleaseFile(const QString& path)
