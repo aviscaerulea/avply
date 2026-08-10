@@ -231,7 +231,7 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
             if (buf->contains('\n')) deliver(s);
         };
 
-        // 受信：改行検出または上限超過で確定
+        // readyRead 経路から受信取り込みラムダを呼ぶ
         QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket, consume]() {
             consume(socket);
         });
