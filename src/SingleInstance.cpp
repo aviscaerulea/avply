@@ -231,7 +231,6 @@ void SingleInstance::startServer(MainWindow* win, QObject* parent)
             if (buf->contains('\n')) deliver(s);
         };
 
-        // readyRead 経路から受信取り込みラムダを呼ぶ
         QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket, consume]() {
             consume(socket);
         });
