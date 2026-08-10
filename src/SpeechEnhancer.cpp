@@ -67,7 +67,7 @@ struct SpeechEnhancer::Impl {
         // headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。値が小さいほど
         // ターゲットが上がり、ターゲット未満の小声ほど強く持ち上がる。大声は既にターゲット以上の
         // ため影響を受けず、クリップ耐性も入力プリアッテネーションで担保されるため変わらない。
-        // 4dB で小声を十分持ち上げつつクリップフレーム 0 を維持する（実測）。
+        // 4dB で小声を十分持ち上げつつクリップフレーム 0 を維持する。（実測）
         // 既定 5dB より下げるが initial_gain を既定 15dB から控えめにして再生直後の過大ブーストを避ける。
         c.gain_controller2.adaptive_digital.headroom_db = 4.0f;
         c.gain_controller2.adaptive_digital.initial_gain_db = 6.0f;
