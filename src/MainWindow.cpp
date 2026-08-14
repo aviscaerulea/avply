@@ -738,7 +738,9 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
         return;
     }
 
-    m_outputLabel->setText(QString("  %1：%2").arg(label, err));
+    // 詳細（ffmpeg 出力末尾等）は複数行でステータスバーを崩すためダイアログのみに出す。
+    // ステータスバーは種別の短文表示に留める
+    m_outputLabel->setText(QString("  %1").arg(label));
     QMessageBox::critical(this, title, err);
 }
 
