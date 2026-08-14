@@ -381,7 +381,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
 
     // 音声強調は永続化しない仕様のため起動時は常に OFF（AudioWorker も初期 OFF で生成済み）
-    // QAction は持たず N キー押下のみでトグルするため、コンテキストメニュー項目は作らない
+    // QAction は持たず C キー押下のみでトグルするため、コンテキストメニュー項目は作らない
     updateSpeechEnhanceDisplay();
 
     updateMenuActionEnabled();
@@ -1329,10 +1329,19 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             updateRangeMarkers();
         }
         return true;
-    case Qt::Key_N:
+    case Qt::Key_C: {
+        // 音声強調（Clarity）の ON/OFF トグル。C は Clarity の頭文字（旧 N キーから直観性のため変更）
+        // 実行中は修飾子の有無に関わらず消費する。（↑↓ キーと同挙動）
+        // 修飾子付き（Ctrl+C 等）はシステムショートカットと衝突するため素通しし、
+        // 冒頭コメントの「Ctrl+C 等は素通し」契約を守る。（↑↓ キーと同型のガード）
         if (running) return true;
+        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (mods != Qt::NoModifier) {
+            return QMainWindow::eventFilter(watched, event);
+        }
         toggleSpeechEnhance();
         return true;
+    }
     default:
         return QMainWindow::eventFilter(watched, event);
     }

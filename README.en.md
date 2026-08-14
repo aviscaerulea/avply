@@ -35,7 +35,7 @@ When you load an audio file, the window switches to a compact layout without the
 
 In meeting recordings, remarks made far from the microphone sound quiet while nearby ones sound loud.
 Voice enhancement combines noise suppression and automatic gain control to even out that difference during playback.
-Pressing the N key toggles it on and off.
+Pressing the C key toggles it on and off.
 It always starts off at launch, and the setting is not saved.
 
 ## Installation
@@ -83,7 +83,7 @@ Playback controls are as follows.
 | Seek | ← → | Drag the seek bar, or scroll over the seek bar or preview area |
 | Playback speed ±0.05x | `.` faster / `,` slower | Ctrl+wheel |
 | Volume ±0.05 | ↑ ↓ | Shift+wheel |
-| Switch voice enhancement | N | |
+| Switch voice enhancement | C | |
 | Reset playback settings | G | |
 
 Trimming controls are as follows.

@@ -181,7 +181,7 @@ private:
     void onTogglePriority(bool checked);
 
     // 音声強調の ON/OFF をトグルする
-    // N キー押下から呼ばれる。AudioWorker への反映とラベル更新をまとめて行う。
+    // C キー押下から呼ばれる。AudioWorker への反映とラベル更新をまとめて行う。
     // 永続化はしない（起動時は常に OFF。インスタンス生存中はファイル切替をまたいで保持）
     void toggleSpeechEnhance();
 
