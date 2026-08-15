@@ -15,8 +15,10 @@ It starts up light, so it also works well as an everyday video and audio player.
 ## Features
 
 - Fast startup: little delay between launching and playing
-- Speed control: change playback speed in 0.05 steps while keeping the original pitch (kept across files)
-- Voice enhancement: automatically evens out volume differences between speakers and lifts quiet remarks
+- Speed control: change playback speed in 0.05 steps while keeping the original pitch
+  (kept across files)
+- Voice enhancement: automatically evens out volume differences between speakers
+  and lifts quiet remarks
 - Seek bar preview: shows a thumbnail and timestamp for the position under the cursor
 - Waveform display: draws the waveform of the loaded audio over the seek bar
 - Fast trimming: cuts the selected range at keyframe boundaries without re-encoding
@@ -44,7 +46,8 @@ It always starts off at launch, and the setting is not saved.
 
 - Windows 11
 - ffmpeg (installed separately; it is also used to read media information during playback)
-- NVIDIA GPU (only needed for video conversion; AV1 NVENC support required, RTX 30 series or later recommended)
+- NVIDIA GPU (only needed for video conversion; AV1 NVENC support required,
+  RTX 30 series or later recommended)
 
 Trimming does not re-encode, so no GPU is required. Audio-only conversion also runs on the CPU.
 
@@ -148,9 +151,12 @@ These are stored in the registry and kept for the next launch.
 
 ## Limitations
 
-- Trimming cuts at keyframe boundaries, so the start position is rounded back from the one you specified
-- With some formats such as Ogg/Opus, the playback position right after a trim can be off by a few tens of milliseconds
-- Volume is capped at 100%; amplification beyond that is not supported (use voice enhancement to lift quiet remarks)
+- Trimming cuts at keyframe boundaries, so the start position is rounded back
+  from the one you specified
+- With some formats such as Ogg/Opus, the playback position right after a trim can be off
+  by a few tens of milliseconds
+- Volume is capped at 100%; amplification beyond that is not supported
+  (use voice enhancement to lift quiet remarks)
 - Video conversion requires an NVIDIA GPU with AV1 NVENC support
 
 ## Build
@@ -182,7 +188,10 @@ See the bundled `LICENSE` (LGPL v3) and `COPYING` (GPL v3) for the full text.
 
 License handling for the dependencies is as follows.
 
-- Qt 6.10 (LGPL v3): linked dynamically as DLLs, so users can replace Qt by swapping in DLLs of the same name
-- SoundTouch 2.4.0 (LGPL v2.1 or later): linked statically, so avply is licensed under LGPL v3 to preserve the right to relink
-- WebRTC Audio Processing (BSD): linked statically; BSD is compatible with LGPL v3 and adds no further redistribution obligations
+- Qt 6.10 (LGPL v3): linked dynamically as DLLs, so users can replace Qt by swapping
+  in DLLs of the same name
+- SoundTouch 2.4.0 (LGPL v2.1 or later): linked statically, so avply is licensed
+  under LGPL v3 to preserve the right to relink
+- WebRTC Audio Processing (BSD): linked statically; BSD is compatible with LGPL v3
+  and adds no further redistribution obligations
 - ffmpeg: invoked as an external process, so no linking relationship arises
