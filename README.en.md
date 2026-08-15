@@ -84,6 +84,7 @@ Playback controls are as follows.
 | --- | --- | --- |
 | Play / pause | Space | Click the preview area (not available for audio-only files) |
 | Seek | ← → | Drag the seek bar, or scroll over the seek bar or preview area |
+| Previous / next file in the folder | Alt+← / Alt+→ | |
 | Playback speed ±0.05x | `.` faster / `,` slower | Ctrl+wheel |
 | Volume ±0.05 | ↑ ↓ | Shift+wheel |
 | Switch voice enhancement | C | |
@@ -99,6 +100,7 @@ Trimming controls are as follows.
 | Run / cancel trimming | | ✂ button |
 
 The first press of G returns to neutral values (speed 1.00, volume 100%, voice enhancement off), and the second press restores the speed and volume from startup.
+File switching follows the file-name order and stops at the first and last files in the folder.
 The bottom of the window always shows the current playback speed, volume, and voice enhancement state.
 
 ### Trimming and conversion

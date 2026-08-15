@@ -76,6 +76,12 @@ private:
     // ウィンドウサイズ調整・波形生成キックを担う
     void onProbeFinished(const QString& path, const VideoInfo& info, bool centerOnMonitor);
 
+    // フォルダ内の前後メディアファイルへ切替
+    // step は +1（次）/ -1（前）。現在ファイルと同じフォルダを対応拡張子で列挙する。
+    // エクスプローラと同じ自然順（数値対応・大文字小文字無視）で並べた隣接ファイルを開く。
+    // 端（先頭・末尾）ではラップせず何もしない。未ロード時・現在ファイルが列挙に無い場合も何もしない
+    void loadNeighborFile(int step);
+
     // 拡張子がメディア（動画・音声）として受け付け可能か判定する
     static bool isAcceptedMedia(const QString& path);
 

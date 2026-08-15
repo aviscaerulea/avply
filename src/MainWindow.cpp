@@ -35,6 +35,7 @@
 #include <QDesktopServices>
 #include <QWindow>
 #include <QThreadPool>
+#include <QCollator>
 #include <algorithm>
 #include <cmath>
 
@@ -848,6 +849,44 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     });
 }
 
+// フォルダ内の前後メディアファイルへ切替
+// 列挙はキー押下ごとに行いキャッシュしない（フォルダ内容の変化へ常に追従し、実装も単純なため）。
+// ソートは QCollator の numeric mode で、エクスプローラの並び（file2 < file10）と一致させる
+void MainWindow::loadNeighborFile(int step)
+{
+    if (m_filePath.isEmpty()) return;
+
+    const QFileInfo cur(m_filePath);
+    QStringList nameFilters;
+    for (const QString& ext : kVideoExts + kAudioExts) {
+        nameFilters << ("*." + ext);
+    }
+    QFileInfoList entries = cur.absoluteDir().entryInfoList(nameFilters, QDir::Files);
+
+    // Windows のファイル名は大文字小文字を区別しないため無視で比較する
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(entries.begin(), entries.end(),
+              [&collator](const QFileInfo& a, const QFileInfo& b) {
+                  return collator.compare(a.fileName(), b.fileName()) < 0;
+              });
+
+    int idx = -1;
+    for (int i = 0; i < entries.size(); ++i) {
+        if (entries[i].absoluteFilePath().compare(cur.absoluteFilePath(), Qt::CaseInsensitive) == 0) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return; // 現在ファイルが削除済み等で列挙に無い
+
+    const int next = idx + step;
+    if (next < 0 || next >= entries.size()) return; // 端ではラップしない
+
+    loadFile(entries[next].absoluteFilePath(), false);
+}
+
 void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, bool centerOnMonitor)
 {
     m_filePath = path;
@@ -1277,14 +1316,30 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 
     switch (ke->key()) {
     case Qt::Key_Left:
+    case Qt::Key_Right: {
+        // 無修飾はシーク。Alt 単独付きはフォルダ内の前後ファイル切替。
+        // 実行中は修飾子の有無に関わらず消費する（↑↓ キーと同挙動）。
+        // Alt 以外の修飾子付き（Ctrl+← 等）は素通しする。冒頭コメントのシステムキー契約を守るためだ。
+        // Ctrl+←→ は将来の大スキップ用、Shift+←→ は将来のシーンスキップ用に未割当のまま温存する
+        if (running) return true;
+        const bool forward = (ke->key() == Qt::Key_Right);
+        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (mods == Qt::AltModifier) {
+            loadNeighborFile(forward ? +1 : -1);
+            return true;
+        }
+        if (mods != Qt::NoModifier) {
+            return QMainWindow::eventFilter(watched, event);
+        }
         // 0 以下の設定はシーク無効（avply.toml [seek] の文書仕様、ホイール側ガードと統一）
-        if (running) return true;
-        if (m_seekLeftMs > 0) seekRelative(-m_seekLeftMs);
+        if (forward) {
+            if (m_seekRightMs > 0) seekRelative(m_seekRightMs);
+        }
+        else {
+            if (m_seekLeftMs > 0) seekRelative(-m_seekLeftMs);
+        }
         return true;
-    case Qt::Key_Right:
-        if (running) return true;
-        if (m_seekRightMs > 0) seekRelative(m_seekRightMs);
-        return true;
+    }
     case Qt::Key_Space:
         if (running) return true;
         if (m_info.duration > 0.0) m_videoView->togglePlay();
