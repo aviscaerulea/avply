@@ -53,15 +53,24 @@ Trimming does not re-encode, so no GPU is required. Audio-only conversion also r
 
 ### Steps
 
-Installing through Scoop is recommended. ffmpeg is pulled in as a dependency.
+#### From the release ZIP
+
+Download `avply-<version>-x64.zip` from [Releases](https://github.com/aviscaerulea/avply/releases). Then extract the downloaded file. Finally, run `avply.exe`.
+In that case, install ffmpeg separately (`scoop install ffmpeg` or an [official build](https://www.gyan.dev/ffmpeg/builds/)).
+
+#### From Scoop
+
+Recommended when Scoop is available. ffmpeg is pulled in as a dependency.
 
 ```powershell
 scoop bucket add nikai https://github.com/aviscaerulea/scoop-bucket
 scoop install nikai/avply
 ```
 
-To install manually, download `avply-<version>-x64.zip` from [Releases](https://github.com/aviscaerulea/avply/releases), extract it, and run `avply.exe`.
-In that case, install ffmpeg separately (`scoop install ffmpeg` or an [official build](https://www.gyan.dev/ffmpeg/builds/)).
+#### Uninstall
+
+Even after removing the app, the settings changed from the right-click menu (such as always-on-top) remain in the registry under `HKCU\Software\avply`.
+To remove them completely, delete that key with the Registry Editor.
 
 ## Usage
 

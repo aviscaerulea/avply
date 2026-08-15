@@ -50,15 +50,24 @@ C キーを押すたびに ON と OFF が切り替わります。
 
 ### 手順
 
-Scoop を使う方法を推奨します。依存パッケージとして ffmpeg も一緒に入ります。
+#### リリースの ZIP から
+
+[Releases](https://github.com/aviscaerulea/avply/releases) から `avply-<version>-x64.zip` をダウンロードします。次にダウンロードしたファイルを展開します。最後に `avply.exe` を起動します。
+この場合、ffmpeg は別途インストールしてください。（`scoop install ffmpeg` または [公式ビルド](https://www.gyan.dev/ffmpeg/builds/)）
+
+#### Scoop から
+
+Scoop が使える環境ではこちらを推奨します。依存パッケージとして ffmpeg も一緒に入ります。
 
 ```powershell
 scoop bucket add nikai https://github.com/aviscaerulea/scoop-bucket
 scoop install nikai/avply
 ```
 
-手動で導入する場合は [Releases](https://github.com/aviscaerulea/avply/releases) から `avply-<version>-x64.zip` をダウンロードして展開します。次に `avply.exe` を起動します。
-この場合、ffmpeg は別途インストールしてください。（`scoop install ffmpeg` または [公式ビルド](https://www.gyan.dev/ffmpeg/builds/)）
+#### アンインストール
+
+アプリを削除した後も、右クリックメニューで変更した設定（最前面表示など）がレジストリの `HKCU\Software\avply` に残ります。
+完全に消すには、レジストリエディタでこのキーを削除してください。
 
 ## 使い方
 
