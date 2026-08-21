@@ -56,6 +56,9 @@ static constexpr qreal kPlaybackRateStep = 0.05;
 static constexpr qreal kVolumeStep = 0.05;
 // 再生速度の下限（これ以下は音声の時間伸張が破綻するため許可しない）
 static constexpr qreal kPlaybackRateMin = 0.05;
+// 再生速度の上限（これ以上は音声が判別できず実用に耐えないため許可しない）
+// toml の [playback].speed も Config.cpp の clampConfig が同じ 4.0 で丸める
+static constexpr qreal kPlaybackRateMax = 4.0;
 
 // キー入力の修飾子判定に用いるマスク集合
 // Shift / Ctrl / Alt / Meta だけを見る。KeypadModifier はテンキー押下で付与される
@@ -1423,7 +1426,7 @@ void MainWindow::changePlaybackRate(qreal delta)
     if (m_info.duration <= 0.0) return;
     // 浮動小数点の累積誤差を抑えるため 0.05 単位に丸める
     const qreal next = std::round((m_playbackRate + delta) * 100.0) / 100.0;
-    m_playbackRate = qBound(kPlaybackRateMin, next, qreal(4.0));
+    m_playbackRate = qBound(kPlaybackRateMin, next, kPlaybackRateMax);
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
     m_gResetActive = false;
@@ -1497,7 +1500,7 @@ void MainWindow::applyPlaybackState(qreal rate, qreal vol)
 {
     // 速度・音量を反映し、音声強調は OFF へ倒す
     // 各 setter 経由で AudioWorker への伝搬も同時に行う
-    m_playbackRate = qBound(kPlaybackRateMin, rate, qreal(4.0));
+    m_playbackRate = qBound(kPlaybackRateMin, rate, kPlaybackRateMax);
     m_videoView->setPlaybackRate(m_playbackRate);
     updateSpeedDisplay();
 
