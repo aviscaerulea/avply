@@ -189,7 +189,7 @@ void SilenceTone::openSink()
 
     // parent=nullptr で生成し、closeSink() の delete を唯一の所有経路とする
     std::unique_ptr<QAudioSink> sink(new QAudioSink(dev, fmt, nullptr));
-    // バッファアンダーフロー対策で大きめに確保する。（約 kSinkBufferMs 分のヒント）
+    // バッファアンダーフロー対策で大きめに確保する（約 kSinkBufferMs 分のヒント）。
     // setBufferSize は backend によりヒント扱いで実際の値は bufferSize() で確認する
     sink->setBufferSize(fmt.sampleRate() * fmt.channelCount() * kSinkBytesPerSample
                         * kSinkBufferMs / 1000);

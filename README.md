@@ -53,7 +53,7 @@ C キーを押すたびに ON と OFF が切り替わります。
 #### リリースの ZIP から
 
 [Releases](https://github.com/aviscaerulea/avply/releases) から `avply-<version>-x64.zip` をダウンロードします。次にダウンロードしたファイルを展開します。最後に `avply.exe` を起動します。
-この場合、ffmpeg は別途インストールしてください。（`scoop install ffmpeg` または [公式ビルド](https://www.gyan.dev/ffmpeg/builds/)）
+この場合、ffmpeg は別途インストールしてください（`scoop install ffmpeg` または [公式ビルド](https://www.gyan.dev/ffmpeg/builds/)）。
 
 #### Scoop から
 

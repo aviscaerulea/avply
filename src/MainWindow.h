@@ -201,7 +201,7 @@ private:
     void toggleGReset();
 
     // 再生速度・音量を一括適用し、音声強調は常に OFF へ倒す
-    // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない。（呼び出し側で管理）
+    // toggleGReset 専用の内部ヘルパで、m_gResetActive フラグは操作しない（呼び出し側で管理）。
     // 音声強調は永続化しない仕様のため、中立値復元・起動時値復元のいずれでも OFF が正となる
     void applyPlaybackState(qreal rate, qreal vol);
 

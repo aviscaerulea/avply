@@ -79,7 +79,7 @@ void AudioWorker::createAndStartSink()
     m_sinkDeviceId = dev.id();
     m_sink = new QAudioSink(dev, m_format, this);
 
-    // 内部バッファを 200ms 相当に拡張する。（48kHz stereo Float の場合 76800 バイト）
+    // 内部バッファを 200ms 相当に拡張する（48kHz stereo Float の場合 76800 バイト）。
     // デフォルトの WASAPI バッファは数 ms と極小で、1.5x 等の高速再生時にデコーダから
     // バーストで届くサンプルを吸収しきれず write が partial になり音が欠ける。
     // setBufferSize は start() より前に呼ぶ必要がある
@@ -135,7 +135,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     // 画面録画ソフト等がシステム音声キャプチャ開始時にオーディオエンドポイントを再構成すると、
     // 既存セッションが AUDCLNT_E_DEVICE_INVALIDATED で無効化され sink は停止状態へ落ちる。
     // 放置すると bytesFree() が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて
-    // 次のシーク（reset）まで無音が継続する。（Aiseesoft Screen Recorder の録画開始で実機再現）
+    // 次のシーク（reset）まで無音が継続する（Aiseesoft Screen Recorder の録画開始で実機再現）。
     // SilenceTone::healthCheck と共通の isSinkUnhealthy で不健全を検知し、sink を再生成して自動復帰する。
     // 能動停止は teardown のみ（直後に m_sink=nullptr）のため、ここでの StoppedState は異常確定。
     // デバイス完全消失時に毎バッファ再生成が空振りし続けるのを避けるため再試行は 1 秒間隔に絞る
@@ -373,7 +373,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         }
     }
 
-    // 診断ログ：1 秒ごとに集計。（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）
+    // 診断ログ：1 秒ごとに集計（毎呼び出し underrun を出すと音飛びの体感悪化に繋がるため）。
     // 周期 qInfo は OutputDebugString 同期 I/O で audio thread を数 ms ブロックするため
     // qDebug に格下げし、リリースビルドでは QT_NO_DEBUG_OUTPUT で完全抑止できる位置付けにする。
     // 集計変数はメンバ化し reset() でリセットすることで、シーク直後の集計区間が不正な長さに
@@ -407,7 +407,7 @@ void AudioWorker::reset()
     // 50ms 以内の連打ではスロットリング側に流し、sink reset()→start() を間引く
     if (m_enhancer) m_enhancer->reset();
     if (m_stretch) m_stretch->clear();
-    // sink を reset→start で再起動するため partial write 残量も破棄する。（古いサンプルを再開後に書き出さない）
+    // sink を reset→start で再起動するため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）。
     // m_workBuf / m_volumeWork はシーク連打中の audio thread malloc/free スパイクを避けるため
     // ここでは解放せず保持する（解放は forceReset でのみ行う）
     m_pendingTail.clear();

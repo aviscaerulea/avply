@@ -15,7 +15,7 @@ IDI_ICON1 ICON "app.ico"
 // Scoop 配置は `apps\avply\<version>\avply.exe` のため、名称がバージョン番号に見えてしまう。
 // この誤認を防ぐ目的で埋め込む。
 // APP_VERSION_NUM（カンマ区切り 4 数値）と APP_VERSION_STR（表示用文字列）は
-// CMake が AVPLY_VERSION からビルドディレクトリへ生成する。（version.rc.h.in が雛形）
+// CMake が AVPLY_VERSION からビルドディレクトリへ生成する（version.rc.h.in が雛形）。
 #include "version.rc.h"
 
 VS_VERSION_INFO VERSIONINFO
