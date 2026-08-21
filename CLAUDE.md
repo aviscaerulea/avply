@@ -140,9 +140,16 @@ UI からの編集はせず、実行ファイルと同階層の `avply.toml`（�
 
 `avply.toml` の `[playback]` セクションで再生関連の挙動を制御する。
 
-- `speed`：動画読込時の初期再生速度（既定 1.00）。インスタンス生存中はファイル切替後も保持し、`.` / `,` キーで 0.05 単位に調整する。
-- `hw_decoder_priority`：QMediaPlayer の FFmpeg バックエンドに渡す HW デコーダ優先順位。`QT_FFMPEG_DECODING_HW_DEVICE_TYPES` と同形式（カンマ区切り）。デフォルト `"d3d11va,cuda"`。空文字で Qt 自動選択へフォールバックする。
-- `thumbnail_hwaccel`：ThumbnailExtractor の ffmpeg `-hwaccel` 値。`"auto"` / `"d3d11va"` / `"cuda"` 等。`"none"` または空文字で `-hwaccel` 指定をスキップする。デフォルト `"auto"`。
+- `speed`：動画読込時の初期再生速度（既定 1.00）  
+  インスタンス生存中はファイル切替後も保持する。`.` / `,` キーで 0.05 単位に調整する。
+
+- `hw_decoder_priority`：QMediaPlayer の FFmpeg バックエンドに渡す HW デコーダ優先順位  
+  `QT_FFMPEG_DECODING_HW_DEVICE_TYPES` と同形式（カンマ区切り）で書く。
+  デフォルトは `"d3d11va,cuda"`。空文字で Qt 自動選択へフォールバックする。
+
+- `thumbnail_hwaccel`：ThumbnailExtractor の ffmpeg `-hwaccel` 値  
+  `"auto"` / `"d3d11va"` / `"cuda"` 等を指定する。デフォルトは `"auto"`。
+  `"none"` または空文字で `-hwaccel` 指定をスキップする。
 
 `hw_decoder_priority` は QApplication 構築前に環境変数化する必要がある。そのため `Config::load()` は `main.cpp` の冒頭から呼ぶ。`Config::load()` 内部は exe ディレクトリ取得に `GetModuleFileNameW` を使い Qt 初期化に依存しないため、QApplication 未構築でも動作する。
 
@@ -171,9 +178,12 @@ UI からの編集はせず、実行ファイルと同階層の `avply.toml`（�
 
 リセット状態の追跡フラグ `m_gResetActive` は以下のように管理する。
 
-- `toggleGReset` 内で `applyPlaybackState` 経由で直接 setter を更新する（`changePlaybackRate` 等の公開関数は経由しない）
-- 公開関数 `changePlaybackRate` / `changeVolume` / `toggleSpeechEnhance` の末尾で `m_gResetActive = false` にクリアする
-- これによりリセット状態中にユーザが任意の関連項目を手動操作すると自動でフラグが落ち、次の `G` 押下は再び「中立値リセット」として動作する
+- `toggleGReset` 内で `applyPlaybackState` 経由で直接 setter を更新する
+  （`changePlaybackRate` 等の公開関数は経由しない）
+- 公開関数 `changePlaybackRate` / `changeVolume` / `toggleSpeechEnhance` の末尾で
+  `m_gResetActive = false` にクリアする
+- これによりリセット状態中にユーザが任意の関連項目を手動操作すると自動でフラグが落ち、
+  次の `G` 押下は再び「中立値リセット」として動作する
 
 ### 音声強調設定
 
@@ -181,7 +191,8 @@ UI からの編集はせず、実行ファイルと同階層の `avply.toml`（�
 
 - 状態は ON/OFF の 2 値で、切替操作は `C` キーのトグルのみ
 - 状態表示：ステータスバーに `Clarity:ON/OFF` を常時表示する
-- 永続化はしない：起動時は常に OFF。インスタンス生存中はファイル切替をまたいで状態を保つ（再生速度と同じ扱い）
+- 永続化はしない：起動時は常に OFF  
+  インスタンス生存中はファイル切替をまたいで状態を保つ（再生速度と同じ扱い）。
 - 旧版はレジストリ `speechEnhanceLevel`（0〜2 の 3 段階）で永続化していたが撤去した
 
 `C` は Clarity の頭文字だ。旧 `N` キーからは直観性のため変更した。
@@ -206,10 +217,32 @@ APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドか�
 
 APM の最終リミッタはピークを 1.0 へ頭打ちにする。WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提とするため、既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、リミッタがハードクリップして単発クリックを生む。対策として以下を恒久適用する。
 
-- 入力プリアッテネーション：APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったままクリップを根絶する。実測で -6dB ならクリップフレーム 0
-- `fixed_digital.gain_db = 0` 固定：adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源であり、プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した
-- `headroom_db = 6` / `initial_gain_db = 6`：headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。小さいほどターゲットが上がり小声を強く持ち上げる。大声は既にターゲット以上のため影響がなく、クリップ耐性もプリアッテネーションで担保されるため変わらない。当初はクリップフレーム 0 を実測できた 4dB を採用した。しかし ON 時の全体レベルがわずかに高いとの聴感評価により 6dB へ緩めた（持ち上げ量 -2dB、ターゲットを下げる方向のためクリップ耐性は安全側に働く）。`initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える
-- `max_gain_change_db_per_second = 300`：適応ゲインが目標へ収束する速度の上限。既定 6dB/s では小声を +24dB 持ち上げるのに約 4 秒かかり、発話冒頭がゲイン追従に間に合わず聞こえない。レートリミッタを大きく開放して各発話冒頭の追従を可能な限りタイトにする。速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。なお 100dB/s 以上は全体平均が頭打ちで、実質の律速は AGC 内部の小声検知レイテンシ（Config 非公開）。`initial_gain_db` を上げれば初期位置から速く立ち上がるが、再生開始直後の大音量がリミッタを叩きクリップが再発するため 6 に据え置く
+- 入力プリアッテネーション  
+  APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）
+  減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったまま
+  クリップを根絶する。実測で -6dB ならクリップフレーム 0 だ。
+
+- `fixed_digital.gain_db = 0` 固定  
+  adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源だ。
+  プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した。
+
+- `headroom_db = 6` / `initial_gain_db = 6`  
+  headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。
+  小さいほどターゲットが上がり小声を強く持ち上げる。
+  大声は既にターゲット以上のため影響がなく、クリップ耐性もプリアッテネーションで
+  担保されるため変わらない。当初はクリップフレーム 0 を実測できた 4dB を採用した。
+  しかし ON 時の全体レベルがわずかに高いとの聴感評価により 6dB へ緩めた
+  （持ち上げ量 -2dB、ターゲットを下げる方向のためクリップ耐性は安全側に働く）。
+  `initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える。
+
+- `max_gain_change_db_per_second = 300`  
+  適応ゲインが目標へ収束する速度の上限だ。既定 6dB/s では小声を +24dB 持ち上げるのに
+  約 4 秒かかり、発話冒頭がゲイン追従に間に合わず聞こえない。
+  レートリミッタを大きく開放して各発話冒頭の追従を可能な限りタイトにする。
+  速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。
+  なお 100dB/s 以上は全体平均が頭打ちで、実質の律速は AGC 内部の小声検知レイテンシだ
+  （Config 非公開）。`initial_gain_db` を上げれば初期位置から速く立ち上がるが、
+  再生開始直後の大音量がリミッタを叩きクリップが再発するため 6 に据え置く。
 
 #### コード固定の内部定数
 
@@ -231,16 +264,27 @@ Qt 6.10 の `QAudioBufferOutput` は `setPitchCompensation(true)` を無視し�
 
 副次的な負荷軽減策も併用している。
 
-- 作業バッファ再利用：`AudioWorker::onAudioBuffer` の `QByteArray` を毎呼び出し確保せずメンバ変数 `m_workBuf` で再利用する（必要サイズに達するまで拡張のみ、ソース切替時に解放）
-- audio thread 優先度：`m_audioThread->start(QThread::HighPriority)` で GUI / decoder thread より高い優先度で起動する。`TimeCriticalPriority` は OS スケジューラ独占リスクがあるため避ける
+- 作業バッファ再利用  
+  `AudioWorker::onAudioBuffer` の `QByteArray` を毎呼び出し確保せず、
+  メンバ変数 `m_workBuf` で再利用する（必要サイズに達するまで拡張のみ、ソース切替時に解放）。
+
+- audio thread 優先度  
+  `m_audioThread->start(QThread::HighPriority)` で GUI / decoder thread より高い優先度で
+  起動する。`TimeCriticalPriority` は OS スケジューラ独占リスクがあるため避ける。
 
 ### サイレンストーン設定
 
 `avply.toml` の `[audio]` セクションでサイレンストーン（BT アイドル復帰時のプチノイズ抑制用、常時不可聴トーン出力）を制御する。
 
-- `silence_tone_enabled`：ON/OFF（既定 `true`）。`false` でトーン出力を停止し、OS への常時音声出力を完全に止める。スピーカー環境や有線 DAC 環境ではユーザ判断で OFF にできる
-- `silence_tone_freq_hz`：トーン周波数（既定 1000.0、20〜20000Hz にクランプ）。1kHz は SBC 等 BT コーデックの確実なパスバンド内で、コーデックを「アクティブ」状態に保つ
-- `silence_tone_amp`：振幅（0.0〜1.0、1.0=16bit フルスケール、既定 0.0001=約 -80dBFS）。設定ミスによる過大音量を避けるため上限 0.01 にクランプする
+- `silence_tone_enabled`：ON/OFF（既定 `true`）  
+  `false` でトーン出力を停止し、OS への常時音声出力を完全に止める。
+  スピーカー環境や有線 DAC 環境ではユーザ判断で OFF にできる。
+
+- `silence_tone_freq_hz`：トーン周波数（既定 1000.0、20〜20000Hz にクランプ）  
+  1kHz は SBC 等 BT コーデックの確実なパスバンド内で、コーデックを「アクティブ」状態に保つ。
+
+- `silence_tone_amp`：振幅（0.0〜1.0、1.0=16bit フルスケール、既定 0.0001=約 -80dBFS）  
+  設定ミスによる過大音量を避けるため上限 0.01 にクランプする。
 
 `SilenceTone` は `QMediaDevices::audioOutputsChanged` を購読してデフォルト出力デバイス変化（BT 接続・切断、USB DAC 抜き挿し）に追従し、自動で sink を再生成する。
 

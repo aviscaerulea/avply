@@ -193,7 +193,14 @@ avply 本体は GNU LGPL v3 で配布します。
 
 依存ライブラリのライセンス対応は以下のとおりです。
 
-- Qt `v6.10`（LGPL v3）：DLL を動的リンクする。利用者は同名の DLL を差し替えて Qt を入れ替えられる
-- SoundTouch `v2.4.0`（LGPL v2.1 以降）：静的リンクのため、本体を LGPL v3 とすることで再リンク権を確保する
-- WebRTC Audio Processing（BSD）：静的リンク。BSD は LGPL v3 と両立し、再配布上の追加義務は生じない
-- ffmpeg：外部プロセスとして呼び出すため、リンク関係は生じない
+- Qt `v6.10`（LGPL v3）  
+  DLL を動的リンクする。利用者は同名の DLL を差し替えて Qt を入れ替えられる。
+
+- SoundTouch `v2.4.0`（LGPL v2.1 以降）  
+  静的リンクのため、本体を LGPL v3 とすることで再リンク権を確保する。
+
+- WebRTC Audio Processing（BSD）  
+  静的リンクする。BSD は LGPL v3 と両立し、再配布上の追加義務は生じない。
+
+- ffmpeg  
+  外部プロセスとして呼び出すため、リンク関係は生じない。
