@@ -62,6 +62,14 @@ public slots:
     // QAudioBufferOutput が pitchCompensation を無視するため AudioWorker 側で時間圧縮する
     void setPlaybackRate(double rate);
 
+    // デフォルト出力デバイスの切替に追従して sink を作り直す
+    // QAudioSink は生成時点のデフォルト出力デバイスを掴んだまま以後の OS 側切替に
+    // 追従しないため、再生成でしか新デバイスへ移れない。GUI thread の
+    // QMediaDevices::audioOutputsChanged が本スロットへ QueuedConnection で届く。
+    // 束縛中デバイスが現デフォルトと同じ場合、および sink 未所持
+    // （start() 前 / teardown 後）の場合は何もしない
+    void switchToDefaultDevice();
+
     // 所属スレッドで QAudioSink を停止・破棄する
     // QThread::quit() より前に BlockingQueuedConnection で実行すること
     void teardown();
@@ -69,13 +77,15 @@ public slots:
 private:
     // QAudioSink の生成・起動
     // start()（初回）と recoverSink()（再生成）で共用する。audio thread からのみ呼ぶ。
-    // デバイス未指定で生成するため、呼び出し時点のデフォルト出力デバイスへ束縛される
+    // 呼び出し時点のデフォルト出力デバイスを明示指定して生成し、その id を m_sinkDeviceId へ記録する
     void createAndStartSink();
 
-    // 不健全 sink の再生成による自己回復
-    // 外部要因（録画ソフトのエンドポイント再構成等）で WASAPI セッションが無効化された際、
-    // onAudioBuffer 冒頭の死活チェックから呼ばれる。DSP 蓄積分は旧セッション時代の
-    // 遅延サンプルのため破棄し、現行デコード位置から鳴らし直す
+    // sink の再生成
+    // 呼び出し経路は 2 つある。1 つは自己回復で、外部要因（録画ソフトのエンドポイント
+    // 再構成等）が WASAPI セッションを無効化した際に onAudioBuffer 冒頭の死活チェックが呼ぶ。
+    // もう 1 つはデフォルト出力デバイス切替への追従（switchToDefaultDevice）だ。
+    // いずれも DSP 蓄積分は旧セッション時代の遅延サンプルのため破棄し、
+    // 現行デコード位置から鳴らし直す
     void recoverSink();
 
     QAudioFormat m_format;
@@ -85,6 +95,10 @@ private:
     std::unique_ptr<SpeechEnhancer> m_enhancer;
     QAudioSink*  m_sink    = nullptr;
     QIODevice*   m_sinkDev = nullptr;
+    // 現 sink の束縛先デフォルト出力デバイスの id
+    // createAndStartSink が明示指定したデバイスの id を記録するため、常に実束縛先を指す。
+    // switchToDefaultDevice はこれと現デフォルトを比較し、重複した sink 再生成を抑える
+    QByteArray   m_sinkDeviceId;
     double       m_volume  = 1.0;
     // DSP 処理用の作業バッファ
     // 毎呼び出しの QByteArray 確保は new/delete スパイクを招くため再利用する。

@@ -8,6 +8,7 @@
 #include <QMediaPlayer>
 #include <QAudioBufferOutput>
 #include <QAudioFormat>
+#include <QMediaDevices>
 #include <QThread>
 #include <QMetaObject>
 #include <QEvent>
@@ -114,6 +115,25 @@ VideoView::VideoView(QWidget* parent)
     // TimeCriticalPriority は OS スケジューラ独占リスクがあるため避ける
     m_audioThread->start(QThread::HighPriority);
 
+    // OS のデフォルト出力デバイス切替（BT ヘッドフォン接続、USB DAC 抜き挿し等）への追従。
+    // QAudioSink は生成時点のデフォルト出力デバイスを掴んだままのため、切替を検知して
+    // audio thread 上で sink を作り直さないと旧デバイスへ出力し続ける。
+    // 100ms debounce は BT 接続シーケンス中の複数通知を 1 回へ集約する（SilenceTone と同じ理由）。
+    // 本クラスは通知を転送するだけで、デバイス増減か切替かの判定は行わない。
+    // 実束縛先を知る AudioWorker 側が現デフォルトと比較して再生成の要否を決める
+    m_mediaDevices = new QMediaDevices(this);
+    m_deviceChangeDebounce.setSingleShot(true);
+    m_deviceChangeDebounce.setInterval(100);
+    connect(&m_deviceChangeDebounce, &QTimer::timeout, this, [this]() {
+        // isRunning ガードは audio thread 停止後（破棄シーケンス中）の通知への防御
+        if (!m_audioWorker || !m_audioThread || !m_audioThread->isRunning()) return;
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->switchToDefaultDevice(); },
+                                  Qt::QueuedConnection);
+    });
+    connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged,
+            this, [this]() { m_deviceChangeDebounce.start(); });
+
     // Qt 6.10 の QAudioBufferOutput パスでは setPitchCompensation(true) は無視され、
     // 実際のピッチ補正は AudioWorker 内の SoundTouch が担う。将来 Qt が本パスへ補正を
     // 実装すると SoundTouch と二重補正になるため、availability ログでその時点を検知し
@@ -217,6 +237,11 @@ VideoView::~VideoView()
     // QQuickView 側の VideoOutput より QMediaPlayer のほうが寿命が長いケースに備え、
     // 明示的に nullptr を設定してフレーム転送経路を断つ
     if (m_player) m_player->setVideoSink(nullptr);
+
+    // pending なデバイス切替通知を握り潰し、audio thread 停止後の sink 操作要求を防ぐ。
+    // デストラクタ本体はイベントループを回さないため現状の発火窓は無いが、
+    // 明示停止は SilenceTone::stop と同じ防御であり、将来の破棄手順変更にも耐える
+    m_deviceChangeDebounce.stop();
 
     // audio thread の停止と worker の破棄。
     // QAudioSink は audio thread で生成しているため、quit() より前に teardown を

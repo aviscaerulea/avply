@@ -241,7 +241,25 @@ Qt 6.10 の `QAudioBufferOutput` は `setPitchCompensation(true)` を無視し�
 画面録画ソフト等がシステム音声キャプチャ開始時にオーディオエンドポイントを再構成すると、avply の既存 WASAPI セッションが `AUDCLNT_E_DEVICE_INVALIDATED` で無効化され、再生音声だけが止まる。（Aiseesoft Screen Recorder の録画開始で実機再現）
 放置すると sink の `bytesFree()` が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて次のシークまで無音が継続する。
 
-対策として `AudioWorker::onAudioBuffer` 冒頭で sink の死活をチェックし、不健全なら sink を再生成して自動復帰する。検知条件は `SilenceTone::healthCheck` と同型だ（`StoppedState`、または `UnderrunError` 以外のエラー。`UnderrunError` は供給遅延で日常的に発生するため除外）。再生成時は DSP 段の蓄積サンプル（旧セッション時代の遅延分）を破棄して現行デコード位置から鳴らし直す。再試行はデバイス完全消失中の空振り連発を避けるため 1 秒間隔に絞る。
+対策として `AudioWorker::onAudioBuffer` 冒頭で sink の死活をチェックし、不健全なら sink を再生成して自動復帰する。
+sink 再生成（`recoverSink`）の契機はこの自己回復と、「出力デバイス切替への追従」節の切替追従の 2 つだ。
+検知条件は `SilenceTone::healthCheck` と同型だ（`StoppedState`、または `UnderrunError` 以外のエラー。`UnderrunError` は供給遅延で日常的に発生するため除外）。再生成時は DSP 段の蓄積サンプル（旧セッション時代の遅延分）を破棄して現行デコード位置から鳴らし直す。自己回復側の再試行はデバイス完全消失中の空振り連発を避けるため 1 秒間隔に絞る（切替追従側にこの抑制は掛からない）。
+
+### 出力デバイス切替への追従
+
+`QAudioSink` は生成時点のデフォルト出力デバイスを掴んだままで、OS 側でデフォルトを切り替えても追従しない。
+そのため `VideoView` が `QMediaDevices::audioOutputsChanged` を購読し、100ms の debounce を挟んで `AudioWorker::switchToDefaultDevice` を QueuedConnection で呼ぶ。
+debounce は BT 接続シーケンス中の複数通知を 1 回へ集約する。
+
+再生成の要否は `AudioWorker` 側で判定する。
+`createAndStartSink` はデフォルト出力デバイスを明示指定して sink を生成し、その id を `m_sinkDeviceId` へ記録する。
+`switchToDefaultDevice` はこの id と現デフォルトを比較し、異なる場合のみ `recoverSink` で作り直す。
+
+- 判定を束縛側へ置くことで、デフォルト以外のデバイス増減による無用な再生成を抑える
+- 自己回復が先に新デバイスへ束縛し直した直後の重複再生成も、同じ比較で抑える
+- デフォルト出力デバイス不在（空 id）のときは現 sink を維持する
+- 切替が捨てるのは sink 内と DSP 段の蓄積分のみで、再生位置は維持する（sink バッファは 200ms 相当）
+- 追従するのは再生 sink だけで、サイレンストーン用 sink は `SilenceTone` が同じシグナルを購読して独立に追従する
 
 ### 出力ファイル名
 

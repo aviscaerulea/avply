@@ -1,10 +1,12 @@
 #pragma once
 #include <QWidget>
 #include <QString>
+#include <QTimer>
 
 class QQuickView;
 class QMediaPlayer;
 class QAudioBufferOutput;
+class QMediaDevices;
 class QThread;
 class AudioWorker;
 class QWheelEvent;
@@ -124,4 +126,13 @@ private:
     // pause() は非同期完了のため、直後の positionChanged で isPlaying() がまだ true を
     // 返す場合がある。フラグで一度だけ pause を発火させ、ソース切替時にリセットする
     bool m_pausingAtEnd = false;
+
+    // デフォルト出力デバイス切替の検知用
+    // QMediaDevices はシグナル購読のためインスタンスが要る（静的関数だけでは通知を受けられない）
+    QMediaDevices* m_mediaDevices = nullptr;
+
+    // audioOutputsChanged の連続発火を集約する debounce タイマ
+    // BT 接続シーケンス中は短時間に複数回通知が来るため、audio thread への通知を
+    // 最後の 1 回へ集約する。デストラクタ冒頭で停止し、破棄中の発火を握り潰す
+    QTimer m_deviceChangeDebounce;
 };

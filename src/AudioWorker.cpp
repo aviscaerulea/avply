@@ -1,6 +1,8 @@
 #include "AudioWorker.h"
 #include "AudioSinkHealth.h"
 #include <QAudioSink>
+#include <QAudioDevice>
+#include <QMediaDevices>
 #include <QIODevice>
 #include <QByteArray>
 #include <QDateTime>
@@ -69,7 +71,13 @@ void AudioWorker::start()
 
 void AudioWorker::createAndStartSink()
 {
-    m_sink = new QAudioSink(m_format, this);
+    // 束縛先デバイスを明示指定して生成し、その id を記録する。
+    // デバイス未指定生成でも QAudioSink は内部で同じデフォルトを引くが、
+    // 引いた瞬間と記録する瞬間の間にデフォルトが変わると記録値と実束縛先が食い違う。
+    // 明示指定にすることで switchToDefaultDevice の id 比較が実束縛先を必ず指す
+    const QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    m_sinkDeviceId = dev.id();
+    m_sink = new QAudioSink(dev, m_format, this);
 
     // 内部バッファを 200ms 相当に拡張する。（48kHz stereo Float の場合 76800 バイト）
     // デフォルトの WASAPI バッファは数 ms と極小で、1.5x 等の高速再生時にデコーダから
@@ -93,6 +101,7 @@ void AudioWorker::createAndStartSink()
 
 void AudioWorker::recoverSink()
 {
+    // 自己回復（不健全 sink の作り直し）とデバイス切替追従の共通経路。
     // 旧セッション時代に DSP 段へ蓄積したサンプルは現行再生位置に対して遅延しているため、
     // reset() と同様に破棄して現行デコード位置から鳴らし直す
     if (m_enhancer) m_enhancer->reset();
@@ -100,8 +109,12 @@ void AudioWorker::recoverSink()
     m_pendingTail.clear();
     m_firstBufferReported = false;
 
-    // 旧 sink を破棄して作り直す。delete はデバイス未指定生成のため、
-    // 再生成時点のデフォルト出力デバイスへ束縛し直す効果も持つ（デバイス切替にも追従）
+    // 旧 sink を破棄して作り直す。再生成時点のデフォルト出力デバイスへ束縛し直すため、
+    // デバイス切替にも追従する。
+    // delete 前の stop() は teardown / SilenceTone::closeSink と同じ規約だ。
+    // stop() は同期完了を保証し、内部 audio thread を join してから解放へ進める。
+    // デバイス切替経路からは稼働中の健全な sink も破棄するため、この明示停止が要る
+    if (m_sink) m_sink->stop();
     delete m_sink;
     m_sink    = nullptr;
     m_sinkDev = nullptr;
@@ -478,6 +491,31 @@ void AudioWorker::setPlaybackRate(double rate)
     // 範囲外 / 不正値は無視する（0 や負値は SoundTouch の前提を破る）
     if (rate <= 0.0) return;
     m_pendingRate.store(rate, std::memory_order_relaxed);
+}
+
+void AudioWorker::switchToDefaultDevice()
+{
+    // start() 前 / teardown 後は sink 未所持のため何もしない。
+    // start() 時点のデフォルト出力デバイスで sink を生成するため取りこぼしは生じない
+    if (!m_sink) return;
+
+    // 束縛中のデバイスが現デフォルトと同じなら再生成しない。
+    // GUI 側は audioOutputsChanged をそのまま転送するため、デフォルト以外のデバイス増減でも
+    // 本スロットへ届く。自己回復（onAudioBuffer の死活チェック）が先に新デフォルトへ
+    // 束縛し直した直後にも届く。比較を束縛側で行うことで、いずれの重複再生成も抑える
+    const QByteArray currentId = QMediaDevices::defaultAudioOutput().id();
+    // デフォルト出力デバイス不在（全消失、または列挙の過渡状態）では現 sink を維持する。
+    // 空 id は「移る先が無い」状態であり、稼働中の sink を壊しても得るものが無い。
+    // またこの状態で再生成すると Qt 側が選ぶ代替デバイスと空 id の記録が食い違い、
+    // 以後の通知が毎回「差分あり」となって再生成を繰り返す
+    if (currentId.isEmpty()) return;
+    if (currentId == m_sinkDeviceId) return;
+
+    // avply.log は Warning 以上のみ記録するため、追従の事実を残すには qWarning が要る。
+    // 単発イベントのため audio thread のログ抑制方針（周期ログは Debug）とは競合しない
+    qWarning() << "AudioWorker: default output device changed — recreating sink";
+
+    recoverSink();
 }
 
 void AudioWorker::teardown()
