@@ -19,6 +19,8 @@ It starts up light, so it also works well as an everyday video and audio player.
   (kept across files)
 - Voice enhancement: automatically evens out volume differences between speakers
   and lifts quiet remarks
+- Output device follow: switches the output when the OS default audio device changes,
+  even during playback
 - Seek bar preview: shows a thumbnail and timestamp for the position under the cursor
 - Waveform display: draws the waveform of the loaded audio over the seek bar
 - Fast trimming: cuts the selected range at keyframe boundaries without re-encoding
@@ -63,8 +65,8 @@ In that case, install ffmpeg separately (`scoop install ffmpeg` or an [official 
 Recommended when Scoop is available. ffmpeg is pulled in as a dependency.
 
 ```powershell
-scoop bucket add nikai https://github.com/aviscaerulea/scoop-bucket
-scoop install nikai/avply
+scoop bucket add aviscaerulea https://github.com/aviscaerulea/scoop-bucket
+scoop install aviscaerulea/avply
 ```
 
 #### Uninstall
