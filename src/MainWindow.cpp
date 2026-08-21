@@ -57,6 +57,12 @@ static constexpr qreal kVolumeStep = 0.05;
 // 再生速度の下限（これ以下は音声の時間伸張が破綻するため許可しない）
 static constexpr qreal kPlaybackRateMin = 0.05;
 
+// キー入力の修飾子判定に用いるマスク集合
+// Shift / Ctrl / Alt / Meta だけを見る。KeypadModifier はテンキー押下で付与される
+// 意味的に中立な修飾子のため除外し、テンキーの ↑ / ↓ もメインキーと同じ動作で扱う
+static constexpr Qt::KeyboardModifiers kModifierMask =
+    Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier;
+
 // 起動時の初期ウィンドウサイズ（最小サイズも兼ねる）
 // 動画ロード後に動画サイズへリサイズするまでの暫定表示用
 static constexpr int kInitialWindowW = 500;
@@ -1325,7 +1331,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         // Ctrl+←→ は将来の大スキップ用、Shift+←→ は将来のシーンスキップ用に未割当のまま温存する
         if (running) return true;
         const bool forward = (ke->key() == Qt::Key_Right);
-        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        const auto mods = ke->modifiers() & kModifierMask;
         if (mods == Qt::AltModifier) {
             loadNeighborFile(forward ? +1 : -1);
             return true;
@@ -1351,10 +1357,8 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         // 音量 ±0.05
         // 実行中は修飾子の有無に関わらず消費する（従来の抑止リストと同挙動）。
         // 修飾子付き（Shift/Ctrl/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
-        // KeypadModifier はテンキー押下時に付与される意味的中立の修飾子のため
-        // マスクから除外し、テンキー ↑/↓ も同じ動作で扱う
         if (running) return true;
-        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        const auto mods = ke->modifiers() & kModifierMask;
         if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
@@ -1394,7 +1398,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         // 修飾子付き（Ctrl+C 等）はシステムショートカットと衝突するため素通しし、
         // 冒頭コメントの「Ctrl+C 等は素通し」契約を守る（↑↓ キーと同型のガード）。
         if (running) return true;
-        const auto mods = ke->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        const auto mods = ke->modifiers() & kModifierMask;
         if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
