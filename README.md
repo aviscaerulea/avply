@@ -169,8 +169,8 @@ path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 以下のツールが必要です。
 
 - Visual Studio 2022 以降の Build Tools（C++ ワークロード）
-- CMake 3.25 以上
-- Qt 6.10.3 MSVC2022 x64
+- CMake `v3.25` 以上
+- Qt `v6.10.3` MSVC2022 x64
 
 Qt は以下のコマンドで導入できます。
 インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` に合わせてください。
@@ -193,7 +193,7 @@ avply 本体は GNU LGPL v3 で配布します。
 
 依存ライブラリのライセンス対応は以下のとおりです。
 
-- Qt 6.10（LGPL v3）：DLL を動的リンクする。利用者は同名の DLL を差し替えて Qt を入れ替えられる
-- SoundTouch 2.4.0（LGPL v2.1 以降）：静的リンクのため、本体を LGPL v3 とすることで再リンク権を確保する
+- Qt `v6.10`（LGPL v3）：DLL を動的リンクする。利用者は同名の DLL を差し替えて Qt を入れ替えられる
+- SoundTouch `v2.4.0`（LGPL v2.1 以降）：静的リンクのため、本体を LGPL v3 とすることで再リンク権を確保する
 - WebRTC Audio Processing（BSD）：静的リンク。BSD は LGPL v3 と両立し、再配布上の追加義務は生じない
 - ffmpeg：外部プロセスとして呼び出すため、リンク関係は生じない
