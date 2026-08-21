@@ -125,7 +125,7 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 ### Encoder の生成タイミング
 
-`Encoder` は `onConvert` のタイミングでのみ生成し、ffmpeg パスを渡す。
+`Encoder` は変換・トリムの実行契機（`MainWindow::startOrCancel`）でのみ生成し、ffmpeg パスを渡す。
 コンストラクタでは `m_encoder` を `nullptr` 初期値のまま保持する。
 
 ### ffmpeg パス設定
