@@ -812,6 +812,12 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     // QMediaPlayer の非同期ロードを ffprobe 実行と並行させて先頭フレーム表示を早める
     m_videoView->setSource(path);
 
+    // ソース設定直後に現在の再生速度を確定させる
+    // probe 完了を待つと、LoadedMedia 到達による自動再生が先行して冒頭が等速で鳴る。
+    // 初回起動・D&D・「開く」ダイアログ・IPC の全ロード経路がここを通るため、
+    // この位置に置けば rate 適用を一様に前倒しできる
+    m_videoView->setPlaybackRate(m_playbackRate);
+
     // 再入検出用の世代番号を進める（m_loadGeneration のヘッダコメント参照）
     const quint64 gen = ++m_loadGeneration;
 
@@ -981,7 +987,9 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     }
     m_hoverPendingSec = -1;
 
-    // 新規 QMediaPlayer ソースに現在の再生速度を改めて適用する
+    // probe 完了時点でも現在の再生速度を再適用する
+    // 主たる適用は loadFile のソース設定直後だ。ここは backend がソース確定の過程で
+    // rate を落とした場合の保険で、値が同じなら再適用しても副作用はない。
     // 再生速度はインスタンス起動中ずっと保持するためファイル間でリセットしない
     m_videoView->setPlaybackRate(m_playbackRate);
 
