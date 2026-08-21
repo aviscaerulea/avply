@@ -118,7 +118,7 @@ class TestSettings : public QObject
     Q_OBJECT
 
 private slots:
-    // 各ケース冒頭で QSettings のキャッシュとレジストリを揃える
+    // 各ケース冒頭で追跡対象のレジストリ値を削除し、テスト間の状態持ち越しを断つ
     void init();
 
     // デフォルト値（未書込時の初期状態）
