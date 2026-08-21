@@ -1138,6 +1138,7 @@ struct FrameMargins {
     int bottom;
 };
 
+// フレーム外周とクライアント領域の差分マージンを求める
 FrameMargins computeFrameMargins(const QRect& frameGeom, const QRect& clientGeom)
 {
     return {
