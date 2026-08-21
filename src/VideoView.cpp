@@ -208,8 +208,8 @@ VideoView::VideoView(QWidget* parent)
         // 抑止する。EndOfMedia は確実な末尾検出のため、ffmpeg backend の
         // positionChanged 発火粒度に依存せず未再生区間を残さない。
         // pause 直後に position を duration へ固定し、シークバー表示を末尾に張り付ける。
-        // （backend によっては EndOfMedia 発火時点の内部 position が dur 手前で
-        // 止まっており、そのまま pause すると最後の数百 ms 分シークバーが届かない）
+        // backend によっては EndOfMedia 発火時点の内部 position が dur 手前で止まっており、
+        // そのまま pause すると最後の数百 ms 分シークバーが届かない。
         // 内部 m_player->setPosition は VideoView::setPosition を経由せず m_pausingAtEnd を
         // 維持するため、再 EndOfMedia 発火でも本ブランチは再入しない
         if (s == QMediaPlayer::EndOfMedia && !m_pausingAtEnd) {
