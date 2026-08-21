@@ -53,7 +53,7 @@ set(WEBRTC_APM_ROOT "${CMAKE_SOURCE_DIR}/third_party/webrtc-audio-processing"
 file(GLOB WEBRTC_APM_LIBS "${WEBRTC_APM_ROOT}/lib/*.lib")
 if(NOT WEBRTC_APM_LIBS)
     message(FATAL_ERROR
-        "webrtc-audio-processing の静的 lib が見つからない: ${WEBRTC_APM_ROOT}/lib/*.lib"
+        "webrtc-audio-processing の静的 lib が見つからない：${WEBRTC_APM_ROOT}/lib/*.lib"
         " — meson 事前ビルドの成果物を同梱するか WEBRTC_APM_ROOT を指定すること")
 endif()
 

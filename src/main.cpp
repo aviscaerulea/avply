@@ -148,7 +148,7 @@ int main(int argc, char* argv[])
     PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY epPolicy = {};
     epPolicy.DisableExtensionPoints = TRUE;
     if (!SetProcessMitigationPolicy(ProcessExtensionPointDisablePolicy, &epPolicy, sizeof(epPolicy))) {
-        qWarning("DLL 注入遮断ポリシーの設定に失敗しました。(error=%lu)", GetLastError());
+        qWarning("DLL 注入遮断ポリシーの設定に失敗しました（error=%lu）。", GetLastError());
     }
 
     // FFmpeg バックエンドを明示的に固定する
