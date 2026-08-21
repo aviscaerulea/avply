@@ -814,7 +814,7 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
 
     // ソース設定直後に現在の再生速度を確定させる
     // probe 完了を待つと、LoadedMedia 到達による自動再生が先行して冒頭が等速で鳴る。
-    // 初回起動・D&D・「開く」ダイアログ・IPC の全ロード経路がここを通るため、
+    // loadFile は全ロード経路が合流する唯一の入口のため、
     // この位置に置けば rate 適用を一様に前倒しできる
     m_videoView->setPlaybackRate(m_playbackRate);
 

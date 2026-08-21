@@ -67,7 +67,7 @@ private slots:
     void onSeekHoverLeft();
 
 private:
-    // メディアファイルを実際に読み込む（Open ダイアログと D&D 共通）
+    // メディアファイルを実際に読み込む（全ロード経路が合流する唯一の入口）
     // centerOnMonitor=true のときのみモニタ作業領域の中央へウィンドウを移動する
     void loadFile(const QString& path, bool centerOnMonitor = false);
 
