@@ -141,14 +141,15 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
 }
 
 // 設定値を安全範囲にクランプする
-// 全 toml ファイル読込後に一度だけ呼ぶ。範囲外の入力が QMediaPlayer や QAudioOutput に渡るのを防ぐ
+// 全 toml ファイル読込後に一度だけ呼ぶ。範囲外の入力が QMediaPlayer や音声出力経路へ渡るのを防ぐ
 void clampConfig(AppConfig& cfg)
 {
     // 再生速度は MainWindow の . / , キー操作と同じ範囲（0.05〜4.0）に丸める
     cfg.playbackSpeed = std::clamp(cfg.playbackSpeed, 0.05, 4.0);
     // モニタ比率は 0.1〜1.0 にクランプ（0 以下で初期サイズ破綻、1.0 超でタスクバー侵入）
     cfg.initialScreenRatio = std::clamp(cfg.initialScreenRatio, 0.1, 1.0);
-    // 音量は QAudioOutput::setVolume の有効範囲（0.0〜1.0）にクランプ
+    // 音量は AudioWorker が乗算するリニアゲインで、有効範囲 0.0〜1.0 にクランプする。
+    // 下流の VideoView::setVolume も同じ範囲へ丸めるため、ここは toml 由来の異常値の水際で弾く役割だ
     cfg.audioVolume = std::clamp(cfg.audioVolume, 0.0, 1.0);
     // サイレンストーン周波数は 20〜20000Hz、振幅は 0.0〜0.01 にクランプ
     // 振幅 0.01（-40dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
