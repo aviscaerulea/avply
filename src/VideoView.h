@@ -89,6 +89,11 @@ signals:
     // error は QMediaPlayer::errorString() の内容
     void loadFailed(const QString& error);
 
+    // QQuickView が初回フレームを present したとき 1 回だけ emit する
+    // MainWindow が起動時の透明化を解除する契機に使う。
+    // 音声拡張子で起動して VideoView が非表示のままの場合は emit されない
+    void firstFrameRendered();
+
     // 右クリックでコンテキストメニュー要求が発生したとき emit する
     // QQuickView はネイティブ子ウィンドウのため Win32 が右クリックを親 QWidget へ
     // 伝搬しない。プレビュー上のメニュー表示を実現するため QML 側で受けて転送する
@@ -115,7 +120,7 @@ private:
     AudioWorker*        m_audioWorker = nullptr;
 
     // ロード完了検知フラグ
-    // 完了時に自動再生を開始し、映像ありの場合のみプレビューコンテナを初回可視化する。
+    // 完了時に自動再生を開始し、映像なしならプレビューコンテナを隠す。
     // ロード中は旧ソースの遅延 positionChanged を破棄するゲートも兼ねる
     bool m_primeFirstFrame = false;
 

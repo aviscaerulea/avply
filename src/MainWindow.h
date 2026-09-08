@@ -43,6 +43,11 @@ protected:
     // WM_SIZING でウィンドウドラッグ中の RECT を直接書き換え、リアルタイムにアスペクト比を維持する
     bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 
+signals:
+    // 起動時の透明化を解除した直後に 1 回だけ emit する
+    // 初期ファイルのロードや SilenceTone 開始など、GUI thread を長く塞ぐ初期処理の起点
+    void windowRevealed();
+
 private slots:
     void onOpenFile();
     void onSeekSliderChanged(int value);
@@ -137,6 +142,10 @@ private:
 
     // 秒数を HH:MM:SS 形式の文字列に変換する
     static QString formatSec(double sec);
+
+    // 起動時の透明化を解除する（冪等）
+    // VideoView の初回フレーム通知とタイムアウトの両方から呼ばれる
+    void restoreWindowOpacity();
 
     // ffmpeg パスの妥当性を検査し、不正なら警告ダイアログを 1 回出す
     void validateFfmpegPath();

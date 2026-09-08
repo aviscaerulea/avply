@@ -4,6 +4,7 @@
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QQuickView>
+#include <QQuickWindow>
 #include <QQuickItem>
 #include <QVideoSink>
 #include <QMediaPlayer>
@@ -38,8 +39,8 @@ VideoView::VideoView(QWidget* parent)
     , m_quickView(new QQuickView)
     , m_player(new QMediaPlayer(this))
 {
-    // VideoView 本体の背景を即時に黒系に設定する。
-    // QQuickView のネイティブサーフェス確立前にコンテナが白く見えるのを防ぐ
+    // VideoView 本体の背景を QQuickView の setColor と同じ暗色にする。
+    // コンテナが hide されている間（音声のみソース）もプレビュー領域の見た目を揃える
     QPalette pal = palette();
     pal.setColor(QPalette::Window, QColor(0x1a, 0x1a, 0x1a));
     setPalette(pal);
@@ -91,7 +92,17 @@ VideoView::VideoView(QWidget* parent)
     // 親 QWidget の dragEnter/drop へイベントを伝搬しないため）
     m_videoContainer = QWidget::createWindowContainer(m_quickView, this);
     m_videoContainer->setMinimumSize(1, 1);
-    m_videoContainer->hide();
+    // コンテナは起動時から表示する。ウィンドウが透明な間にネイティブサーフェスの確立と
+    // 初回 present を済ませ、不透明化後に白いサーフェスが見えないようにする。
+    // 音声のみソースの黒矩形残留は mediaStatusChanged ハンドラの hide() が担う
+
+    // 初回フレームの present 完了を GUI thread へ 1 回だけ通知する。
+    // render thread が frameSwapped を emit するため、receiver=this で queued 配送になる。
+    // MainWindow はこの通知でウィンドウの透明化を解除する
+    connect(m_quickView, &QQuickWindow::frameSwapped, this, [this]() {
+        StartupTrace::mark("quick_first_frame");
+        emit firstFrameRendered();
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -175,9 +186,8 @@ VideoView::VideoView(QWidget* parent)
             (s == QMediaPlayer::LoadedMedia || s == QMediaPlayer::BufferedMedia)) {
             m_primeFirstFrame = false;
             StartupTrace::mark("loaded_media");
-            // hasVideo が true のときのみ QQuickView コンテナを表示する。
-            // 音声のみのソースで表示すると VideoOutput に何も描画されず黒矩形が残るため、
-            // 描画対象が確定したフレームでだけコンテナを可視化する。
+            // hasVideo に応じて QQuickView コンテナの表示を確定する。
+            // コンテナは起動時から表示済みのため、通常の動画ロードでは show() は何もしない。
             // 動画→音声切替時は clear(keepVisible=true) 経路でコンテナが表示されたまま
             // 残るため、明示的に隠して旧ソースの最終フレーム残留を解消する
             if (m_player->hasVideo()) {

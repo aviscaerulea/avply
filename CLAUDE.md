@@ -98,7 +98,7 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 `avply.log` を使わないのは、メッセージハンドラが Warning 以上しか記録しない設計のためだ。同じ label は最初の 1 回だけ記録するため、毎バッファ・毎フレームの経路から無条件に呼べる。
 
-白フラッシュ抑制の opacity 復帰予約と `SilenceTone` の開始予約はいずれも `MainWindow` コンストラクタ内の `singleShot(0)` で、予約順は「opacity 復帰 → loadFile → validateFfmpegPath → SilenceTone」だ。ウィンドウ可視化を最優先し、GUI thread 同期の WASAPI 確立を最後に回す。
+白フラッシュ抑制の opacity 復帰は、`VideoView` が可視なら `QQuickView` の初回 `frameSwapped`（`VideoView::firstFrameRendered`、1 秒のタイムアウト付き）、音声拡張子起動で非表示なら `singleShot(0)` を契機とする。復帰直後に `MainWindow::windowRevealed` を emit し、QueuedConnection で繋いだ初期処理が接続順「loadFile → validateFfmpegPath → SilenceTone」で次のイベントループから走る。ウィンドウ可視化を最優先し、初回 WASAPI 確立（GUI thread の同期待ちで約 550ms）を含む処理を可視化後へ回す。
 
 ### 受け入れ可能ファイル
 

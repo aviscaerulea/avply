@@ -72,6 +72,13 @@ static constexpr Qt::KeyboardModifiers kModifierMask =
 static constexpr int kInitialWindowW = 500;
 static constexpr int kInitialWindowH = 375;
 
+// 起動時の透明化を強制解除するまでの猶予（ms）
+// QQuickView の初回フレームが来ない異常時（RHI 初期化失敗など）にウィンドウが
+// 不可視のまま残るのを防ぐ。初回フレームが単に遅いだけの環境でも発火し、その場合は
+// 白いサーフェスが見える。不可視のまま残るより白が見えるほうを優先する判断だ。
+// 実測（Qt 6.10 / D3D11）の初回フレームはコールド起動でも約 240ms で、1 秒は十分な余裕
+static constexpr int kOpacityRestoreTimeoutMs = 1000;
+
 // 音声波形 PNG の生成サイズ
 // シークバー幅は最大でも数百 px だが、QPainter 側のスケール描画品質を保つため幅 2048px の余裕を持たせる。
 // 高さ 48px はトラック高 28px への縮小描画でも詳細が潰れない解像度
@@ -446,47 +453,70 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     }
 
     // 起動時の白フラッシュ抑制
-    // Windows のネイティブウィンドウ作成直後に発生する WM_ERASEBKGND による白塗りは
-    // Qt 側の背景属性では抑止しきれないため、最初の paint が終わるまでウィンドウを
-    // 透明化して視覚的に隠す。次のイベントループで不透明に戻すと、その時点では既に
-    // VideoView の暗色背景および UI が描画済みのためフラッシュは見えない。
-    // 復帰予約は後続の loadFile / validateFfmpegPath の予約より前に置く。
-    // singleShot(0) は予約順に発火するため、ここに置くことでウィンドウの可視化が
-    // loadFile の同期部分（audio thread との Blocking 同期、ffprobe のプロセス起動）を待たない
+    // Windows のネイティブウィンドウ作成直後の WM_ERASEBKGND による白塗りと、
+    // QQuickView の子 HWND が初回 present するまで白いサーフェスを見せる現象は、
+    // いずれも Qt 側の背景属性では抑止しきれない。そのため描画が済むまでウィンドウを
+    // 透明化して視覚的に隠す。
+    // 復帰契機は VideoView の可視状態で分ける。
+    // - 可視（動画指定・未指定）：QQuickView の初回フレーム present（firstFrameRendered）
+    // - 非表示（音声拡張子）：イベントループ 1 周目（QQuickView は露出せず frameSwapped が来ない）
+    // 可視経路を singleShot(0) にすると render thread の初回 present に間に合わず白が見える。
+    // フォールバックは可視経路のみに置く。RHI 初期化失敗で frameSwapped が永久に来ない場合に
+    // ウィンドウが不可視のまま残るのは致命的なためだ
     setWindowOpacity(0.0);
-    QTimer::singleShot(0, this, [this]() {
-        setWindowOpacity(1.0);
-        StartupTrace::mark("opacity_restored");
-    });
+    if (m_videoView->isHidden()) {
+        QTimer::singleShot(0, this, &MainWindow::restoreWindowOpacity);
+    }
+    else {
+        connect(m_videoView, &VideoView::firstFrameRendered,
+                this, &MainWindow::restoreWindowOpacity);
+        // タイムアウトで解除した場合は異常検知のため avply.log へ残す
+        QTimer::singleShot(kOpacityRestoreTimeoutMs, this, [this]() {
+            if (windowOpacity() < 1.0) {
+                qWarning() << "MainWindow: QQuickView の初回フレームが"
+                           << kOpacityRestoreTimeoutMs << "ms 以内に来ず、透明化を強制解除した";
+            }
+            restoreWindowOpacity();
+        });
+    }
 
-    // 初期ファイルのロードはイベントループに戻った直後に行い、show() を最速で先行させる
-    // これにより、ユーザにはまずデフォルトサイズのウィンドウが表示され、続いて動画サイズへリサイズされる
+    // 可視化後の初期処理は windowRevealed へ QueuedConnection で繋ぎ、接続順
+    // （loadFile → validateFfmpegPath → SilenceTone）で次のイベントループから走らせる。
+    // singleShot(0) で予約すると QQuickView の expose 処理より先に GUI thread を占有し、
+    // 初回 WASAPI 確立の同期待ち（実測で約 550ms）の間ウィンドウが不可視のまま残る。
+    // 可視化を最優先し、GUI thread を長く塞ぐ処理はその後へ回す
+
+    // 初期ファイルのロード。ユーザにはまずデフォルトサイズのウィンドウが表示され、
+    // 続いて動画サイズへリサイズされる
     if (hasInitialPath) {
-        QTimer::singleShot(0, this, [this, initialPath]() { loadFile(initialPath, true); });
+        connect(this, &MainWindow::windowRevealed, this,
+                [this, initialPath]() { loadFile(initialPath, true); },
+                Qt::QueuedConnection);
     }
 
     // ウィンドウ表示後に検証する（show 前のダイアログ表示を避ける）
-    QTimer::singleShot(0, this, &MainWindow::validateFfmpegPath);
+    connect(this, &MainWindow::windowRevealed, this, &MainWindow::validateFfmpegPath,
+            Qt::QueuedConnection);
 
     QThreadPool::globalInstance()->start([]() { purgeOldWaveformCache(); });
 
     // BT 機器のアイドル復帰時プチノイズ抑制用に、不可聴トーンを常時出力する
     // BT コーデックが無音区間でアイドル状態に入り、次の音声再開時にプチ音が乗る現象を防ぐ。
     // [audio].silence_tone_enabled=false で完全にスキップ可能（OS への常時音声出力を行わない）
-    // 生成と開始はイベントループへ戻った後に行う。openSink の WASAPI セッション確立は
+    // 生成と開始は可視化後に行う。openSink の WASAPI セッション確立は
     // GUI thread の同期処理のため、コンストラクタ内で走らせると show() が遅れる。
-    // 予約は loadFile より後に置く。トーンは最初の音声出力（デコード完了後）より前に
+    // 接続は loadFile より後に置く。トーンは最初の音声出力（デコード完了後）より前に
     // 鳴り始めれば十分で、ウィンドウ表示と初期ロード発行を優先する
     if (cfg.silenceToneEnabled) {
         const double freqHz = cfg.silenceToneFreqHz;
         const double amp    = cfg.silenceToneAmp;
-        QTimer::singleShot(0, this, [this, freqHz, amp]() {
+        connect(this, &MainWindow::windowRevealed, this, [this, freqHz, amp]() {
             m_silenceTone = new SilenceTone(this);
             m_silenceTone->setFrequency(freqHz);
             m_silenceTone->setAmplitude(amp);
             m_silenceTone->start();
             StartupTrace::mark("silence_tone_started");
-        });
+        }, Qt::QueuedConnection);
     }
 }
 
@@ -1644,6 +1674,16 @@ QString MainWindow::openDialogStartDir() const
         return QFileInfo(m_filePath).absolutePath();
     }
     return QDir::homePath();
+}
+
+// 起動時の透明化を解除する（冪等）
+// 初回フレーム契機とタイムアウト契機の両方から呼ばれるため、2 回目以降は何もしない
+void MainWindow::restoreWindowOpacity()
+{
+    if (windowOpacity() >= 1.0) return;
+    setWindowOpacity(1.0);
+    StartupTrace::mark("opacity_restored");
+    emit windowRevealed();
 }
 
 void MainWindow::validateFfmpegPath()
