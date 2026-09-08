@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/github/license/aviscaerulea/avply)](LICENSE)
 [![Build](https://github.com/aviscaerulea/avply/actions/workflows/release.yml/badge.svg)](https://github.com/aviscaerulea/avply/actions/workflows/release.yml)
 
-会議録画を「速く・聞きやすく・必要な所だけ」見直すためのメディアプレイヤーです。
+会議録画を「速く、聞きやすく、必要な所だけ」見直すためのメディアプレイヤーです。
 倍速再生と音声強調で視聴にかかる時間を削れます。必要な区間だけを素早く切り出せます。
 起動が軽いため、会議録画に限らず普段の動画・音声再生にも使えます。
 
@@ -44,8 +44,8 @@ C キーを押すたびに ON と OFF が切り替わります。
 ### 動作要件
 
 - Windows 11
-- ffmpeg（別途インストールが必要。再生時もメディア情報の取得に使用する）
-- NVIDIA GPU（動画を変換するときのみ必要。AV1 NVENC 対応、RTX 30 シリーズ以降を推奨）
+- ffmpeg（別途インストールが必要、再生時もメディア情報の取得に使用する）
+- NVIDIA GPU（動画を変換するときのみ必要、AV1 NVENC 対応、RTX 30 シリーズ以降を推奨）
 
 トリムは再エンコードしないため GPU は不要です。音声だけの変換も CPU で動作します。
 
@@ -135,7 +135,7 @@ G キーは 1 回目で中立の状態（速度 1.00、音量 100%、音声強�
 ## 設定
 
 実行ファイルと同じフォルダの `avply.toml` で挙動を調整します。
-PC 固有の値をリポジトリの管理から外したいときは、同じフォルダの `avply.local.toml` に同じキーを書くと後勝ちで上書きします。
+PC 固有の値をリポジトリの管理から外したいときは、同じフォルダの `avply.local.toml` へ同じキーを書きます。こちらの値を後勝ちで優先します。
 主要な項目は以下のとおりです。各キーの既定値と調整できる範囲は `avply.toml` 内のコメントに記載しています。
 
 | セクション | 主な内容 |
