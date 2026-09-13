@@ -15,6 +15,22 @@
 #include <xmmintrin.h>
 #include <pmmintrin.h>
 
+// シークゲートの一致許容幅（µs）
+// 新ストリームの先頭バッファは目標位置を含むフレームから始まるため、目標との差は
+// 最大 1 フレーム分（一般的なコーデックで 20〜100ms）に収まる。旧ストリームは
+// 既定シーク量 5 秒だけ離れているため 1 秒で十分に判別できる
+constexpr qint64 kSeekMatchToleranceUs = 1'000'000;
+// シークゲートのフェイルセーフ時間（ms）。経過後は startTime を見ずに受理する
+constexpr qint64 kSeekGateTimeoutMs = 500;
+// リセット後のフェードイン長（ms）
+constexpr int kFadeInMs = 5;
+
+// フェードイン長をフレーム数へ換算する
+static qsizetype fadeInFrames(const QAudioFormat& format)
+{
+    return static_cast<qsizetype>(format.sampleRate()) * kFadeInMs / 1000;
+}
+
 AudioWorker::AudioWorker(const QAudioFormat& format,
                          QObject* parent)
     : QObject(parent)
@@ -124,6 +140,12 @@ void AudioWorker::recoverSink()
 
     // 直後の reset() が 50ms 以内に sink restart を重ねないようスロットリング時刻を更新する
     m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();
+    armFadeIn();
+}
+
+void AudioWorker::armFadeIn()
+{
+    m_fadeInFramesLeft = fadeInFrames(m_format);
 }
 
 void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
@@ -133,6 +155,17 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     // ソース切替中（forceReset 後〜resumeBuffers 前）は旧ソースの pending バッファを破棄する
     if (m_suspended) return;
     StartupTrace::mark("first_audio_buffer");
+
+    // シークゲート：旧ストリームのバッファを破棄する（背景は m_seekTargetUs のコメント）
+    if (m_seekTargetUs >= 0) {
+        const bool matched = qAbs(buf.startTime() - m_seekTargetUs) <= kSeekMatchToleranceUs;
+        if (!matched) {
+            if (QDateTime::currentMSecsSinceEpoch() - m_seekGateArmedMs < kSeekGateTimeoutMs) return;
+            qWarning() << "AudioWorker: seek gate timeout — accepting buffer startTime=" << buf.startTime()
+                       << "targetUs=" << m_seekTargetUs;
+        }
+        m_seekTargetUs = -1;
+    }
 
     // sink 死活チェック（外部要因で無効化された WASAPI セッションからの自己回復）
     // 画面録画ソフト等がシステム音声キャプチャ開始時にオーディオエンドポイントを再構成すると、
@@ -265,8 +298,10 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     // 音量適用のラムダ
     // m_pendingTail / enhancer 出力のいずれも pre-volume（post-enhancer）として保持し、
     // sink への書き込み直前にここで最新 m_volume を適用する。退避から書き戻しの間に
-    // ユーザが音量を変更しても旧音量で出力されない
-    auto applyVolume = [this](const char* src, qint64 bytes) -> const char* {
+    // ユーザが音量を変更しても旧音量で出力されない。
+    // リセット直後は先頭 kFadeInMs 分へ線形ランプを掛ける。残フレーム数の減算は実際に sink へ
+    // 書けた分だけ書き込み側で行い、partial write で書き戻す区間にも同じランプ位置を再適用する
+    auto applyVolume = [this, channels](const char* src, qint64 bytes) -> const char* {
         if (m_volumeWork.size() < bytes) {
             m_volumeWork.resize(bytes);
         }
@@ -274,7 +309,13 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
         const float*    in      = reinterpret_cast<const float*>(src);
         float*          out     = reinterpret_cast<float*>(m_volumeWork.data());
         const qsizetype samples = bytes / static_cast<qsizetype>(sizeof(float));
-        for (qsizetype i = 0; i < samples; ++i) {
+        const qsizetype fadeTotal   = fadeInFrames(m_format);
+        const qsizetype fadeSamples = std::min<qsizetype>(m_fadeInFramesLeft * channels, samples);
+        for (qsizetype i = 0; i < fadeSamples; ++i) {
+            const qsizetype frame = fadeTotal - m_fadeInFramesLeft + i / channels;
+            out[i] = in[i] * vol * (static_cast<float>(frame) / static_cast<float>(fadeTotal));
+        }
+        for (qsizetype i = fadeSamples; i < samples; ++i) {
             out[i] = in[i] * vol;
         }
         return m_volumeWork.constData();
@@ -312,6 +353,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
             return;
         }
         const qint64 consumed = written;
+        m_fadeInFramesLeft = std::max<qsizetype>(0, m_fadeInFramesLeft - consumed / frameBytes);
         if (consumed < m_pendingTail.size()) {
             // 一部しか書けなかった分を先頭から除去して保持し、enhancer ドレインは次回まで持ち越す
             // pendingTail は pre-volume のまま remove するので、次回も最新音量が適用される
@@ -357,6 +399,7 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
             break;
         }
         const qint64 consumed = written;
+        m_fadeInFramesLeft = std::max<qsizetype>(0, m_fadeInFramesLeft - consumed / frameBytes);
 
         // 未送出分は実際に書けた consumed を起点に pre-volume のまま pendingTail へ退避する。
         // 未送出分は「sink の空き不足で切り詰めた [toWrite, outBytes)」と
@@ -402,10 +445,16 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     }
 }
 
-void AudioWorker::reset()
+void AudioWorker::reset(qint64 targetMs)
 {
     // シーク時の sink 積み残し破棄と DSP 状態リセット。
     // 50ms 以内の連打ではスロットリング側に流し、sink reset()→start() を間引く
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // シークゲートとフェードインはスロットリングに関係なく毎回起動する。
+    // 連打中は最後のシーク目標だけが有効になり、ゲートは途中世代の renderer のバッファも破棄する
+    m_seekTargetUs    = targetMs * 1000;
+    m_seekGateArmedMs = now;
+    armFadeIn();
     if (m_enhancer) m_enhancer->reset();
     if (m_stretch) m_stretch->clear();
     // sink を reset→start で再起動するため partial write 残量も破棄する（古いサンプルを再開後に書き出さない）。
@@ -426,7 +475,6 @@ void AudioWorker::reset()
     // restart した時刻」から 50ms とし、throttle 側 return では m_lastSinkRestartMs を
     // 更新しない。これにより 49ms 間隔の連打中でも 50ms ごとに一度は sink restart が走り、
     // WASAPI バッファに残った旧サンプルが定期的に flush される
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - m_lastSinkRestartMs < 50) {
         return;
     }
@@ -456,6 +504,10 @@ void AudioWorker::forceReset()
     // 旧ソースの pending バッファ混入を防ぐ破棄ゲートを立てる。
     // 解除は新ソースの play() 直前に resumeBuffers() で行う。
     // 新ソースのバッファは play() 開始後にしか届かないため取りこぼしは生じない
+    // 前ソース向けに開いたままのシークゲートを閉じる。新ソースは位置 0 から始まるため、
+    // 旧目標が残ると先頭がフェイルセーフ時間まで無音になる
+    m_seekTargetUs = -1;
+    armFadeIn();
     m_suspended = true;
     if (!m_sink) return;
     m_lastSinkRestartMs = QDateTime::currentMSecsSinceEpoch();

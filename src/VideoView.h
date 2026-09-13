@@ -33,6 +33,7 @@ public:
     qint64 position() const;
 
     // 再生位置（ミリ秒）を変更する
+    // AudioWorker::reset へ目標位置を渡し、シーク前のバッファを破棄させる
     void setPosition(qint64 ms);
 
     // 再生速度を変更する（1.0 が等速）

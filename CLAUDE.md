@@ -260,7 +260,15 @@ AGC2 適応上限（`adaptive_digital.max_gain_db`）は `SpeechEnhancer.cpp` �
 
 #### シーク・ファイル切替時のリセット
 
-`reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
+`SpeechEnhancer::reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
+
+### シーク時の旧バッファ破棄（シークゲート）と再開時フェードイン
+
+FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再生成する。破棄は非同期のため、旧 renderer が直前に emit した数十 ms のバッファが `AudioWorker::reset` の後に届く。`AudioWorker` が空にした sink へ旧位置の断片を書き込むため、「ザリッ」というノイズになっていた。
+
+対策として `VideoView::setPosition` は `AudioWorker::reset(targetMs)` へシーク目標を渡す。`AudioWorker` はシークゲートを開き、開いている間は旧バッファの破棄判定を有効にする。Qt はシーク位置より前に終わるフレームを捨てるため、新 renderer のバッファは `QAudioBuffer::startTime()` がシーク目標近傍の媒体位置（µs）になる。そこで目標から `kSeekMatchToleranceUs`（1 秒）より離れたバッファを旧ストリームとして破棄し、近傍のバッファが届いたらゲートを閉じる。`startTime()` の意味は Qt 内部実装依存の非公開仕様のため、ゲートを開いてから `kSeekGateTimeoutMs`（500ms）経過後はフェイルセーフとして無条件に受理し、`avply.log` に警告を残す。シーク前後の位置差が 1 秒以下（`[seek]` を小さく設定した場合等）では判別できず従来動作になる。
+
+あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は sink へ書く最初の `kFadeInMs`（5ms）へ線形フェードインを掛け、無音からの開始段差を丸める。旧音声が途切れる側（sink を空にする時点）の切断音は原理上残る。
 
 ### 高速再生時のサンプル欠落対策（SoundTouch WSOLA）
 

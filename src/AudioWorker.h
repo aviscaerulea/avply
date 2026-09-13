@@ -38,8 +38,10 @@ public slots:
     void onAudioBuffer(const QAudioBuffer& buf);
 
     // シーク時の sink 積み残し破棄と DSP 状態リセット
-    // 50ms スロットリングが効くため、短時間の連続呼び出しでは sink restart が間引かれる
-    void reset();
+    // targetMs はシーク目標位置（ms）で、シークゲートの判定基準になる。
+    // 50ms スロットリングが効くため、短時間の連続呼び出しでは sink restart が間引かれる。
+    // ゲートとフェードインの起動はスロットリングの対象外で毎回行う
+    void reset(qint64 targetMs);
 
     // ソース切替時の強制リセット
     // 前ソースのサンプルが WASAPI バッファに残らないよう必ず sink reset()→start() を実行する。
@@ -93,6 +95,10 @@ private:
     // いずれも DSP 蓄積分は旧セッション時代の遅延サンプルのため破棄し、
     // 現行デコード位置から鳴らし直す
     void recoverSink();
+
+    // シーク・ソース切替・sink 再生成の直後に 5ms フェードインを起動する
+    // 出力が無音から再開する経路で共通に呼び、開始段差のクリックを丸める
+    void armFadeIn();
 
     QAudioFormat m_format;
     // 音声強調 DSP（WebRTC APM ラッパ）
@@ -163,6 +169,18 @@ private:
     // デバイス完全消失中は再生成しても start が失敗し続けるため、
     // 毎バッファの空振り再生成（QAudioSink 生成コスト＋警告ログ連発）を 1 秒間隔へ抑える
     qint64       m_lastSinkRecoverMs = 0;
+    // シークゲートの目標位置（µs）。負値はゲート閉（全バッファ受理）
+    // Qt の再生エンジンはシークごとに AudioRenderer を破棄・再生成するが、破棄は非同期のため
+    // 旧 renderer が直前に emit したバッファが reset 後に届く。sink を空にした直後に旧位置の
+    // 断片が鳴り、無音との硬い境界が「ザリッ」になる。新 renderer のバッファは startTime() が
+    // 目標近傍の媒体位置（µs）になる（Qt はシーク位置より前に終わるフレームを捨てる）ため、
+    // 目標から離れたバッファを旧ストリームと判定して破棄し、近傍のバッファが届いたら閉じる。
+    // startTime() の意味は Qt 内部実装（QFFmpegResampler が先頭フレームの pts を起点に付与）
+    // に依存する非公開仕様のため、起動から一定時間で無条件に受理して恒久無音を防ぐ
+    qint64       m_seekTargetUs    = -1;
+    qint64       m_seekGateArmedMs = 0;
+    // フェードインの残フレーム数。sink へ書いた分だけ減らし、0 で通常音量になる
+    qsizetype    m_fadeInFramesLeft = 0;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;

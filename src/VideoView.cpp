@@ -344,11 +344,13 @@ qint64 VideoView::position() const
 
 void VideoView::setPosition(qint64 ms)
 {
-    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと SpeechEnhancer 状態をリセットする
+    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと SpeechEnhancer 状態をリセットする。
+    // reset へシーク目標を渡し、Qt が非同期に破棄する旧 AudioRenderer の残バッファを
+    // AudioWorker のシークゲートで破棄させる
     m_pausingAtEnd = false;
     if (m_audioWorker) {
         AudioWorker* w = m_audioWorker;
-        QMetaObject::invokeMethod(w, [w]() { w->reset(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(w, [w, ms]() { w->reset(ms); }, Qt::QueuedConnection);
     }
     m_player->setPosition(ms);
 }
@@ -410,7 +412,7 @@ void VideoView::play()
     // partial-write 残量（SoundTouch 内部バッファと m_pendingTail）が
     // 先頭区間に貼り付くプチノイズを防ぐ。
     // reset（QueuedConnection）と play() 直後の decoder バッファ送出の処理順は
-    // 保証されないが、setPosition 内の race と同根の既知許容（実害は感知しづらい）
+    // 保証されないが、AudioWorker のシークゲートが目標 0 から離れたバッファを破棄する
     if (m_pausingAtEnd) {
         setPosition(0);
     }
