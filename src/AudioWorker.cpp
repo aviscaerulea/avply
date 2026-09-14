@@ -25,6 +25,15 @@ constexpr qint64 kSeekMatchToleranceUs = 1'000'000;
 constexpr qint64 kSeekGateTimeoutMs = 500;
 // ランプ長（ms）。リセット後のフェードインと、シーク時の無音へのフェードアウトで共用する
 constexpr int kRampMs = 5;
+// プリロール（先行無音）の長さ（ms）
+// Qt の renderer はバッファを表示時刻ちょうどに送出するため、sink はバッファ長ぶんを鳴らし終えた
+// 瞬間に次のバッファを受け取る。到着がわずかに遅れるだけで sink が空になり、WASAPI が挟む無音の穴が
+// 持続音では「プチ」というクリックになる（48kHz WAV 等速の実測で、85ms バッファの到着時残量が
+// 0〜8ms、17 回中 3 回は 0 だった）。空から鳴らし始める各起点で先に無音を書き、以後の残量を
+// 常にこの長さだけ前倒しに保つ。値は実測ジッタ（最大 8ms）と、SoundTouch が立ち上がり直後に出力を
+// 出し渋る累積不足（1.2 倍速で約 45ms）を覆う。音声は映像よりこの長さだけ遅れるが、
+// 音声遅れ側の検知限（約 125ms）の内側に収まる
+constexpr int kPrerollMs = 60;
 // 終了時の drain 待ちで、sink バッファが空になった後に置く再生余裕（ms）
 // WASAPI の共有モード周期は 10ms で、sink バッファから取り出し済みでも未再生の区間が最大 1 周期残る
 constexpr int kDrainTailMarginMs = 20;
@@ -116,6 +125,7 @@ void AudioWorker::createAndStartSink()
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed:" << m_sink->error();
     }
+    m_prerollPending = true;
     // 起動時情報は qDebug 経由とする。HighPriority audio thread からの周期 qInfo は
     // OutputDebugString 同期 I/O で数 ms ブロックし sink underrun の引き金になり得るため、
     // audio thread からのログは原則 Debug 出力に抑える
@@ -151,6 +161,19 @@ void AudioWorker::recoverSink()
 void AudioWorker::armFadeIn()
 {
     m_fadeInFramesLeft = rampFrames(m_format);
+}
+
+void AudioWorker::writePrerollSilence()
+{
+    if (!m_sink || !m_sinkDev) return;
+    const qint64 frameBytes = static_cast<qint64>(m_format.channelCount()) * static_cast<qint64>(sizeof(float));
+    const qint64 want  = static_cast<qint64>(m_format.bytesForDuration(kPrerollMs * 1000));
+    const qint64 free  = (m_sink->bytesFree() / frameBytes) * frameBytes;
+    const qint64 bytes = std::min(want, free);
+    if (bytes <= 0) return;
+    const QByteArray zeros(static_cast<qsizetype>(bytes), '\0');
+    m_sinkDev->write(zeros.constData(), bytes);
+    std::fill(m_lastOut.begin(), m_lastOut.end(), 0.0f);
 }
 
 void AudioWorker::writeFadeOutRamp()
@@ -262,6 +285,12 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
     const int channels = m_format.channelCount();
     const qsizetype inFrames = buf.frameCount();
     if (inFrames <= 0) return;
+
+    // リセット後の最初のバッファの直前にプリロールを置く（理由は m_prerollPending のコメント）
+    if (m_prerollPending) {
+        writePrerollSilence();
+        m_prerollPending = false;
+    }
 
     // フェールセーフ：連続 underrun 時の蓄積暴走を抑止する
     // sink への書き戻し失敗が続くと SoundTouch 内出力キュー (numSamples)、SpeechEnhancer の
@@ -515,6 +544,8 @@ void AudioWorker::reset(qint64 targetMs)
     // sink に残る旧音声は鳴り終わらせ、その末尾を無音へ下ろす。
     // 連打で既に無音へ下ろした後は m_lastOut が 0 のため、ランプは無音の書き足しになる
     writeFadeOutRamp();
+    // 新位置の最初のバッファの直前にプリロールを置き、以後の残量を前倒しに保つ
+    m_prerollPending = true;
 }
 
 void AudioWorker::forceReset()
@@ -547,6 +578,7 @@ void AudioWorker::forceReset()
     if (!m_sinkDev) {
         qWarning() << "AudioWorker: QAudioSink::start() failed (after forceReset):" << m_sink->error();
     }
+    m_prerollPending = true;
 }
 
 void AudioWorker::resumeBuffers()
@@ -613,7 +645,7 @@ void AudioWorker::teardown()
         // 鳴り終わるまで待つ（シーク時と同じ方式）。切断の段差は「パツッ」というクリックになる。
         // 呼び出し元（~VideoView）が audioBuf → audioWorker を disconnect 済みのため、
         // 待ちの間に新規バッファは届かない。空になるまでの上限は sink バッファ長 + ランプ + 余裕だ。
-        // 通常は残量 1 バッファ分（20〜40ms）で抜け、空になった後も余裕ぶんだけ待ってから止める
+        // 通常は残量プリロール + 1 バッファ分（約 80〜160ms）で抜け、空になった後も余裕ぶんだけ待ってから止める
         writeFadeOutRamp();
         const qint64 bufferMs = m_format.durationForBytes(static_cast<qint32>(m_sink->bufferSize())) / 1000;
         const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + bufferMs + kRampMs + kDrainTailMarginMs;

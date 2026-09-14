@@ -215,11 +215,13 @@ FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再�
 
 対策として `VideoView::setPosition` は `AudioWorker::reset(targetMs)` へシーク目標を渡す。`AudioWorker` はシークゲートを開き、開いている間は旧バッファの破棄判定を有効にする。Qt はシーク位置より前に終わるフレームを捨てるため、新 renderer のバッファは `QAudioBuffer::startTime()` がシーク目標近傍の媒体位置（µs）になる。そこで目標から `kSeekMatchToleranceUs`（1 秒）より離れたバッファを旧ストリームとして破棄し、近傍のバッファが届いたらゲートを閉じる。`startTime()` の意味は Qt 内部実装依存の非公開仕様のため、ゲートを開いてから `kSeekGateTimeoutMs`（500ms）経過後はフェイルセーフとして無条件に受理し、`avply.log` に警告を残す。シーク前後の位置差が 1 秒以下（`[seek]` を小さく設定した場合等）では判別できず従来動作になる。
 
-`AudioWorker::reset` は sink を稼働させたまま、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。以前の `QAudioSink::reset()` による WASAPI 再起動は、再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常 1 バッファ分（20〜40ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
+`AudioWorker::reset` は sink を稼働させたまま、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。以前の `QAudioSink::reset()` による WASAPI 再起動は、再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常プリロール（60ms、後述）+ 1 バッファ分（コーデックにより 20〜100ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
 
 アプリ終了（`AudioWorker::teardown`）でも sink を停止する前に、この 0 へ下る無音ランプを書き足す（sink が空なら書かない）。その後 sink バッファが空になるまで待ち、さらに `kDrainTailMarginMs`（20ms）の再生余裕を置いてから停止する。空になるまでの待ちの上限は sink バッファ長（200ms）+ `kRampMs`（5ms）+ `kDrainTailMarginMs`（20ms）で、GUI thread は終了時に最大約 250ms ブロックする。
 
-あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は sink へ書く最初の `kRampMs` へ線形フェードインを掛け、無音からの開始段差を丸める。`forceReset`（ファイル切替）は従来どおり sink を再起動する。
+あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は、最初に受理したバッファの先頭 `kRampMs` へ線形フェードインを掛け、無音からの開始段差を丸める。`forceReset`（ファイル切替）は従来どおり sink を再起動する。
+
+この 3 起点に加えて初回の sink 生成（`createAndStartSink`）でも、最初に受理したバッファの直前に `kPrerollMs`（60ms）の無音を書く（プリロール）。renderer が表示時刻ちょうどに送出するバッファは、sink がバッファ長ぶんを鳴らし終えた瞬間に届くため、到着のわずかな遅れで sink が空になり、持続音では無音の穴がクリックとして聞こえる（48kHz WAV 等速の実測で到着時残量 0〜8ms）。プリロールでストリーム全体を 60ms 後ろへずらし、残量を常に前倒しに保つ。起点の時点で無音を書くと最初のバッファが届く前に鳴り切って効果が消えるため、必ず最初のバッファ直前に書く。値の根拠は `kPrerollMs` のコメントが正だ。
 
 ### 高速再生時のサンプル欠落対策（SoundTouch WSOLA）
 

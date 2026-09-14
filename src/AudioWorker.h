@@ -43,8 +43,9 @@ public slots:
     // sink は再起動しない。再起動（QAudioSink::reset）は再生中の波形を任意点で切るため、
     // 段差が「パツッ」というクリックになる（MPC-HC 等の一般的なプレイヤーと同種の音）。
     // 代わりに最後に書いたサンプル値から 0 へ下る短いランプを書き足し、sink に残る
-    // 旧音声を滑らかに終わらせる。Qt の renderer はバッファを表示時刻に送出し先読みしないため、
-    // sink の残量は通常 1 バッファ分（20〜40ms）だ。旧音声が続く時間は体感できない。
+    // 旧音声を滑らかに終わらせ、その後ろにプリロール（writePrerollSilence）を置く。
+    // Qt の renderer はバッファを表示時刻に送出し先読みしないため、sink の残量は通常
+    // プリロール（60ms）+ 1 バッファ分（コーデックにより 20〜100ms）だ。旧音声が続く時間は体感できない。
     // 200ms の sink バッファはシーク直後や再生開始時のバースト吸収用で、定常再生では埋まらない
     // （倍速時も SoundTouch 出力は sink 消費レートと均衡する）。バースト直後のシークでは
     // 旧音声が最大 200ms 残り得るが、シーク応答の遅れとして許容する（ユーザ判断）
@@ -88,7 +89,7 @@ public slots:
     // 所属スレッドで QAudioSink を停止・破棄する
     // QThread::quit() より前に BlockingQueuedConnection で実行すること。
     // 再生中の終了では sink に残る音声を無音ランプで終わらせてから停止するため、
-    // 呼び出し元は最大約 250ms ブロックする（通常は数十 ms）
+    // 呼び出し元は最大約 250ms ブロックする（通常はプリロール + 1 バッファ分の約 80〜160ms）
     void teardown();
 
 private:
@@ -113,6 +114,17 @@ private:
     // reset() と teardown() から呼ぶ。sink が空（旧音声が鳴り終わっている）なら書かない。
     // 空の sink へ書くと 0 から開始値への段差になるためだ
     void writeFadeOutRamp();
+
+    // プリロール（kPrerollMs の無音）を sink へ書く
+    // リセット後に最初に受理したバッファを書く直前に onAudioBuffer が呼ぶ。以後のストリーム全体が
+    // プリロール分だけ後ろへずれ、プリロールが sink 残量を常にその分だけ前倒しに保つ。表示時刻ちょうどに
+    // 届くバッファの到着ジッタで sink が空になり無音の穴（クリック）が開くのを防ぐ
+    // （背景は kPrerollMs のコメント）。リセット時点で書くと、最初のバッファが届くまでの間に
+    // 空の sink が無音を鳴らし切ってしまい効果が消える（実測で確認）。
+    // sink の空きが足りなければ空き分だけ書く。空きが無いのは既に残量が kPrerollMs を超える状態で、
+    // 目的（最初の書き込み時点で残量を kPrerollMs 以上にする）は既存残量が満たすため再試行しない。
+    // 書いた後は m_lastOut を 0 に戻す
+    void writePrerollSilence();
 
     QAudioFormat m_format;
     // 音声強調 DSP（WebRTC APM ラッパ）
@@ -193,6 +205,10 @@ private:
     qint64       m_seekGateArmedMs = 0;
     // フェードインの残フレーム数。sink へ書いた分だけ減らし、0 で通常音量になる
     qsizetype    m_fadeInFramesLeft = 0;
+    // プリロール待ちフラグ
+    // 空から鳴らし始める全起点（createAndStartSink / forceReset / reset）で立て、
+    // 次に受理したバッファの書き込み直前に writePrerollSilence を 1 回だけ呼んで落とす
+    bool         m_prerollPending = false;
     // SoundTouch インスタンス
     // start() スロットで生成して所属スレッド affinity を確定する
     std::unique_ptr<soundtouch::SoundTouch> m_stretch;
