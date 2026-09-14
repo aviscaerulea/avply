@@ -5,7 +5,7 @@
 | 項目 | バージョン |
 |------|-----------|
 | コンパイラ | MSVC `v14.50`（VS 2026 Build Tools, x64） |
-| CMake | `v3.25` 以上（`CMakeLists.txt` の要件、開発機は scoop の `v4.4.2`） |
+| CMake | `v3.25` 以上（`CMakeLists.txt` の要件） |
 | Qt | `v6.10.3` MSVC2022 x64（インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` 参照） |
 | ffmpeg | scoop インストール推奨 |
 | ビルドプリセット | `msvc-release`（`CMakePresets.json` 参照） |
@@ -20,8 +20,6 @@ pwsh.exe -File build.ps1
 cmake --preset msvc-release
 cmake --build --preset msvc-release
 ```
-
-`CMakePresets.json` の `CMAKE_PREFIX_PATH` に Qt のインストールパスを設定すること。
 
 cmake が PATH 未追加の環境では `scoop install cmake` で追加する。
 
@@ -58,15 +56,13 @@ pwsh.exe -File build-and-test.ps1
 pwsh.exe -File build-and-test.ps1 -Reconfigure
 ```
 
-`build-and-test.ps1` は `build.ps1` と独立した経路だ。`build.ps1` は本体 `avply.exe` のみ、`build-and-test.ps1` は `-DAVPLY_BUILD_TESTS=ON` でテストバイナリも含めて構築する。本体出力先は同じ `out/Release/` のため両方走らせると相互上書きする点に注意する。
+`build-and-test.ps1` は `build.ps1` と独立した経路だ。`build.ps1` は本体 `avply.exe` のみ、`build-and-test.ps1` は `-DAVPLY_BUILD_TESTS=ON` でテストバイナリも含めて構築する。両者は同じ `out/` を共有する。`build-and-test.ps1` はキャッシュに `AVPLY_BUILD_TESTS=ON` が無ければ再構成するが、`build.ps1` は `CMakeCache.txt` の有無しか見ないため、ON が残ったキャッシュではテストも引き続きビルドする。本体のみへ戻すには `build.ps1 -Reconfigure` を使う。`AVPLY_BUILD_TESTS` は本体ターゲットに影響しないため、どちらの経路でも `avply.exe` は同一だ。
 
-ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Software\avply\avply` の値を退避→初期化→復元する設計のため、並列実行すると同一キーへの競合が発生する。
-
-ヘッドレス環境向けに `QT_QPA_PLATFORM=offscreen` を環境変数で渡しているため、GUI ディスプレイ無しでも動作する。
+ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレス実行向けの `QT_QPA_PLATFORM=offscreen` 指定は `build-and-test.ps1` のコメントが正だ。
 
 ### 対象
 
-`tests/` 配下のテストバイナリ群。ユニットテスト対象は副作用の無い純粋ロジックに限定し、`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance` などの I/O・状態機械を含むコンポーネントは対象外とする。
+`tests/` 配下のテストバイナリ群。ユニットテスト対象は単体で完結して検証できるクラスに限定し、外部プロセス・音声デバイス・メディア再生の状態機械を含むクラス（例：`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance`）は対象外とする。
 
 | テスト | 対象 | 検証内容 |
 |--------|------|----------|
@@ -94,20 +90,20 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 ### 起動計測
 
-環境変数 `AVPLY_STARTUP_TRACE` を空でも `0` でもない値にして起動すると、`StartupTrace` が実行ファイルと同階層の `avply_startup.log` へ里程標を追記する。里程標の一覧は `StartupTrace::mark` の呼び出し箇所が正で、代表例はプロセス生成〜main、QApplication 構築、可視化、LoadedMedia、初回映像フレーム、初回音声バッファ、ffprobe 完了だ。未設定時は `mark()` がアトミックフラグ 1 回の読み取りで抜けるため hot path に置いても実害はない。
+環境変数 `AVPLY_STARTUP_TRACE` を空でも `0` でもない値にして起動すると、`StartupTrace` が実行ファイルと同階層の `avply_startup.log` へ里程標を追記する。プロセス生成〜main の経過は `StartupTrace::init` がヘッダ行として書く。以降の里程標の一覧は `StartupTrace::mark` の呼び出し箇所が正だ。代表例は QApplication 構築、可視化、LoadedMedia、初回映像フレーム、初回音声バッファ、ffprobe 完了だ。未設定時は `mark()` がアトミックフラグ 1 回の読み取りで抜けるため hot path に置いても実害はない。
 
 `avply.log` を使わないのは、メッセージハンドラが Warning 以上しか記録しない設計のためだ。同じ label は最初の 1 回だけ記録するため、毎バッファ・毎フレームの経路から無条件に呼べる。
 
-白フラッシュ抑制の opacity 復帰は、`VideoView` が可視なら `QQuickView` の初回 `frameSwapped`（`VideoView::firstFrameRendered`、1 秒のタイムアウト付き）、音声拡張子起動で非表示なら `singleShot(0)` を契機とする。復帰直後に `MainWindow::windowRevealed` を emit し、QueuedConnection で繋いだ初期処理が接続順「loadFile → validateFfmpegPath → SilenceTone」で次のイベントループから走る。ウィンドウ可視化を最優先し、初回 WASAPI 確立（GUI thread の同期待ちで約 550ms）を含む処理を可視化後へ回す。
+### 起動シーケンス
+
+白フラッシュ抑制のためウィンドウは描画完了まで透明化し、復帰直後に `MainWindow::windowRevealed` を emit する。初回ファイルロード・ffmpeg パス検証・`SilenceTone` 起動はこのシグナルへ QueuedConnection で繋ぎ、可視化後に走らせる。復帰契機の使い分けと理由は `MainWindow` コンストラクタの `setWindowOpacity(0.0)` 周辺のコメントが正だ。
 
 ### 受け入れ可能ファイル
 
-- 動画：mp4 / mkv / mov / avi / webm
-- 音声：mp3 / wav / flac / ogg / opus
-
+対応拡張子の一覧は README の「対応ファイル形式」節が正だ。
 「動画か音声のみか」は `MainWindow::isAudioOnly()` で判定する。
-対応音声拡張子（mp3 / wav / flac / ogg / opus）は中身に関わらず音声扱いに倒す。mp3 等は ID3v2 APIC（アルバムアート）が `disposition.attached_pic` 付き video stream として ffprobe から返るため、ffprobe 結果だけで判定すると動画 UI に倒れてしまう。
-動画拡張子（mp4 / mkv / mov / avi / webm）は ffprobe 結果（`VideoInfo.codec` と `width`）で判定する。中身が音声のみのコンテナ（例：mkv 内が音声のみ）はコンパクト UI へ追従する。
+対応音声拡張子は中身に関わらず音声扱いに倒す。mp3 等は ID3v2 APIC（アルバムアート）が `disposition.attached_pic` 付き video stream として ffprobe から返るため、ffprobe 結果だけで判定すると動画 UI に倒れてしまう。
+動画拡張子は ffprobe 結果（`VideoInfo.codec` と `width`）で判定する。中身が音声のみのコンテナ（例：mkv 内が音声のみ）はコンパクト UI へ追従する。
 
 ### エンコード仕様
 
@@ -129,7 +125,6 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 
 - `-c copy` でキーフレーム単位カット
 - 解像度・コーデック・ビットレートは入力をそのまま維持
-- 出力コンテナは入力と同じ拡張子を維持する
 
 ### Encoder の生成タイミング
 
@@ -139,48 +134,32 @@ ctest は逐次実行する（`-j` 未指定）。`test_Settings` が `HKCU\Soft
 ### ffmpeg パス設定
 
 UI からの編集はせず、実行ファイルと同階層の `avply.toml`（ローカル上書きは `avply.local.toml`）の `[ffmpeg].path` で指定する。
-未設定時は以下の順でフォールバックする。
-
-1. scoop 既定パス `%USERPROFILE%/scoop/apps/ffmpeg/current/bin/ffmpeg.exe`
-2. `QStandardPaths::findExecutable("ffmpeg")` による `PATH` 解決
+未設定時のフォールバック順（scoop 既定パス → `PATH` 解決）は README の「設定」節が正だ。
 
 ### 再生設定
 
-`avply.toml` の `[playback]` セクションで再生関連の挙動を制御する。
-
-- `speed`：動画読込時の初期再生速度（既定 1.00）  
-  インスタンス生存中はファイル切替後も保持する。`.` / `,` キーで 0.05 単位に調整する。
-
-- `hw_decoder_priority`：QMediaPlayer の FFmpeg バックエンドに渡す HW デコーダ優先順位  
-  `QT_FFMPEG_DECODING_HW_DEVICE_TYPES` と同形式（カンマ区切り）で書く。
-  デフォルトは `"d3d11va,cuda"`。空文字で Qt 自動選択へフォールバックする。
-
-- `thumbnail_hwaccel`：ThumbnailExtractor の ffmpeg `-hwaccel` 値  
-  `"auto"` / `"d3d11va"` / `"cuda"` 等を指定する。デフォルトは `"auto"`。
-  `"none"` または空文字で `-hwaccel` 指定をスキップする。
+`avply.toml` の `[playback]` セクションで再生関連の挙動を制御する。各キーの意味・既定値は `avply.toml` のコメントが正だ。
+再生速度はインスタンス生存中、ファイル切替後も現在値を保持する（`MainWindow::loadFile` が再適用する）。
 
 `hw_decoder_priority` は QApplication 構築前に環境変数化する必要がある。そのため `Config::load()` は `main.cpp` の冒頭から呼ぶ。`Config::load()` 内部は exe ディレクトリ取得に `GetModuleFileNameW` を使い Qt 初期化に依存しないため、QApplication 未構築でも動作する。
 
 ### カーソルキーシーク設定
 
-`avply.toml` の `[seek]` セクションで左右カーソルキー・Shift+左右カーソルキー・マウスホイールのスキップ量（ms）を指定する。
-デフォルトは左右カーソルキーとホイールが 5000ms、Shift+左右カーソルキーが 20000ms。0 以下に設定するとそのキー・方向のシークが無効になる。
+`avply.toml` の `[seek]` セクションで左右カーソルキー・Shift+左右カーソルキー・マウスホイールのスキップ量（ms）を指定する。各キーの既定値は `avply.toml` のコメントが正だ。
+0 以下でそのキー・方向のシークを無効にする判定は `Config` ではクランプせず、`MainWindow::eventFilter` と `handleWheelInput` の呼び出し側ガードで行う。
 
 ### 音量設定
 
-`avply.toml` の `[audio].volume` で再生音量の初期値を指定する。
-デフォルトは 1.00、範囲は 0.00〜1.00 にクランプする。
-再生中はカーソルキー（上下）で ±0.05 ずつ調整できる（`MainWindow::changeVolume`）。
+`avply.toml` の `[audio].volume` で再生音量の初期値を指定する（既定値・範囲は `avply.toml` のコメントが正だ）。
+再生中の音量変更の入口は `MainWindow::changeVolume` で、操作は README の「キー・マウス操作」節が正だ。
 
-100% 超のソフトウェアブーストはサポートしない。
+`VideoView::setVolume` が `qBound(0.0, volume, 1.0)` で音量を 0.0〜1.0 へクランプしてから `AudioWorker` へ渡し、1.0 超の増幅は持たない。
 過去に gain > 1.0 のブースト機能を実装したが、gain × playbackRate 高負荷時に resampler overshoot 起因のノイズを解消できず撤去した。
-現在は `VideoView::setVolume` が `qBound(0.0, volume, 1.0)` で音量を 0.0〜1.0 へクランプしてから `AudioWorker` へ渡すため、同問題を回避する。
-ユーザが小音量の発言を底上げしたい場合は、音声強調（C キー）の AGC2 を使用すること。
+小音量の発言の底上げは音声強調（AGC2）が担う。
 
 ### 再生条件の一括リセット（G キー）
 
-`G` キーで再生速度・音量・音声強調の 3 項目を 2 段階でリセットする。
-1 回目で「中立値」（速度 1.00、音量 1.00、音声強調 OFF）へ、2 回目で速度・音量を「起動時のデフォルト値」へ復元する。音声強調は永続化しない仕様のため、1 回目・2 回目とも OFF になる。
+`G` キーの 2 段階リセット（中立値 → 起動時のデフォルト値）の挙動は README の「キー・マウス操作」節が正だ。音声強調は永続化しない仕様のため、1 回目・2 回目とも OFF になる。
 
 起動時のデフォルト値は `MainWindow` コンストラクタで `m_initial*` メンバへスナップショットする（TOML 由来の速度・音量）。ユーザが後段でこれらを変更しても、スナップショット値を維持する。
 
@@ -197,17 +176,16 @@ UI からの編集はせず、実行ファイルと同階層の `avply.toml`（�
 
 再生時の WebRTC Audio Processing（APM）による会議音声のレベル均し機能。ノイズ抑制（NS）+ 自動ゲイン制御（AGC2）+ ハイパスフィルタ（HPF）を一括適用する。話者間の音量バラつきを自動で均し、マイク直結で小さく録れた発言を AGC2 の adaptive ゲインで持ち上げる。NS + HPF がこもり除去・低域カブリ抑制を兼ねる。
 
-- 状態は ON/OFF の 2 値で、切替操作は `C` キーのトグルのみ
+- 状態は ON/OFF の 2 値
+- `C` キーの操作と起動時 OFF・非永続は README の「音声強調」節が正だ
 - 状態表示：ステータスバーに `Clarity:ON/OFF` を常時表示する
-- 永続化はしない：起動時は常に OFF  
-  インスタンス生存中はファイル切替をまたいで状態を保つ（再生速度と同じ扱い）。
-- 旧版はレジストリ `speechEnhanceLevel`（0〜2 の 3 段階）で永続化していたが撤去した
-
-`C` は Clarity の頭文字だ。旧 `N` キーからは直観性のため変更した。
-撤去した `speechEnhanceLevel` の旧値は掃除せず放置する。実害のない残留 int 値 1 個のために削除コードを持たない。
+- インスタンス生存中はファイル切替をまたいで状態を保つ（再生速度と同じ扱い）
+- 旧 3 段階（レジストリ `speechEnhanceLevel`、0〜2）を ON/OFF へ簡素化した経緯  
+  レジストリ永続化と toml の `[speech_enhance]` セクションを撤去した。
+  残留する旧レジストリ値は掃除せず放置する（実害のない int 値 1 個のために削除コードを持たない）。
 
 DSP チェーンは `SoundTouch（音程保持の時間圧縮）→ SpeechEnhancer（APM）→ 音量 → sink` の順だ。APM はテンポ・ピッチを変えないため、倍速再生時も SoundTouch が音程を保つ。
-ただし等速（rate≒1.0）では `AudioWorker` が SoundTouch を経路ごと外し、decoder 出力を直接 `SpeechEnhancer` へ渡す。SoundTouch は tempo 1.0 でも WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を残す。APM の AGC ゲインがそれを可聴なプチノイズへ増幅するためだ。既定速度 1.00 はこのバイパス経路を通る。
+ただし等速（`|rate - 1.0| < 1e-6`）では `AudioWorker` が SoundTouch を経路ごと外し、decoder 出力を直接 `SpeechEnhancer` へ渡す。理由は `AudioWorker::onAudioBuffer` のバイパス判定のコメントが正だ。既定速度 1.00 はこのバイパス経路を通る。
 
 #### モノラル処理
 
@@ -219,44 +197,13 @@ APM は 10ms 固定フレーム（48kHz で 480 サンプル）・deinterleaved 
 
 #### スレッド前提
 
-APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドから呼ぶ必要がある。そのため `SpeechEnhancer` の生成は `AudioWorker::start()` スロット（audio thread）で行い、affinity を確定する。`setEnabled` も `setSpeechEnhanceEnabled` スロット経由で audio thread からのみ呼ぶ。
+APM の `ApplyConfig` / `ProcessStream` / `Initialize` は同一スレッドから呼ぶ必要があるため、`SpeechEnhancer` の生成（`AudioWorker::start()`）と `setEnabled`（`setSpeechEnhanceEnabled`）はいずれも audio thread のスロット経由に限定する。根拠は `AudioWorker::start` のコメントが正だ。
 
-#### プチノイズ（クリックノイズ）対策
+#### プチノイズ（クリックノイズ）対策と内部定数
 
-APM の最終リミッタはピークを 1.0 へ頭打ちにする。WebRTC AGC2 は VoIP のマイクレベル入力（full-scale から余裕のある音量）を前提とするため、既にほぼ full-scale で録れた会議音声をそのまま入れると adaptive ゲインが過剰ブーストし、リミッタがハードクリップして単発クリックを生む。対策として以下を恒久適用する。
+APM の最終リミッタがハードクリップして単発クリックを生む問題への対策として、入力プリアッテネーション（`kInputPreGain`）、`fixed_digital.gain_db = 0` 固定、`headroom_db` / `initial_gain_db` / `max_gain_change_db_per_second` の調整を恒久適用する。各値の根拠・実測結果・却下した値は `SpeechEnhancer.cpp` の定数定義と `buildConfig` のコメントが正だ。
 
-- 入力プリアッテネーション  
-  APM 投入前にモノラルサンプルを約 -6dB（`SpeechEnhancer.cpp` の `kInputPreGain = 0.5f`）
-  減衰させ、AGC2 が期待する余裕を作る。これで小音量発言の持ち上げを保ったまま
-  クリップを根絶する。実測で -6dB ならクリップフレーム 0 だ。
-
-- `fixed_digital.gain_db = 0` 固定  
-  adaptive の後・リミッタの前に効く固定ブーストは決定的なクリップ源だ。
-  プリアッテネーション併用でも +3/+6dB で再クリップしたため恒久無効化した。
-
-- `headroom_db = 6` / `initial_gain_db = 6`  
-  headroom は full-scale から差し引いた値が AGC2 の出力ターゲットになる。
-  小さいほどターゲットが上がり小声を強く持ち上げる。
-  大声は既にターゲット以上のため影響がなく、クリップ耐性もプリアッテネーションで
-  担保されるため変わらない。当初はクリップフレーム 0 を実測できた 4dB を採用した。
-  しかし ON 時の全体レベルがわずかに高いとの聴感評価により 6dB へ緩めた
-  （持ち上げ量 -2dB、ターゲットを下げる方向のためクリップ耐性は安全側に働く）。
-  `initial_gain_db` は既定 15dB から控えめにして再生直後の過大ブーストを抑える。
-
-- `max_gain_change_db_per_second = 300`  
-  適応ゲインが目標へ収束する速度の上限だ。既定 6dB/s では小声を +24dB 持ち上げるのに
-  約 4 秒かかり、発話冒頭がゲイン追従に間に合わず聞こえない。
-  レートリミッタを大きく開放して各発話冒頭の追従を可能な限りタイトにする。
-  速めても offline 計測でクリップフレーム 0・maxDisc 不変のためクリックは再発しない（実測）。
-  なお 100dB/s 以上は全体平均が頭打ちで、実質の律速は AGC 内部の小声検知レイテンシだ
-  （Config 非公開）。`initial_gain_db` を上げれば初期位置から速く立ち上がるが、
-  再生開始直後の大音量がリミッタを叩きクリップが再発するため 6 に据え置く。
-
-#### コード固定の内部定数
-
-NS（ノイズ抑制）レベルは `SpeechEnhancer.cpp` の `kNsLevel = kModerate` でコード固定する。High 以上は声質が削れ、Low ではこもり除去が不足するため中庸を採る。旧 3 段階（標準=Moderate / 強=High）を ON/OFF へ簡素化した際、副作用の少ない標準相当へ一本化し、toml の `[speech_enhance]` セクションも撤去した。
-
-AGC2 適応上限（`adaptive_digital.max_gain_db`）は `SpeechEnhancer.cpp` の `kMaxGainDb = 40.0f` でコード固定する。offline 計測で会議音声の小声は headroom で決まる出力ターゲットまでの持ち上げで足り、適応ゲインが天井に届かず 30/40/50dB のいずれでも出力レベル・クリップ指標が完全に一致した。入力プリアッテネーションと並び、クリップ耐性・有効性に直結する内部定数のため toml では調整できない。
+NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード固定で、toml では調整できない。
 
 #### シーク・ファイル切替時のリセット
 
@@ -268,7 +215,7 @@ FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再�
 
 対策として `VideoView::setPosition` は `AudioWorker::reset(targetMs)` へシーク目標を渡す。`AudioWorker` はシークゲートを開き、開いている間は旧バッファの破棄判定を有効にする。Qt はシーク位置より前に終わるフレームを捨てるため、新 renderer のバッファは `QAudioBuffer::startTime()` がシーク目標近傍の媒体位置（µs）になる。そこで目標から `kSeekMatchToleranceUs`（1 秒）より離れたバッファを旧ストリームとして破棄し、近傍のバッファが届いたらゲートを閉じる。`startTime()` の意味は Qt 内部実装依存の非公開仕様のため、ゲートを開いてから `kSeekGateTimeoutMs`（500ms）経過後はフェイルセーフとして無条件に受理し、`avply.log` に警告を残す。シーク前後の位置差が 1 秒以下（`[seek]` を小さく設定した場合等）では判別できず従来動作になる。
 
-`AudioWorker::reset` は sink を再起動しない。以前は `QAudioSink::reset()` で WASAPI を再起動していた。再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。代わりに、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常 1 バッファ分（20〜40ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
+`AudioWorker::reset` は sink を稼働させたまま、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。以前の `QAudioSink::reset()` による WASAPI 再起動は、再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常 1 バッファ分（20〜40ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
 
 アプリ終了（`AudioWorker::teardown`）でも sink を停止する前に、この 0 へ下る無音ランプを書き足す（sink が空なら書かない）。その後 sink バッファが空になるまで待ち、さらに `kDrainTailMarginMs`（20ms）の再生余裕を置いてから停止する。空になるまでの待ちの上限は sink バッファ長（200ms）+ `kRampMs`（5ms）+ `kDrainTailMarginMs`（20ms）で、GUI thread は終了時に最大約 250ms ブロックする。
 
@@ -278,7 +225,7 @@ FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再�
 
 Qt 6.10 の `QAudioBufferOutput` は `setPitchCompensation(true)` を無視し、playback rate に関わらず生 decoded audio を decoder thread 速度で吐き出す。1.5x 再生では sink 消費レート（48000 frame/sec）に対して decoder 流入が 1.5 倍（72000 frame/sec）となり、`QAudioSink::write` が差分のサンプルの受領を拒否して捨てる。これが「プチプチ」というノイズの正体だった。
 
-対策として `AudioWorker` 内で `SoundTouch`（WSOLA アルゴリズム）による時間圧縮を行う。`VideoView::setPlaybackRate` で `m_player->setPlaybackRate(rate)` と同時に `AudioWorker::setPlaybackRate(rate)` を呼び、`SoundTouch::setTempo(rate)` に反映する。`onAudioBuffer` では `putSamples` で投入 → `receiveSamples` ループで取り出し → `SpeechEnhancer`（APM）→ 音量 → sink へ書き込む。出力流量が常に sink 消費レートと均衡するため、rate を上げても sink の受領拒否はほぼ起きない。SoundTouch がピッチも保つ。残る取りこぼしには `m_pendingTail` への退避と約 2 秒の overflow guard で備える。
+対策として `AudioWorker` 内で `SoundTouch`（WSOLA アルゴリズム）による時間圧縮を行う。`VideoView::setPlaybackRate` で `m_player->setPlaybackRate(rate)` と同時に `AudioWorker::setPlaybackRate(rate)` を呼び、`SoundTouch::setTempo(rate)` に反映する。`onAudioBuffer` では `putSamples` で投入し `receiveSamples` ループで取り出した後、「音声強調設定」節の DSP チェーン順で sink へ書き込む。出力流量が常に sink 消費レートと均衡するため、rate を上げても sink の受領拒否はほぼ起きない。SoundTouch がピッチも保つ。残る取りこぼしには `m_pendingTail` への退避と約 2 秒の overflow guard で備える。
 
 `SoundTouch` は CMake FetchContent で `v2.4.0`（LGPL）を取り込む。`SOUNDTOUCH_DLL=OFF` / `INTEGER_SAMPLES=OFF`（float 入出力）/ `SOUNDSTRETCH=OFF`（CLI 不要）で構成する。
 
@@ -294,19 +241,8 @@ Qt 6.10 の `QAudioBufferOutput` は `setPitchCompensation(true)` を無視し�
 
 ### サイレンストーン設定
 
-`avply.toml` の `[audio]` セクションでサイレンストーン（BT アイドル復帰時のプチノイズ抑制用、常時不可聴トーン出力）を制御する。
-
-- `silence_tone_enabled`：ON/OFF（既定 `true`）  
-  `false` でトーン出力を停止し、OS への常時音声出力を完全に止める。
-  スピーカー環境や有線 DAC 環境ではユーザ判断で OFF にできる。
-
-- `silence_tone_freq_hz`：トーン周波数（既定 1000.0、20〜20000Hz にクランプ）  
-  1kHz は SBC 等 BT コーデックの確実なパスバンド内で、コーデックを「アクティブ」状態に保つ。
-
-- `silence_tone_amp`：振幅（0.0〜1.0、1.0=16bit フルスケール、既定 0.0001=約 -80dBFS）  
-  設定ミスによる過大音量を避けるため上限 0.01 にクランプする。
-
-`SilenceTone` は `QMediaDevices::audioOutputsChanged` を購読してデフォルト出力デバイス変化（BT 接続・切断、USB DAC 抜き挿し）に追従し、自動で sink を再生成する。
+`avply.toml` の `[audio]` セクションの `silence_tone_*` キーでサイレンストーン（BT アイドル復帰時のプチノイズ抑制用、常時不可聴トーン出力）を制御する。各キーの意味・既定値・クランプ範囲と根拠は `avply.toml` のコメントが正だ。
+出力デバイス切替への追従は「出力デバイス切替への追従」節を参照する。
 
 ### 再生 sink の自己回復
 
@@ -335,31 +271,21 @@ debounce は BT 接続シーケンス中の複数通知を 1 回へ集約する�
 
 ### 出力ファイル名
 
-入力ファイルと同一フォルダに `<元ファイルベース名>_mod.<拡張子>` で出力する。
-同名が既に存在する場合は `_mod2.<拡張子>`、`_mod3.<拡張子>` の順で衝突回避する。
-ベース名末尾が既に `_mod` または `_mod<数字>` の場合は同名へ上書き出力する（`OutputNamer::isModName`）。
+命名規則（`_mod` 連番）と出力拡張子の対応は README の「出力ファイル」節が正だ。
+`_mod` 名への上書き判定は `OutputNamer::isModName` が正だ。
 上書き時は `Encoder` が既存ファイルを `.avply.bak` へ退避してから一時ファイルを置換し、失敗時は退避から復元する。
 出力先が再生中のファイルと同一の場合、置換直前に `Encoder::releaseFileRequested` → `MainWindow::onEncoderReleaseFile` でプレイヤー・波形生成・サムネイル抽出のファイルハンドルを解放する。
 ハンドル解放の完了が非同期の可能性があるため、退避リネームは 100ms 間隔で最大 1 秒リトライする。
-
-拡張子はモードと入力種別で決定する。
-
-| モード | 入力 | 出力拡張子 |
-|--------|------|-----------|
-| 変換 | 動画 | `.mp4`（AV1 + Opus） |
-| 変換 | 音声のみ | `.opus`（libopus） |
-| トリム | 動画・音声どちらも | 入力と同じ拡張子 |
 
 ### ウィンドウ表示位置
 
 `MainWindow::loadFile()` は `centerOnMonitor` 引数でセンタリングの有無を切り替える。
 
-- 新規プロセス起動時の初回ロード（コンストラクタ内の `QTimer::singleShot` 経由）は `true` を渡してモニタ作業領域の中央へ表示する
+- 新規プロセス起動時の初回ロード（「起動シーケンス」節）は `true` でモニタ作業領域の中央へ表示する
 - D&D・「開く」ダイアログ・IPC 経由の再ロードはデフォルトの `false` で、現在のウィンドウ左上端 X,Y を維持してサイズのみ変更する
 
 `centerOnMonitor=false` のとき、旧位置に対して新サイズが大きいとウィンドウがモニタ作業領域外へはみ出す。
-これは「左上端 X,Y を維持する」というユーザ要求の必然的な副作用であり、バグではない。
-画面外補正（`move()` による自動再配置）はあえて行わない。
+これは「左上端 X,Y を維持する」というユーザ要求の必然的な副作用であり、はみ出した場合も位置を維持する（バグではない）。
 
 ## 参考
 
