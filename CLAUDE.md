@@ -262,13 +262,15 @@ AGC2 適応上限（`adaptive_digital.max_gain_db`）は `SpeechEnhancer.cpp` �
 
 `SpeechEnhancer::reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
 
-### シーク時の旧バッファ破棄（シークゲート）と再開時フェードイン
+### シーク時の旧バッファ破棄（シークゲート）・無音ランプ・再開時フェードイン
 
-FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再生成する。破棄は非同期のため、旧 renderer が直前に emit した数十 ms のバッファが `AudioWorker::reset` の後に届く。`AudioWorker` が空にした sink へ旧位置の断片を書き込むため、「ザリッ」というノイズになっていた。
+FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再生成する。破棄は非同期のため、旧 renderer が直前に emit した数十 ms のバッファが `AudioWorker::reset` の後に届く。放置すると無音ランプの後に旧位置の断片が鳴り、新位置の音声との境目が不連続になる。sink を再起動していた旧方式では、空にした sink へ旧位置の断片を書き込むため「ザリッ」というノイズになっていた。
 
 対策として `VideoView::setPosition` は `AudioWorker::reset(targetMs)` へシーク目標を渡す。`AudioWorker` はシークゲートを開き、開いている間は旧バッファの破棄判定を有効にする。Qt はシーク位置より前に終わるフレームを捨てるため、新 renderer のバッファは `QAudioBuffer::startTime()` がシーク目標近傍の媒体位置（µs）になる。そこで目標から `kSeekMatchToleranceUs`（1 秒）より離れたバッファを旧ストリームとして破棄し、近傍のバッファが届いたらゲートを閉じる。`startTime()` の意味は Qt 内部実装依存の非公開仕様のため、ゲートを開いてから `kSeekGateTimeoutMs`（500ms）経過後はフェイルセーフとして無条件に受理し、`avply.log` に警告を残す。シーク前後の位置差が 1 秒以下（`[seek]` を小さく設定した場合等）では判別できず従来動作になる。
 
-あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は sink へ書く最初の `kFadeInMs`（5ms）へ線形フェードインを掛け、無音からの開始段差を丸める。旧音声が途切れる側（sink を空にする時点）の切断音は原理上残る。
+`AudioWorker::reset` は sink を再起動しない。以前は `QAudioSink::reset()` で WASAPI を再起動していた。再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。代わりに、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常 1 バッファ分（20〜40ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
+
+あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は sink へ書く最初の `kRampMs` へ線形フェードインを掛け、無音からの開始段差を丸める。`forceReset`（ファイル切替）は従来どおり sink を再起動する。
 
 ### 高速再生時のサンプル欠落対策（SoundTouch WSOLA）
 
@@ -307,7 +309,7 @@ Qt 6.10 の `QAudioBufferOutput` は `setPitchCompensation(true)` を無視し�
 ### 再生 sink の自己回復
 
 画面録画ソフト等がシステム音声キャプチャ開始時にオーディオエンドポイントを再構成すると、avply の既存 WASAPI セッションが `AUDCLNT_E_DEVICE_INVALIDATED` で無効になり、再生音声だけが止まる（Aiseesoft Screen Recorder の録画開始で実機再現）。
-放置すると sink の `bytesFree()` が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて次のシークまで無音が継続する。
+放置すると sink の `bytesFree()` が恒久 0 となり、overflow guard の 2 秒毎破棄だけが続いて次のファイル切替（`forceReset`）まで無音が継続する。
 
 対策として `AudioWorker::onAudioBuffer` 冒頭で sink の死活をチェックし、不健全なら sink を再生成して自動復帰する。
 sink 再生成（`recoverSink`）の契機はこの自己回復と、「出力デバイス切替への追従」節の切替追従の 2 つだ。

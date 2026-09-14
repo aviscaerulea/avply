@@ -297,7 +297,7 @@ void VideoView::setSource(const QString& filePath)
     m_primeFirstFrame = true;
     m_pausingAtEnd = false;
     // ソース切替時に sink の積み残しサンプルと SpeechEnhancer 状態を強制リセットする。
-    // forceReset は throttle 適用外で必ず sink reset()→start() を実行するため、
+    // forceReset は reset と異なり必ず sink reset()→start() を実行するため、
     // 前ソースのサンプルが WASAPI バッファに残留することを防ぐ。
     // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する。
     // BlockingQueuedConnection は GUI thread を audio thread の DSP リセット完了まで
@@ -344,7 +344,8 @@ qint64 VideoView::position() const
 
 void VideoView::setPosition(qint64 ms)
 {
-    // 手動シークで末尾自動 pause フラグを解除し、sink の積み残しと SpeechEnhancer 状態をリセットする。
+    // 手動シークで末尾自動 pause フラグを解除し、DSP の積み残しと SpeechEnhancer 状態をリセットする。
+    // sink は再起動せず、AudioWorker が残る旧音声を無音へ下ろす。
     // reset へシーク目標を渡し、Qt が非同期に破棄する旧 AudioRenderer の残バッファを
     // AudioWorker のシークゲートで破棄させる
     m_pausingAtEnd = false;
