@@ -245,6 +245,8 @@ private:
     QString m_ffmpegPath;
     int     m_seekLeftMs       = 5000;
     int     m_seekRightMs      = 5000;
+    int     m_seekShiftLeftMs  = 20000;
+    int     m_seekShiftRightMs = 20000;
     int     m_seekWheelForwardMs = 5000;
     int     m_seekWheelBackMs    = 5000;
 

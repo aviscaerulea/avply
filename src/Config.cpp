@@ -106,6 +106,8 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         };
         if (section == "seek" && key == "left_ms")         assignInt(cfg.seekLeftMs);
         if (section == "seek" && key == "right_ms")        assignInt(cfg.seekRightMs);
+        if (section == "seek" && key == "shift_left_ms")   assignInt(cfg.seekShiftLeftMs);
+        if (section == "seek" && key == "shift_right_ms")  assignInt(cfg.seekShiftRightMs);
         if (section == "seek" && key == "wheel_forward_ms") assignInt(cfg.wheelForwardMs);
         if (section == "seek" && key == "wheel_back_ms")    assignInt(cfg.wheelBackMs);
 

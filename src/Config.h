@@ -9,6 +9,11 @@ struct AppConfig {
     int seekLeftMs  = 5000;
     int seekRightMs = 5000;
 
+    // Shift+カーソルキーの大シーク量（ミリ秒）
+    // 0 以下でその方向の大シーク無効
+    int seekShiftLeftMs  = 20000;
+    int seekShiftRightMs = 20000;
+
     // マウスホイールシーク量（ミリ秒）
     // 0 以下でそのホイール方向のシーク無効
     int wheelForwardMs = 5000;

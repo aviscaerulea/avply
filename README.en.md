@@ -95,6 +95,7 @@ Playback controls are as follows.
 | --- | --- | --- |
 | Play / pause | Space | Click the preview area (not available for audio-only files) |
 | Seek | ← → | Drag the seek bar, or scroll over the seek bar or preview area |
+| Large seek | Shift+← / Shift+→ | |
 | Previous / next file in the folder | Alt+← / Alt+→ | |
 | Playback speed ±0.05x | `.` faster / `,` slower | Ctrl+wheel |
 | Volume ±0.05 | ↑ ↓ | Shift+wheel |

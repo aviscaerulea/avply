@@ -367,6 +367,8 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_ffmpegPath           = cfg.ffmpegPath;
     m_seekLeftMs           = cfg.seekLeftMs;
     m_seekRightMs          = cfg.seekRightMs;
+    m_seekShiftLeftMs      = cfg.seekShiftLeftMs;
+    m_seekShiftRightMs     = cfg.seekShiftRightMs;
     m_seekWheelForwardMs   = cfg.wheelForwardMs;
     m_seekWheelBackMs      = cfg.wheelBackMs;
     m_initialScreenRatio   = cfg.initialScreenRatio;
@@ -1440,10 +1442,11 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     switch (ke->key()) {
     case Qt::Key_Left:
     case Qt::Key_Right: {
-        // 無修飾はシーク。Alt 単独付きはフォルダ内の前後ファイル切替。
+        // 無修飾は通常シーク。Shift 単独付きは大シーク（avply.toml [seek] の shift_*_ms）。
+        // Alt 単独付きはフォルダ内の前後ファイル切替。
         // 実行中は修飾子の有無に関わらず消費する（↑↓ キーと同挙動）。
-        // Alt 以外の修飾子付き（Ctrl+← 等）は素通しする。冒頭コメントのシステムキー契約を守るためだ。
-        // Ctrl+←→ は将来の大スキップ用、Shift+←→ は将来のシーンスキップ用に未割当のまま温存する
+        // 上記以外の修飾子付き（Ctrl+← 等）は素通しする。冒頭コメントのシステムキー契約を守るためだ。
+        // Ctrl+←→ は未割当のまま温存する。
         if (running) return true;
         const bool forward = (ke->key() == Qt::Key_Right);
         const auto mods = ke->modifiers() & kModifierMask;
@@ -1451,16 +1454,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             loadNeighborFile(forward ? +1 : -1);
             return true;
         }
-        if (mods != Qt::NoModifier) {
+        if (mods != Qt::NoModifier && mods != Qt::ShiftModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
         // 0 以下の設定はシーク無効（avply.toml [seek] の文書仕様、ホイール側ガードと統一）
-        if (forward) {
-            if (m_seekRightMs > 0) seekRelative(m_seekRightMs);
-        }
-        else {
-            if (m_seekLeftMs > 0) seekRelative(-m_seekLeftMs);
-        }
+        const bool shift = (mods == Qt::ShiftModifier);
+        const int ms = forward ? (shift ? m_seekShiftRightMs : m_seekRightMs)
+                               : (shift ? m_seekShiftLeftMs  : m_seekLeftMs);
+        if (ms > 0) seekRelative(forward ? ms : -ms);
         return true;
     }
     case Qt::Key_Space: {
