@@ -7,6 +7,7 @@
 #include <QIODevice>
 #include <QByteArray>
 #include <QDateTime>
+#include <QThread>
 #include <QDebug>
 #include <SoundTouch.h>
 #include <algorithm>
@@ -24,6 +25,11 @@ constexpr qint64 kSeekMatchToleranceUs = 1'000'000;
 constexpr qint64 kSeekGateTimeoutMs = 500;
 // ランプ長（ms）。リセット後のフェードインと、シーク時の無音へのフェードアウトで共用する
 constexpr int kRampMs = 5;
+// 終了時の drain 待ちで、sink バッファが空になった後に置く再生余裕（ms）
+// WASAPI の共有モード周期は 10ms で、sink バッファから取り出し済みでも未再生の区間が最大 1 周期残る
+constexpr int kDrainTailMarginMs = 20;
+// 終了時の drain 待ちのポーリング間隔（ms）
+constexpr int kDrainPollMs = 5;
 
 // ランプ長をフレーム数へ換算する
 static qsizetype rampFrames(const QAudioFormat& format)
@@ -603,6 +609,19 @@ void AudioWorker::teardown()
     // null 化だけで delete を残すと実破棄が ~VideoView の親子連鎖（GUI thread）に乗ってしまうため、
     // ここで delete まで完結させる
     if (m_sink) {
+        // 再生中の終了で sink に残る波形を任意点で切らないよう、無音ランプを書き足してから
+        // 鳴り終わるまで待つ（シーク時と同じ方式）。切断の段差は「パツッ」というクリックになる。
+        // 呼び出し元（~VideoView）が audioBuf → audioWorker を disconnect 済みのため、
+        // 待ちの間に新規バッファは届かない。空になるまでの上限は sink バッファ長 + ランプ + 余裕だ。
+        // 通常は残量 1 バッファ分（20〜40ms）で抜け、空になった後も余裕ぶんだけ待ってから止める
+        writeFadeOutRamp();
+        const qint64 bufferMs = m_format.durationForBytes(static_cast<qint32>(m_sink->bufferSize())) / 1000;
+        const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + bufferMs + kRampMs + kDrainTailMarginMs;
+        while (m_sink->bytesFree() < m_sink->bufferSize()
+               && QDateTime::currentMSecsSinceEpoch() < deadline) {
+            QThread::msleep(kDrainPollMs);
+        }
+        QThread::msleep(kDrainTailMarginMs);
         m_sink->stop();
         delete m_sink;
         m_sink = nullptr;

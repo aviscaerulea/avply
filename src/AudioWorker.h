@@ -86,7 +86,9 @@ public slots:
     void switchToDefaultDevice();
 
     // 所属スレッドで QAudioSink を停止・破棄する
-    // QThread::quit() より前に BlockingQueuedConnection で実行すること
+    // QThread::quit() より前に BlockingQueuedConnection で実行すること。
+    // 再生中の終了では sink に残る音声を無音ランプで終わらせてから停止するため、
+    // 呼び出し元は最大約 250ms ブロックする（通常は数十 ms）
     void teardown();
 
 private:
@@ -108,7 +110,7 @@ private:
     void armFadeIn();
 
     // 最後に sink へ書いたサンプル値から 0 へ下る無音ランプを sink へ書く
-    // reset() から呼ぶ。sink が空（旧音声が鳴り終わっている）なら書かない。
+    // reset() と teardown() から呼ぶ。sink が空（旧音声が鳴り終わっている）なら書かない。
     // 空の sink へ書くと 0 から開始値への段差になるためだ
     void writeFadeOutRamp();
 

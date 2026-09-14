@@ -279,6 +279,7 @@ VideoView::~VideoView()
         }
         if (m_audioWorker) {
             // functor 型 invokeMethod でスロット名を文字列解決せずコンパイル時に検知する（setSource と同じ理由）
+            // teardown は再生中なら sink 残量の drain 待ち（最大約 250ms）を含む
             AudioWorker* w = m_audioWorker;
             QMetaObject::invokeMethod(w, [w]() { w->teardown(); }, Qt::BlockingQueuedConnection);
         }

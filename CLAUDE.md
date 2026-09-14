@@ -270,6 +270,8 @@ FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再�
 
 `AudioWorker::reset` は sink を再起動しない。以前は `QAudioSink::reset()` で WASAPI を再起動していた。再生中の波形を任意点で切る段差が MPC-HC と同種の「パツッ」というクリックになっていた。代わりに、最後に sink へ書いたサンプル値から 0 へ `kRampMs`（5ms）で下る無音ランプを書き足す。Qt の renderer はバッファを表示時刻に送出し先読みしない。そのため sink に残る旧音声は通常 1 バッファ分（20〜40ms）で、鳴り終わったあとランプで無音になる。sink が空なら旧音声は既に鳴り終わっているためランプを書かない。200ms の sink バッファはバースト吸収用で定常再生では埋まらないが、バースト直後のシークでは旧音声が最大 200ms 残り得る。これはシーク応答の遅れとして許容する。
 
+アプリ終了（`AudioWorker::teardown`）でも sink を停止する前に、この 0 へ下る無音ランプを書き足す（sink が空なら書かない）。その後 sink バッファが空になるまで待ち、さらに `kDrainTailMarginMs`（20ms）の再生余裕を置いてから停止する。空になるまでの待ちの上限は sink バッファ長（200ms）+ `kRampMs`（5ms）+ `kDrainTailMarginMs`（20ms）で、GUI thread は終了時に最大約 250ms ブロックする。
+
 あわせて `AudioWorker::reset` / `forceReset` / `recoverSink` の直後は sink へ書く最初の `kRampMs` へ線形フェードインを掛け、無音からの開始段差を丸める。`forceReset`（ファイル切替）は従来どおり sink を再起動する。
 
 ### 高速再生時のサンプル欠落対策（SoundTouch WSOLA）
