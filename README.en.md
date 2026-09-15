@@ -19,6 +19,7 @@ It starts up light, so it also works well as an everyday video and audio player.
   (kept across files)
 - Voice enhancement: automatically evens out volume differences between speakers
   and lifts quiet remarks
+- Subtitles: recognizes speech with whisper and overlays subtitles on the video during playback
 - Output device follow: switches the output when the OS default audio device changes,
   even during playback
 - Seek bar preview: shows a thumbnail and timestamp for the position under the cursor
@@ -42,6 +43,19 @@ Voice enhancement combines noise suppression and automatic gain control to even 
 Pressing the C key toggles it on and off.
 It always starts off at launch, and the setting is not saved.
 
+### Subtitles
+
+The audio of a video is recognized with whisper.cpp, and subtitles are overlaid at the bottom of the picture.
+Pressing the S key toggles it on and off.
+It always starts off at launch, and the setting is not saved. It stays on when you switch files.
+
+Recognition proceeds from the beginning, and subtitles appear once it has passed the playback position.
+If you seek to a position that has not been recognized yet, no subtitles appear until recognition catches up.
+Results are cached per video, so they show without waiting from the second time on.
+
+If whisper-cli or the model file is missing, the bottom of the window shows `Subtitle:N/A`.
+Audio files are not supported.
+
 ## Installation
 
 ### Requirements
@@ -50,8 +64,10 @@ It always starts off at launch, and the setting is not saved.
 - ffmpeg (installed separately; it is also used to read media information during playback)
 - NVIDIA GPU (only needed for video conversion; AV1 NVENC support required,
   RTX 30 series or later recommended)
+- whisper-cli from whisper.cpp and a model file (only needed for subtitles)
 
 Trimming does not re-encode, so no GPU is required. Audio-only conversion also runs on the CPU.
+Subtitles work on the CPU too, but a GPU build of whisper-cli is recommended.
 
 ### Steps
 
@@ -100,6 +116,7 @@ Playback controls are as follows.
 | Playback speed ±0.05x | `.` faster / `,` slower | Ctrl+wheel |
 | Volume ±0.05 | ↑ ↓ | Shift+wheel |
 | Switch voice enhancement | C | |
+| Switch subtitles | S | |
 | Reset playback settings | G | |
 
 Trimming controls are as follows.
@@ -113,7 +130,7 @@ Trimming controls are as follows.
 
 The first press of G returns to neutral values (speed 1.00, volume 100%, voice enhancement off), and the second press restores the speed and volume from startup.
 File switching follows the file-name order and stops at the first and last files in the folder.
-The bottom of the window always shows the current playback speed, volume, and voice enhancement state.
+The bottom of the window always shows the current playback speed, volume, voice enhancement, and subtitle state.
 
 ### Trimming and conversion
 
@@ -150,14 +167,22 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
+| `[subtitle]` | Paths to whisper-cli and the model file, recognition language |
 
-The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
-No configuration is needed if ffmpeg is available through Scoop or `PATH`.
+The ffmpeg and whisper-cli paths are resolved in this order: `path` under `[ffmpeg]` or `whisper_path` under `[subtitle]`, the default Scoop location, then the `PATH` environment variable.
+No configuration is needed if they are available through Scoop or `PATH`.
 To set it explicitly, write it as follows.
 
 ```toml
 [ffmpeg]
 path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
+```
+
+The subtitle model file has no default and is set with `model` under `[subtitle]`.
+
+```toml
+[subtitle]
+model = "C:/models/ggml-large-v3-turbo.bin"
 ```
 
 Always-on-top during playback, single-instance enforcement, and process priority are toggled from the settings in the right-click menu.
@@ -172,6 +197,10 @@ These are stored in the registry and kept for the next launch.
 - Volume is capped at 100%; amplification beyond that is not supported
   (use voice enhancement to lift quiet remarks)
 - Video conversion requires an NVIDIA GPU with AV1 NVENC support
+- Where recognition cannot keep up with playback, stretches without subtitles continue
+  (switch to a smaller model)
+- The subtitle model file must be placed in a path made of alphanumeric characters only
+  (whisper-cli cannot open paths containing Japanese or similar characters)
 
 ## Build
 

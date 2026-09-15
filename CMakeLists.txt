@@ -90,6 +90,10 @@ qt_add_executable(avply WIN32
     src/AudioWorker.cpp
     src/StartupTrace.h
     src/StartupTrace.cpp
+    src/SubtitleTrack.h
+    src/SubtitleTrack.cpp
+    src/SubtitleTranscriber.h
+    src/SubtitleTranscriber.cpp
     src/icons.qrc
     src/app.rc
 )

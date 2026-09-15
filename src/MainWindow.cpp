@@ -95,6 +95,7 @@ const QString kVolumePrefix    = QString::fromUtf8("  \xf0\x9f\x94\x8a ");
 // ステータスバー常時表示ラベルのプレフィックス
 // 後ろに "ON" / "OFF" を連結して表示する
 const QString kSpeechEnhancePrefix = "  Clarity:";
+const QString kSubtitlePrefix      = "  Subtitle:";
 
 // メニューの角丸抑制スタイル
 // Windows 11 ネイティブ装飾の強い角丸を抑え、ほぼ角張った見た目にする。
@@ -197,6 +198,9 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     // --- 音声強調ラベル（常時表示。ON/OFF） ---
     m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "OFF");
+
+    // --- 字幕ラベル（常時表示。ON/OFF/N/A） ---
+    m_subtitleLabel = new QLabel(kSubtitlePrefix + "OFF");
 
     // --- シークスライダー ---
     m_seekSlider = new RangeSlider(Qt::Horizontal);
@@ -339,7 +343,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     setCentralWidget(central);
 
-    // --- ステータスバー：左から動画情報・出力状況、右に再生位置・再生速度・音量・音声強調 ---
+    // --- ステータスバー：左から動画情報・出力状況、右に再生位置・再生速度・音量・音声強調・字幕 ---
     // 項目間の縦罫線を非表示にして、ラベル先頭の半角スペースのみで間隔を作る
     statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
     StartupTrace::mark("statusbar_created");
@@ -349,6 +353,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addPermanentWidget(m_speedLabel);
     statusBar()->addPermanentWidget(m_volumeLabel);
     statusBar()->addPermanentWidget(m_speechEnhanceLabel);
+    statusBar()->addPermanentWidget(m_subtitleLabel);
     StartupTrace::mark("statusbar_widgets_added");
 
     // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
@@ -374,6 +379,13 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate         = cfg.playbackSpeed;
     m_volume               = cfg.audioVolume;
+    m_whisperPath          = cfg.whisperPath;
+    m_whisperModelPath     = cfg.whisperModelPath;
+    m_subtitleLanguage     = cfg.subtitleLanguage;
+    // SRT キャッシュは %TEMP% ではなく AppData に置く。生成に数分かかる成果物のため、
+    // 波形 PNG と違って一時領域の掃除で消えてほしくない
+    m_subtitleCacheDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                         + "/subtitles";
 
     // g キーの「起動時デフォルトへ復元」で参照するスナップショット
     // 以降にユーザ操作で m_playbackRate / m_volume / Settings 値が変わっても、ここの値は維持する
@@ -420,6 +432,16 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // 音声強調は永続化しない仕様のため起動時は常に OFF（AudioWorker も初期 OFF で生成済み）
     // QAction は持たず C キー押下のみでトグルするため、コンテキストメニュー項目は作らない
     updateSpeechEnhanceDisplay();
+
+    // 字幕も永続化しない仕様のため起動時は常に OFF。S キー押下のみでトグルする。
+    // 生成器はキュー通知を受けて m_subtitles へ蓄積し、現在位置のオーバーレイを即時更新する
+    m_subtitleTranscriber = new SubtitleTranscriber(this);
+    connect(m_subtitleTranscriber, &SubtitleTranscriber::cueAdded, this,
+            [this](const SubtitleCue& cue) {
+        m_subtitles.append(cue);
+        updateSubtitleOverlay(m_videoView->position());
+    });
+    updateSubtitleDisplay();
 
     updateMenuActionEnabled();
     // アプリケーション全体のキー入力を捕捉して再生・シーク・トリム区間・ファイル切替の各操作に変換する
@@ -536,6 +558,7 @@ MainWindow::~MainWindow()
     // 「メンバ破棄進行中の this にスロット呼び出し」という半壊状態が生じる。
     // これを防ぐため、Encoder 待機より先にそれらの disconnect / cancel を済ませる
     stopWaveformProcess();
+    if (m_subtitleTranscriber) m_subtitleTranscriber->stop();
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
     if (m_probeProc) {
         disconnect(m_probeProc, nullptr, this, nullptr);
@@ -639,6 +662,7 @@ void MainWindow::onPlayerPositionChanged(qint64 ms)
 {
     const double sec = ms / 1000.0;
     m_posLabel->setText("  " + formatSec(sec) + " / " + formatSec(m_info.duration));
+    updateSubtitleOverlay(ms);
 
     if (m_info.duration <= 0.0) return;
     // ffprobe の duration と QMediaPlayer の duration がわずかにずれて末尾で kSliderMax 超になることがあるため明示クランプする
@@ -839,10 +863,12 @@ void MainWindow::onEncoderReleaseFile(const QString& path)
         return;
     }
 
-    // 波形生成・サムネイル抽出の ffmpeg 子プロセスも入力ファイルを開いている
+    // 波形生成・サムネイル抽出・字幕用音声抽出の ffmpeg 子プロセスも入力ファイルを開いている
     // 可能性があるため、プレイヤー解放と合わせて同期停止する。
     // 直後の onEncoderFinished → loadFile で同パスを開き直すため、クリアは一瞬で済む
+    // （字幕はその再ロードで生成し直す）
     stopWaveformProcess();
+    stopSubtitleTranscription();
     if (m_thumbExtractor) m_thumbExtractor->cancelInflight(true);
     m_videoView->clear(/*keepVisible=*/true);
     m_fileReleasedForOverwrite = true;
@@ -895,6 +921,8 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     m_filePath.clear();
     setWindowTitle(QStringLiteral("avply"));
     setUiEnabled(false);
+    // 旧ファイルの字幕生成とオーバーレイを消す。ON なら probe 完了後に新ファイルで再開する
+    stopSubtitleTranscription();
     StartupTrace::mark("loadfile_begin");
 
     // 再入検出用の世代番号を進める（m_loadGeneration のヘッダコメント参照）
@@ -1070,6 +1098,11 @@ void MainWindow::onProbeFinished(const QString& path, const VideoInfo& info, boo
     else {
         startWaveformGeneration(path);
     }
+
+    // 字幕 ON はファイル切替をまたいで保持するため、新ファイルでも生成を再開する
+    // （音声のみ等で出せない場合は startSubtitleTranscription 側が見送り、ラベルは N/A になる）
+    startSubtitleTranscription();
+    updateSubtitleDisplay();
 
     // ホバープレビューのソース更新
     // 音声のみは QSize() を渡して抽出を抑止する。動画は scale フィルタが
@@ -1563,6 +1596,16 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         toggleSpeechEnhance();
         return true;
     }
+    case Qt::Key_S: {
+        // 字幕（Subtitle）の ON/OFF トグル。C キーと同型のガード
+        if (running) return true;
+        const auto mods = ke->modifiers() & kModifierMask;
+        if (mods != Qt::NoModifier) {
+            return QMainWindow::eventFilter(watched, event);
+        }
+        toggleSubtitle();
+        return true;
+    }
     default:
         return QMainWindow::eventFilter(watched, event);
     }
@@ -1618,6 +1661,80 @@ void MainWindow::toggleSpeechEnhance()
 void MainWindow::updateSpeechEnhanceDisplay()
 {
     m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + (m_speechEnhanceEnabled ? "ON" : "OFF"));
+}
+
+bool MainWindow::isWhisperAvailable() const
+{
+    return !m_whisperPath.isEmpty() && QFile::exists(m_whisperPath)
+        && !m_whisperModelPath.isEmpty() && QFile::exists(m_whisperModelPath);
+}
+
+void MainWindow::toggleSubtitle()
+{
+    if (!isWhisperAvailable()) {
+        qWarning() << "MainWindow: whisper-cli またはモデルが見つからないため字幕は無効"
+                   << m_whisperPath << m_whisperModelPath;
+        updateSubtitleDisplay();
+        return;
+    }
+    m_subtitleEnabled = !m_subtitleEnabled;
+    if (m_subtitleEnabled) {
+        startSubtitleTranscription();
+    }
+    else {
+        stopSubtitleTranscription();
+    }
+    updateSubtitleDisplay();
+}
+
+void MainWindow::startSubtitleTranscription()
+{
+    stopSubtitleTranscription();
+    if (!m_subtitleEnabled || !m_info.valid || isAudioOnly() || !m_info.hasAudio()) return;
+    if (!isFfmpegAvailable() || !isWhisperAvailable()) return;
+
+    SubtitleTranscriber::Params p;
+    p.ffmpegPath  = m_ffmpegPath;
+    p.whisperPath = m_whisperPath;
+    p.modelPath   = m_whisperModelPath;
+    p.language    = m_subtitleLanguage;
+    p.cacheDir    = m_subtitleCacheDir;
+    m_subtitleTranscriber->start(p, m_filePath);
+}
+
+void MainWindow::stopSubtitleTranscription()
+{
+    m_subtitleTranscriber->stop();
+    m_subtitles.clear();
+    m_subtitleShown.clear();
+    m_videoView->setSubtitleText(QString());
+}
+
+void MainWindow::updateSubtitleDisplay()
+{
+    QString state;
+    if (!isWhisperAvailable()) {
+        state = "N/A";
+    }
+    else if (!m_subtitleEnabled) {
+        state = "OFF";
+    }
+    else if (m_info.valid && (isAudioOnly() || !m_info.hasAudio())) {
+        state = "N/A";
+    }
+    else {
+        state = "ON";
+    }
+    m_subtitleLabel->setText(kSubtitlePrefix + state);
+}
+
+void MainWindow::updateSubtitleOverlay(qint64 ms)
+{
+    if (!m_subtitleEnabled) return;
+    const QString text = m_subtitles.textAt(ms);
+    if (text == m_subtitleShown) return;
+    m_subtitleShown = text;
+    m_videoView->setSubtitleText(text);
 }
 
 void MainWindow::handleWheelInput(bool forward, bool shift, bool ctrl)

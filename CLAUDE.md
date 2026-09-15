@@ -62,7 +62,7 @@ ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレ
 
 ### 対象
 
-`tests/` 配下のテストバイナリ群。ユニットテスト対象は単体で完結して検証できるクラスに限定し、外部プロセス・音声デバイス・メディア再生の状態機械を含むクラス（例：`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance`）は対象外とする。
+`tests/` 配下のテストバイナリ群。ユニットテスト対象は単体で完結して検証できるクラスに限定し、外部プロセス・音声デバイス・メディア再生の状態機械を含むクラス（例：`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance` / `SubtitleTranscriber`）は対象外とする。
 
 | テスト | 対象 | 検証内容 |
 |--------|------|----------|
@@ -71,6 +71,7 @@ ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレ
 | `test_FfmpegRunner_path` | `Ffmpeg::ffprobePath` | 拡張子置換、空白を含むパス、相対パス絶対化 |
 | `test_RangeSlider` | `RangeSlider` | ホイール・ホバー・ドラッグの各シグナル発火パターン |
 | `test_SeekPreview` | `SeekPreview` | `showAt` のジオメトリ算出（中央配置・端クランプ・上下フリップ） |
+| `test_SubtitleTrack` | `SubtitleTrack` | whisper-cli 出力行の解釈、再生位置からの検索、SRT の往復変換 |
 
 ### test_Settings 実装上の注意
 
@@ -209,6 +210,23 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 
 `SpeechEnhancer::reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
 
+### 字幕（whisper-cli）
+
+`S` キーで ON/OFF する再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外は README の「字幕」節が正だ。whisper-cli の解決順とモデルの指定方法は README の「設定」節が正だ。ステータスバーに `Subtitle:ON/OFF/N/A` を常時表示する。N/A の条件は `MainWindow::updateSubtitleDisplay` が正だ。
+
+方式は「先回り文字起こし」で、真のストリーミング認識ではない。外部プロセス whisper-cli がメディア全体を先頭から順に処理し、字幕は認識が追い越した区間から出る（利用者向けの説明は README の「字幕」節が正だ）。GPU 版の whisper-cli は実時間より十分速く進む想定だが、所要時間は未計測だ。CPU で追い付かない場合は無字幕が続くだけだ。自動で小さいモデルへ落とすフォールバックは持たず、`[subtitle].model` で手動指定する。
+
+- 処理段階、キャッシュキー、パスの制約、失敗時の扱いは `SubtitleTranscriber.h` のクラスコメントが正だ
+- SRT キャッシュの置き場と、`%TEMP%` に置かない理由は `MainWindow` コンストラクタのコメントが正だ
+- 音声は再生経路から分岐せず、メディアから ffmpeg で直接抽出する
+- そのため音声強調（APM）を通らない（強いデノイズは ASR の精度を上げない）
+- `G` リセットは字幕の状態を維持する（生成に時間がかかり、誤って落とすと再開コストが高いため）
+- 失敗してもラベルは ON のままにする
+- 表示は `VideoOutput.qml` の `subtitleText` プロパティで映像上に重ねる
+- QML 側で描く理由は同ファイルのコメントが正だ
+- 同名上書き（`onEncoderReleaseFile`）と `loadFile` の冒頭で生成を止める
+- 再開は `onProbeFinished` で ON のときだけ行う
+
 ### シーク時の旧バッファ破棄（シークゲート）・無音ランプ・再開時フェードイン
 
 FFmpeg バックエンドはシークごとに `AudioRenderer` を破棄・再生成する。破棄は非同期のため、旧 renderer が直前に emit した数十 ms のバッファが `AudioWorker::reset` の後に届く。放置すると無音ランプの後に旧位置の断片が鳴り、新位置の音声との境目が不連続になる。sink を再起動していた旧方式では、空にした sink へ旧位置の断片を書き込むため「ザリッ」というノイズになっていた。
@@ -276,7 +294,7 @@ debounce は BT 接続シーケンス中の複数通知を 1 回へ集約する�
 命名規則（`_mod` 連番）と出力拡張子の対応は README の「出力ファイル」節が正だ。
 `_mod` 名への上書き判定は `OutputNamer::isModName` が正だ。
 上書き時は `Encoder` が既存ファイルを `.avply.bak` へ退避してから一時ファイルを置換し、失敗時は退避から復元する。
-出力先が再生中のファイルと同一の場合、置換直前に `Encoder::releaseFileRequested` → `MainWindow::onEncoderReleaseFile` でプレイヤー・波形生成・サムネイル抽出のファイルハンドルを解放する。
+出力先が再生中のファイルと同一の場合、置換直前に `Encoder::releaseFileRequested` → `MainWindow::onEncoderReleaseFile` でプレイヤー・波形生成・サムネイル抽出・字幕生成のファイルハンドルを解放する。
 ハンドル解放の完了が非同期の可能性があるため、退避リネームは 100ms 間隔で最大 1 秒リトライする。
 
 ### ウィンドウ表示位置

@@ -391,6 +391,13 @@ void VideoView::setSpeechEnhanceEnabled(bool enabled)
     }
 }
 
+void VideoView::setSubtitleText(const QString& text)
+{
+    if (QObject* root = m_quickView->rootObject()) {
+        root->setProperty("subtitleText", text);
+    }
+}
+
 void VideoView::togglePlay()
 {
     if (isPlaying()) {

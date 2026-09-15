@@ -11,6 +11,8 @@
 #include "SeekPreview.h"
 #include "ThumbnailExtractor.h"
 #include "SilenceTone.h"
+#include "SubtitleTrack.h"
+#include "SubtitleTranscriber.h"
 
 class QDragEnterEvent;
 class QDropEvent;
@@ -205,6 +207,31 @@ private:
     // 常時表示で「Clarity:ON/OFF」を表示する
     void updateSpeechEnhanceDisplay();
 
+    // 字幕の ON/OFF をトグルする
+    // S キー押下から呼ばれる。whisper-cli またはモデルが無ければ OFF のまま何もしない。
+    // 永続化はしない（起動時は常に OFF。インスタンス生存中はファイル切替をまたいで保持）
+    void toggleSubtitle();
+
+    // 現在のファイルの字幕生成を開始する
+    // 字幕 OFF・未ロード・音声のみ・音声ストリーム無し・ffmpeg 不在のいずれかなら何もしない。
+    // ファイル切替と ON 切替の両方から呼ぶ
+    void startSubtitleTranscription();
+
+    // 字幕生成を止め、蓄積したキューとオーバーレイ表示を消す
+    void stopSubtitleTranscription();
+
+    // 字幕ラベルの表示を現在の状態に応じて更新する
+    // 常時表示で「Subtitle:ON/OFF/N/A」を表示する。N/A は whisper-cli かモデルが無い、
+    // または ON だが現在のファイルが音声のみ・音声ストリーム無しで字幕を出せない状態
+    void updateSubtitleDisplay();
+
+    // 再生位置 ms の字幕テキストをオーバーレイへ反映する（同じテキストなら何もしない）
+    void updateSubtitleOverlay(qint64 ms);
+
+    // whisper-cli とモデルの両方が存在するか
+    // ffmpeg と同じく状態を持たず都度判定する
+    bool isWhisperAvailable() const;
+
     // g キー押下時のトグル動作
     // 1 回目で再生速度/音量/音声強調を全て「中立値」へ揃え、
     // 2 回目で速度・音量を起動時に読み込んだ TOML 値へ復元する（音声強調は両回とも OFF）
@@ -263,6 +290,22 @@ private:
     // 永続化しないためインスタンス生存中のみ保持する（起動時は常に OFF）
     bool m_speechEnhanceEnabled = false;
 
+    // 現在の字幕 ON/OFF
+    // 永続化しないためインスタンス生存中のみ保持する（起動時は常に OFF）
+    bool m_subtitleEnabled = false;
+
+    // 字幕生成の設定（avply.toml の [subtitle]）と SRT キャッシュの置き場
+    QString m_whisperPath;
+    QString m_whisperModelPath;
+    QString m_subtitleLanguage;
+    QString m_subtitleCacheDir;
+
+    // 現在のファイルの字幕。生成中は cueAdded のたびに増える
+    SubtitleTrack m_subtitles;
+
+    // オーバーレイに出している字幕テキスト。positionChanged ごとの再設定を避ける
+    QString m_subtitleShown;
+
     // g キーで参照する起動時デフォルト値のスナップショット
     // TOML から初回読込した値をコンストラクタで保存する
     qreal m_initialPlaybackRate   = 1.0;
@@ -291,6 +334,7 @@ private:
     QLabel*       m_speedLabel;
     QLabel*       m_volumeLabel;
     QLabel*       m_speechEnhanceLabel;
+    QLabel*       m_subtitleLabel;
     RangeSlider*  m_seekSlider;
     QPushButton*  m_setInBtn;
     QPushButton*  m_setOutBtn;
@@ -362,4 +406,7 @@ private:
     // QMediaPlayer とは独立した QAudioSink で 1kHz / 約 -80dBFS を流し続け、
     // 出力デバイスが省電力状態に落ちて再エンゲージするときの音切れを防ぐ
     SilenceTone* m_silenceTone = nullptr;
+
+    // 字幕生成（ffmpeg 抽出 → whisper-cli）とキャッシュを担う
+    SubtitleTranscriber* m_subtitleTranscriber = nullptr;
 };

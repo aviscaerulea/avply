@@ -69,6 +69,10 @@ public:
     // 変更は AudioWorker に QueuedConnection で転送され、audio thread 上で ApplyConfig される
     void setSpeechEnhanceEnabled(bool enabled);
 
+    // 映像上に重ねる字幕テキストを設定する（空文字で非表示）
+    // QML ルートの subtitleText プロパティへ書くだけで、表示位置・折り返しは QML 側が担う
+    void setSubtitleText(const QString& text);
+
 protected:
     void wheelEvent(QWheelEvent* event) override;
 

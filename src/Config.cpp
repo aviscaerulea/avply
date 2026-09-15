@@ -139,6 +139,13 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         // 空文字を明示すれば Qt 自動選択 / -hwaccel 指定スキップへフォールバックできる
         if (section == "playback" && key == "hw_decoder_priority") cfg.hwDecoderPriority = value;
         if (section == "playback" && key == "thumbnail_hwaccel")   cfg.thumbnailHwaccel  = value;
+
+        // 字幕生成（whisper-cli）
+        if (section == "subtitle" && key == "whisper_path") cfg.whisperPath      = value;
+        if (section == "subtitle" && key == "model")        cfg.whisperModelPath = value;
+        if (section == "subtitle" && key == "language" && !value.trimmed().isEmpty()) {
+            cfg.subtitleLanguage = value.trimmed();
+        }
     }
 }
 
@@ -163,6 +170,23 @@ void clampConfig(AppConfig& cfg)
 QString scoopFallback()
 {
     return QDir::homePath() + "/scoop/apps/ffmpeg/current/bin/ffmpeg.exe";
+}
+
+// scoop デフォルトの whisper-cli.exe パスを返す（main バケットの whisper-cpp）
+QString scoopWhisperFallback()
+{
+    return QDir::homePath() + "/scoop/apps/whisper-cpp/current/whisper-cli.exe";
+}
+
+// 実行ファイルのパスを解決する
+// 明示値が空なら scoop 既定パス → PATH 解決の順に補う。どこにも無ければ空のまま返す。
+// scoop 以外（chocolatey、winget、手動配置）でも設定不要で動作させるための順序だ
+QString resolveExecutable(const QString& explicitPath, const QString& scoopPath,
+                          const QString& executableName)
+{
+    if (!explicitPath.isEmpty()) return explicitPath;
+    if (QFile::exists(scoopPath)) return scoopPath;
+    return QStandardPaths::findExecutable(executableName);
 }
 
 } // namespace
@@ -192,15 +216,8 @@ AppConfig Config::load()
     mergeFromFile(exeDir + "/avply.toml",       cfg);
     mergeFromFile(exeDir + "/avply.local.toml", cfg);
 
-    if (cfg.ffmpegPath.isEmpty()) {
-        const QString fallback = scoopFallback();
-        if (QFile::exists(fallback)) cfg.ffmpegPath = fallback;
-    }
-    if (cfg.ffmpegPath.isEmpty()) {
-        // scoop 以外（chocolatey、winget、手動配置）でも設定不要で動作させる
-        const QString resolved = QStandardPaths::findExecutable("ffmpeg");
-        if (!resolved.isEmpty()) cfg.ffmpegPath = resolved;
-    }
+    cfg.ffmpegPath  = resolveExecutable(cfg.ffmpegPath, scoopFallback(), "ffmpeg");
+    cfg.whisperPath = resolveExecutable(cfg.whisperPath, scoopWhisperFallback(), "whisper-cli");
 
     clampConfig(cfg);
     return cfg;

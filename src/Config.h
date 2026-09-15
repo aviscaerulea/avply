@@ -49,13 +49,23 @@ struct AppConfig {
     // 上限を 0.01 と低めに固定し、16bit フルスケール（1.0）の指定はできない。
     double silenceToneFreqHz = 1000.0;
     double silenceToneAmp    = 0.0001;
+
+    // 字幕生成に使う whisper-cli.exe と ggml モデルのパス
+    // whisperPath は [subtitle].whisper_path 未設定時に scoop 既定パス → PATH 解決で補う。
+    // modelPath に既定はなく、未設定なら字幕機能は N/A になる
+    QString whisperPath;
+    QString whisperModelPath;
+
+    // whisper に渡す言語コード（-l）。既定は日本語
+    QString subtitleLanguage = "ja";
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ
 namespace Config {
     // 実行ファイルと同階層の avply.toml を読み、avply.local.toml が
     // 存在すれば同キーを後勝ちで上書きする。
-    // [ffmpeg].path 未設定時は scoop デフォルトパス → PATH 解決の順にフォールバックする。
+    // [ffmpeg].path と [subtitle].whisper_path の未設定時は scoop デフォルトパス → PATH 解決の
+    // 順にフォールバックする。
     AppConfig load();
 
     // 実行ファイルのあるディレクトリ絶対パス

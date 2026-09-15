@@ -64,3 +64,8 @@ avply_add_test(test_SeekPreview WIDGETS
     test_SeekPreview.cpp
     ${AVPLY_SRC}/SeekPreview.cpp
 )
+
+avply_add_test(test_SubtitleTrack
+    test_SubtitleTrack.cpp
+    ${AVPLY_SRC}/SubtitleTrack.cpp
+)

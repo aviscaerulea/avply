@@ -17,9 +17,38 @@ Item {
     signal wheelScrolled(bool forward, bool shift, bool ctrl)
     signal fileDropped(string url)
 
+    // C++ 側（VideoView::setSubtitleText）が書き換える字幕テキスト。空なら非表示
+    property string subtitleText: ""
+
     VideoOutput {
         id: videoOutput
         anchors.fill: parent
+    }
+
+    // 字幕オーバーレイ
+    // QQuickView はネイティブ子ウィンドウのため QWidget を上に重ねられない。
+    // そのため字幕も QML 側で映像の上に描く。文字サイズは映像領域の高さに追従させ、
+    // 幅は領域の 9 割で折り返す。マウス処理を持たないため後続の MouseArea を妨げない
+    Rectangle {
+        visible: root.subtitleText !== ""
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Math.round(parent.height * 0.05)
+        width: subtitleLabel.width + 16
+        height: subtitleLabel.height + 8
+        radius: 4
+        color: "#A0000000"
+
+        Text {
+            id: subtitleLabel
+            anchors.centerIn: parent
+            text: root.subtitleText
+            color: "white"
+            font.pixelSize: Math.max(14, Math.round(root.height / 22))
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            width: Math.min(implicitWidth, root.width * 0.9)
+        }
     }
 
     // DropArea はドラッグ＆ドロップ系イベントのみを受け、MouseArea のマウス・ホイール

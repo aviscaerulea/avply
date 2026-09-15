@@ -73,3 +73,21 @@ silence_tone_freq_hz = 1000.0
 # 1.0 = 16bit フルスケール。設定ミスによる過大音量を防ぐため上限は 0.01 にクランプされる。
 # 0.0001 ≒ -80dBFS で人耳には不可聴。デフォルトは 0.0001。
 silence_tone_amp = 0.0001
+
+# 字幕設定
+[subtitle]
+# whisper-cli.exe のフルパス
+# 再生中の字幕生成（S キー）に使う whisper.cpp の CLI を指定する。
+# 空のときは Scoop のデフォルトパス（whisper-cpp）→ PATH の順に探す。見つからなければ字幕機能は N/A になる。
+# GPU で動かすには whisper.cpp のリリースから CUDA 版（whisper-cublas-*-bin-x64.zip）を展開する。
+# 次にその中の whisper-cli.exe をここに指定する。Scoop 版は CPU 専用。
+whisper_path = ""
+# ggml モデルファイル（.bin）のフルパス
+# デフォルト値はなく、未設定なら字幕機能は N/A になる。
+# 日本語の実用品質には ggml-large-v3-turbo.bin（約 1.6GB）を推奨する。
+# CPU のみの環境では認識が再生に追い付かず字幕が出ないため、ggml-medium.bin 以下を選ぶ。
+# whisper-cli は ASCII 以外を含むパスを開けない場合があるため、英数字のみのパスに置く。
+model = ""
+# 認識言語（whisper の -l に渡す言語コード）
+# 英語の動画なら "en" にする。空のときと未設定時はデフォルトの "ja"（日本語）を使う。
+language = "ja"
