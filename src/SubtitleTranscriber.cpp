@@ -53,6 +53,7 @@ void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
     const QString hash = mediaHash(mediaPath);
     if (hash.isEmpty()) {
         qWarning() << "SubtitleTranscriber: メディアのハッシュ計算に失敗:" << mediaPath;
+        emit finished(false);
         return;
     }
     m_cachePath = params.cacheDir + "/" + hash + ".srt";
@@ -68,6 +69,7 @@ void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
         for (const SubtitleCue& cue : m_track.cues()) {
             emit cueAdded(cue);
         }
+        emit finished(true);
         return;
     }
 
@@ -193,4 +195,5 @@ void SubtitleTranscriber::finish(bool ok)
     }
     QFile::remove(m_wavPath);
     m_wavPath.clear();
+    emit finished(ok);
 }

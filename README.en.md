@@ -40,18 +40,20 @@ When you load an audio file, the window switches to a compact layout without the
 
 In meeting recordings, remarks made far from the microphone sound quiet while nearby ones sound loud.
 Voice enhancement combines noise suppression and automatic gain control to even out that difference during playback.
-Pressing the C key toggles it on and off.
+The C key or the item in the right-click menu toggles it on and off.
 It always starts off at launch, and the setting is not saved.
 
 ### Subtitles
 
 The audio of a video is recognized with whisper.cpp, and subtitles are overlaid at the bottom of the picture.
-Pressing the S key toggles it on and off.
+The S key or the item in the right-click menu toggles it on and off.
 It always starts off at launch, and the setting is not saved. It stays on when you switch files.
 
 Recognition proceeds from the beginning, and subtitles appear once it has passed the playback position.
 If you seek to a position that has not been recognized yet, no subtitles appear until recognition catches up.
 Results are cached per video, so they show without waiting from the second time on.
+While recognition is running, the bottom of the window shows the progress like `Subtitle:42%`, and it changes to `Subtitle:ON` when done.
+If it fails, it shows `Subtitle:ERR`.
 
 If whisper-cli or the model file is missing, the bottom of the window shows `Subtitle:N/A`.
 Audio files are not supported.
@@ -91,6 +93,8 @@ Even after removing the app, the settings changed from the right-click menu (suc
 To remove them completely, delete that key with the Registry Editor.
 
 ## Usage
+
+Detailed usage and the steps to set up whisper-cli for subtitles are on the [usage page](https://aviscaerulea.github.io/avply/).
 
 ### Loading a file
 

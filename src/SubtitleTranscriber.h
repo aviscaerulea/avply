@@ -20,7 +20,7 @@ class QProcess;
 // ファイル名側の制約を避ける。%TEMP% 自体とモデルパス（-m）は利用者の環境に委ねる
 // （avply.toml が英数字のみのモデルパスを求める根拠）。
 //
-// 失敗（ffmpeg / whisper-cli の異常終了）は avply.log へ警告を残すだけで、呼び出し側へは通知しない。
+// 失敗（ffmpeg / whisper-cli の異常終了）は avply.log へ警告を残し、finished(false) で呼び出し側へ通知する。
 // それまでに通知したキューは有効なまま残り、呼び出し側が破棄しない限り表示に使える。
 // 再試行はしない。
 class SubtitleTranscriber : public QObject {
@@ -43,7 +43,7 @@ public:
     void start(const Params& params, const QString& mediaPath);
 
     // 実行中のプロセスを止め、中間 WAV を削除する
-    // 以後 cueAdded は発火しない。実行中でなければ何もしない
+    // 以後 cueAdded / finished は発火しない。実行中でなければ何もしない
     void stop();
 
     // メディアの部分ハッシュ（16 進小文字）を返す
@@ -55,6 +55,11 @@ public:
 signals:
     // 字幕キューが 1 件確定したとき発火する（whisper-cli の逐次出力、またはキャッシュ復元）
     void cueAdded(const SubtitleCue& cue);
+
+    // 生成が終了したとき発火する。ok=false は ffmpeg / whisper-cli の失敗
+    // （ハッシュ計算失敗を含む）を示す。それまでに通知したキューは有効なまま残る。
+    // キャッシュ命中時は start() の中で全 cueAdded に続けて同期的に emit する
+    void finished(bool ok);
 
 private:
     // ffmpeg で 16kHz モノラル WAV を抽出する。完了後 startWhisper へ進む

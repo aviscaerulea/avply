@@ -204,7 +204,7 @@ private:
     void toggleSpeechEnhance();
 
     // 音声強調ラベルの表示を現在の状態に応じて更新する
-    // 常時表示で「Clarity:ON/OFF」を表示する
+    // 常時表示で「Clarity:ON/OFF」を表示する。メニュー項目のチェック状態も同期する
     void updateSpeechEnhanceDisplay();
 
     // 字幕の ON/OFF をトグルする
@@ -221,8 +221,9 @@ private:
     void stopSubtitleTranscription();
 
     // 字幕ラベルの表示を現在の状態に応じて更新する
-    // 常時表示で「Subtitle:ON/OFF/N/A」を表示する。N/A は whisper-cli かモデルが無い、
-    // または ON だが現在のファイルが音声のみ・音声ストリーム無しで字幕を出せない状態
+    // 常時表示で「Subtitle:ON/OFF/N/A/ERR/NN%」を表示する。生成中は完了率、完了で ON、失敗で ERR。
+    // N/A は whisper-cli かモデルが無い、または ON だが現在のファイルが音声のみ・
+    // 音声ストリーム無しで字幕を出せない状態。メニュー項目のチェック状態も同期する
     void updateSubtitleDisplay();
 
     // 再生位置 ms の字幕テキストをオーバーレイへ反映する（同じテキストなら何もしない）
@@ -306,6 +307,13 @@ private:
     // オーバーレイに出している字幕テキスト。positionChanged ごとの再設定を避ける
     QString m_subtitleShown;
 
+    // 字幕生成の進捗（%）。-1 は生成を走らせていない状態（未ロード等）で、
+    // 0〜99 は生成中、100 は完了。cueAdded の終端時刻をメディア長で割って更新する
+    int m_subtitlePercent = -1;
+
+    // 字幕生成が失敗した（finished(false)）。stop で false に戻す
+    bool m_subtitleFailed = false;
+
     // g キーで参照する起動時デフォルト値のスナップショット
     // TOML から初回読込した値をコンストラクタで保存する
     qreal m_initialPlaybackRate   = 1.0;
@@ -346,11 +354,17 @@ private:
     // 「変換」は実行中に「中止」表記へ切り替え、「トリム」はメインの m_trimBtn と同期する
     QAction*      m_actOpen          = nullptr;
     QAction*      m_actCopyPath      = nullptr;
+    // 使い方ページ（GitHub Pages）をブラウザで開く。常に有効
+    QAction*      m_actHelp          = nullptr;
     QAction*      m_actConvert       = nullptr;
     QAction*      m_actTrim          = nullptr;
     QAction*      m_actTopmost       = nullptr;
     QAction*      m_actSingleInst    = nullptr;
     QAction*      m_actPriority      = nullptr;
+    // 音声強調・字幕の ON/OFF（チェック付き）。キー操作と同じトグル関数を呼ぶ。
+    // チェック状態は各 update*Display が実態へ同期する（triggered 接続のため同期で再発火しない）
+    QAction*      m_actClarity       = nullptr;
+    QAction*      m_actSubtitle      = nullptr;
 
     // 現在の再生状態（applyTopmostState で参照）
     bool m_isPlaying = false;

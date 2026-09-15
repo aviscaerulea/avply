@@ -212,7 +212,7 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 
 ### 字幕（whisper-cli）
 
-`S` キーで ON/OFF する再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外は README の「字幕」節が正だ。whisper-cli の解決順とモデルの指定方法は README の「設定」節が正だ。ステータスバーに `Subtitle:ON/OFF/N/A` を常時表示する。N/A の条件は `MainWindow::updateSubtitleDisplay` が正だ。
+`S` キーと右クリックメニューで ON/OFF する再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外は README の「字幕」節が正だ。whisper-cli の解決順とモデルの指定方法は README の「設定」節が正だ。ステータスバーの `Subtitle:` 表示の各状態は README の「字幕」節が正で、N/A の判定条件は `MainWindow::updateSubtitleDisplay` が正だ。
 
 方式は「先回り文字起こし」で、真のストリーミング認識ではない。外部プロセス whisper-cli がメディア全体を先頭から順に処理し、字幕は認識が追い越した区間から出る（利用者向けの説明は README の「字幕」節が正だ）。GPU 版の whisper-cli は実時間より十分速く進む想定だが、所要時間は未計測だ。CPU で追い付かない場合は無字幕が続くだけだ。自動で小さいモデルへ落とすフォールバックは持たず、`[subtitle].model` で手動指定する。
 
@@ -221,7 +221,7 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 - 音声は再生経路から分岐せず、メディアから ffmpeg で直接抽出する
 - そのため音声強調（APM）を通らない（強いデノイズは ASR の精度を上げない）
 - `G` リセットは字幕の状態を維持する（生成に時間がかかり、誤って落とすと再開コストが高いため）
-- 失敗してもラベルは ON のままにする
+- 失敗（`finished(false)`）でもそれまでの字幕は破棄せず表示に使い続ける
 - 表示は `VideoOutput.qml` の `subtitleText` プロパティで映像上に重ねる
 - QML 側で描く理由は同ファイルのコメントが正だ
 - 同名上書き（`onEncoderReleaseFile`）と `loadFile` の冒頭で生成を止める

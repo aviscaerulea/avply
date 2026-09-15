@@ -102,6 +102,9 @@ const QString kSubtitlePrefix      = "  Subtitle:";
 // コンテキストメニューとその設定サブメニューの両方へ適用する
 const QString kMenuStyle = QStringLiteral("QMenu { border-radius: 2px; }");
 
+// 使い方ページの URL。コンテキストメニューの「使い方」が開く
+const QString kHelpUrl = QStringLiteral("https://aviscaerulea.github.io/avply/");
+
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
 const QStringList kVideoExts = { "mp4", "mkv", "mov", "avi", "webm" };
@@ -199,7 +202,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     // --- 音声強調ラベル（常時表示。ON/OFF） ---
     m_speechEnhanceLabel = new QLabel(kSpeechEnhancePrefix + "OFF");
 
-    // --- 字幕ラベル（常時表示。ON/OFF/N/A） ---
+    // --- 字幕ラベル（常時表示。ON/OFF/N/A/ERR/完了率） ---
     m_subtitleLabel = new QLabel(kSubtitlePrefix + "OFF");
 
     // --- シークスライダー ---
@@ -407,6 +410,11 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actCopyPath = new QAction("ファイルパスをコピー", this);
     connect(m_actCopyPath, &QAction::triggered, this, &MainWindow::onCopyFilePath);
 
+    m_actHelp = new QAction("使い方", this);
+    connect(m_actHelp, &QAction::triggered, this, []() {
+        QDesktopServices::openUrl(QUrl(kHelpUrl));
+    });
+
     m_actConvert = new QAction("ファイルを変換する", this);
     connect(m_actConvert, &QAction::triggered, this, &MainWindow::onConvertOrCancel);
 
@@ -429,17 +437,35 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_actPriority->setChecked(Settings::instance().aboveNormalPriority());
     connect(m_actPriority, &QAction::toggled, this, &MainWindow::onTogglePriority);
 
-    // 音声強調は永続化しない仕様のため起動時は常に OFF（AudioWorker も初期 OFF で生成済み）
-    // QAction は持たず C キー押下のみでトグルするため、コンテキストメニュー項目は作らない
+    // 音声強調・字幕は永続化しない仕様のため起動時は常に OFF（AudioWorker も初期 OFF で生成済み）。
+    // キー操作（C / S）とコンテキストメニューの両方から同じトグル関数で切り替える
+    m_actClarity = new QAction("音声強調（Clarity）", this);
+    m_actClarity->setCheckable(true);
+    connect(m_actClarity, &QAction::triggered, this, &MainWindow::toggleSpeechEnhance);
+
+    m_actSubtitle = new QAction("字幕（Subtitle）", this);
+    m_actSubtitle->setCheckable(true);
+    connect(m_actSubtitle, &QAction::triggered, this, &MainWindow::toggleSubtitle);
+
     updateSpeechEnhanceDisplay();
 
-    // 字幕も永続化しない仕様のため起動時は常に OFF。S キー押下のみでトグルする。
-    // 生成器はキュー通知を受けて m_subtitles へ蓄積し、現在位置のオーバーレイを即時更新する
+    // 字幕の生成器はキュー通知を受けて m_subtitles へ蓄積し、現在位置のオーバーレイを即時更新する。
+    // 完了率はキューの終端時刻から求める。100% は finished で確定する
     m_subtitleTranscriber = new SubtitleTranscriber(this);
     connect(m_subtitleTranscriber, &SubtitleTranscriber::cueAdded, this,
             [this](const SubtitleCue& cue) {
         m_subtitles.append(cue);
         updateSubtitleOverlay(m_videoView->position());
+        if (m_info.duration > 0.0) {
+            const int pct = static_cast<int>(cue.endMs / (m_info.duration * 1000.0) * 100.0);
+            m_subtitlePercent = std::clamp(pct, 0, 99);
+            updateSubtitleDisplay();
+        }
+    });
+    connect(m_subtitleTranscriber, &SubtitleTranscriber::finished, this, [this](bool ok) {
+        if (ok) m_subtitlePercent = 100;
+        m_subtitleFailed = !ok;
+        updateSubtitleDisplay();
     });
     updateSubtitleDisplay();
 
@@ -1230,6 +1256,9 @@ void MainWindow::updateMenuActionEnabled()
         const bool running = (m_runningOp == Operation::Trim);
         m_actTrim->setEnabled(running || (idle && fileReady && ffmpegOk && isTrimMeaningful()));
     }
+    // 音声強調・字幕はキー操作と同じく実行中は受け付けない。字幕は whisper 不在なら無効表示で N/A を示す
+    if (m_actClarity)  m_actClarity->setEnabled(idle);
+    if (m_actSubtitle) m_actSubtitle->setEnabled(idle && isWhisperAvailable());
 }
 
 bool MainWindow::isTrimMeaningful() const
@@ -1661,6 +1690,10 @@ void MainWindow::toggleSpeechEnhance()
 void MainWindow::updateSpeechEnhanceDisplay()
 {
     m_speechEnhanceLabel->setText(kSpeechEnhancePrefix + (m_speechEnhanceEnabled ? "ON" : "OFF"));
+    if (m_actClarity) {
+        QSignalBlocker block(m_actClarity);
+        m_actClarity->setChecked(m_speechEnhanceEnabled);
+    }
 }
 
 bool MainWindow::isWhisperAvailable() const
@@ -1699,6 +1732,9 @@ void MainWindow::startSubtitleTranscription()
     p.modelPath   = m_whisperModelPath;
     p.language    = m_subtitleLanguage;
     p.cacheDir    = m_subtitleCacheDir;
+    // 音声抽出中は 0% を出す
+    m_subtitlePercent = 0;
+    m_subtitleFailed  = false;
     m_subtitleTranscriber->start(p, m_filePath);
 }
 
@@ -1708,6 +1744,8 @@ void MainWindow::stopSubtitleTranscription()
     m_subtitles.clear();
     m_subtitleShown.clear();
     m_videoView->setSubtitleText(QString());
+    m_subtitlePercent = -1;
+    m_subtitleFailed  = false;
 }
 
 void MainWindow::updateSubtitleDisplay()
@@ -1722,10 +1760,20 @@ void MainWindow::updateSubtitleDisplay()
     else if (m_info.valid && (isAudioOnly() || !m_info.hasAudio())) {
         state = "N/A";
     }
+    else if (m_subtitleFailed) {
+        state = "ERR";
+    }
+    else if (m_subtitlePercent >= 0 && m_subtitlePercent < 100) {
+        state = QString::number(m_subtitlePercent) + "%";
+    }
     else {
         state = "ON";
     }
     m_subtitleLabel->setText(kSubtitlePrefix + state);
+    if (m_actSubtitle) {
+        QSignalBlocker block(m_actSubtitle);
+        m_actSubtitle->setChecked(m_subtitleEnabled);
+    }
 }
 
 void MainWindow::updateSubtitleOverlay(qint64 ms)
@@ -1893,6 +1941,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     connect(about, &QAction::triggered, this, []() {
         QDesktopServices::openUrl(QUrl("https://github.com/aviscaerulea/avply"));
     });
+    menu.addAction(m_actHelp);
     menu.addSeparator();
 
     menu.addAction(m_actOpen);
@@ -1900,6 +1949,9 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     menu.addSeparator();
     menu.addAction(m_actConvert);
     menu.addAction(m_actTrim);
+    menu.addSeparator();
+    menu.addAction(m_actClarity);
+    menu.addAction(m_actSubtitle);
     menu.addSeparator();
 
     QMenu* settings = menu.addMenu("設定");
