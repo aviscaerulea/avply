@@ -33,6 +33,13 @@ jobs:
           modules: 'qtmultimedia'
           cache: true
 
+      # ggml の Vulkan バックエンドは SDK 同梱の glslc でシェーダをコンパイルする
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.313.0
+          cache: true
+
       - name: Configure CMake
         shell: pwsh
         run: |
@@ -41,19 +48,23 @@ jobs:
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
+            -DAVPLY_WHISPER_VULKAN=ON `
             -DAVPLY_VERSION="${{ steps.version.outputs.version }}"
 
       - name: Build
         shell: pwsh
         run: cmake --build out --config Release
 
-      - name: Verify Qt DLL deployment
+      - name: Verify DLL deployment
         shell: pwsh
         run: |
-          $required = @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6Quick.dll', 'Qt6Qml.dll')
+          $required = @(
+              'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6Quick.dll', 'Qt6Qml.dll',
+              'whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'ggml-vulkan.dll'
+          )
           foreach ($dll in $required) {
               if (-not (Test-Path "out\Release\$dll")) {
-                  Write-Error "windeployqt did not deploy required DLL: $dll"
+                  Write-Error "required DLL was not deployed: $dll"
                   exit 1
               }
           }

@@ -1,5 +1,5 @@
 // SubtitleTrack ユニットテスト
-// whisper-cli 出力行の解釈、再生位置からの検索、SRT の往復変換を検証する
+// 再生位置からの検索と SRT の往復変換を検証する
 
 #include <QtTest/QtTest>
 
@@ -10,12 +10,6 @@ class TestSubtitleTrack : public QObject
     Q_OBJECT
 
 private slots:
-    // parseWhisperLine
-    void parseWhisperLine_segmentLine_returnsCue();
-    void parseWhisperLine_progressLine_returnsFalse();
-    void parseWhisperLine_emptyText_returnsFalse();
-    void parseWhisperLine_hoursOver99_parses();
-
     // textAt
     void textAt_insideCue_returnsText();
     void textAt_gap_returnsEmpty();
@@ -28,36 +22,6 @@ private slots:
     void fromSrt_crlfAndMultilineBody_joined();
     void fromSrt_blockWithoutTime_skipped();
 };
-
-void TestSubtitleTrack::parseWhisperLine_segmentLine_returnsCue()
-{
-    SubtitleCue cue;
-    QVERIFY(SubtitleTrack::parseWhisperLine(
-        QString::fromUtf8("[00:01:02.345 --> 00:01:05.000]   こんにちは "), cue));
-    QCOMPARE(cue.startMs, qint64(62345));
-    QCOMPARE(cue.endMs,   qint64(65000));
-    QCOMPARE(cue.text,    QString::fromUtf8("こんにちは"));
-}
-
-void TestSubtitleTrack::parseWhisperLine_progressLine_returnsFalse()
-{
-    SubtitleCue cue;
-    QVERIFY(!SubtitleTrack::parseWhisperLine("whisper_print_progress_callback: progress = 5%", cue));
-    QVERIFY(!SubtitleTrack::parseWhisperLine("", cue));
-}
-
-void TestSubtitleTrack::parseWhisperLine_emptyText_returnsFalse()
-{
-    SubtitleCue cue;
-    QVERIFY(!SubtitleTrack::parseWhisperLine("[00:00:00.000 --> 00:00:01.000]   ", cue));
-}
-
-void TestSubtitleTrack::parseWhisperLine_hoursOver99_parses()
-{
-    SubtitleCue cue;
-    QVERIFY(SubtitleTrack::parseWhisperLine("[100:00:00.000 --> 100:00:01.000]  x", cue));
-    QCOMPARE(cue.startMs, qint64(100) * 3600 * 1000);
-}
 
 void TestSubtitleTrack::textAt_insideCue_returnsText()
 {

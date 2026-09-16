@@ -42,6 +42,31 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SoundTouch)
 
+# whisper.cpp: 字幕の音声認識エンジン（MIT）
+# ggml のバックエンドは実行時ロード（GGML_BACKEND_DL）とし、exe と同階層の ggml-*.dll から読む。
+# これは BUILD_SHARED_LIBS=ON が前提のため、whisper 系ターゲットだけ共有ライブラリで組む
+# （SoundTouch は上で構築済みのため影響を受けない。末尾で OFF へ戻し、以後の構築へ波及させない）。
+# Vulkan バックエンドは Vulkan SDK の glslc が要るため既定 OFF とし、リリースの GHA でのみ ON にする。
+# ggml-vulkan.dll は vulkan-1.dll が無い環境ではロードに失敗して無視され、CPU バックエンドで動く。
+# GGML_NATIVE=OFF でビルドマシン固有の命令セット最適化を止め（配布先での不正命令を防ぐ）、
+# GGML_OPENMP=OFF で MSVC の vcomp140.dll 依存を避ける
+option(AVPLY_WHISPER_VULKAN "Build ggml Vulkan backend (requires Vulkan SDK)" OFF)
+set(BUILD_SHARED_LIBS        ON  CACHE BOOL "" FORCE)
+set(GGML_BACKEND_DL          ON  CACHE BOOL "" FORCE)
+set(GGML_NATIVE              OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP              OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN  ${AVPLY_WHISPER_VULKAN} CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES   OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_SERVER     OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    whisper
+    GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+    GIT_TAG v1.9.4
+)
+FetchContent_MakeAvailable(whisper)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
 # WebRTC Audio Processing (APM): AGC2 + ノイズ抑制 + ハイパスフィルタ（BSD）
 # vcpkg にポートが無いため meson + ninja で事前ビルドした静的 lib とヘッダを同梱して参照する。
 # ベンダ配置は third_party/webrtc-audio-processing 配下とし、WEBRTC_APM_ROOT で上書き可能。
@@ -94,6 +119,10 @@ qt_add_executable(avply WIN32
     src/SubtitleTrack.cpp
     src/SubtitleTranscriber.h
     src/SubtitleTranscriber.cpp
+    src/WhisperEngine.h
+    src/WhisperEngine.cpp
+    src/ModelDownloader.h
+    src/ModelDownloader.cpp
     src/icons.qrc
     src/app.rc
 )
@@ -126,6 +155,7 @@ target_link_libraries(avply PRIVATE
     Qt6::Network
     Qt6::Quick
     SoundTouch
+    whisper
     ${WEBRTC_APM_LIBS}
     winmm    # webrtc rtc_base の timeGetTime（SystemTimeNanos）が依存する
     dbghelp  # クラッシュ時の MiniDumpWriteDump（main.cpp の未処理例外フィルタ）が依存する
@@ -147,6 +177,27 @@ if(WIN32)
         COMMENT "Qt DLL を配置しています..."
     )
 endif()
+
+# whisper / ggml の DLL を実行ファイルと同じディレクトリへ配置する
+# ggml_backend_load_all() はこのディレクトリを走査して ggml-*.dll をバックエンドとして読み込む。
+# ggml-cpu / ggml-vulkan はリンク対象ではなく実行時ロードのモジュールのため、
+# windeployqt にも $<TARGET_RUNTIME_DLLS> にも拾われない。明示コピーが要る
+set(AVPLY_WHISPER_DLLS whisper ggml ggml-base ggml-cpu)
+if(AVPLY_WHISPER_VULKAN)
+    list(APPEND AVPLY_WHISPER_DLLS ggml-vulkan)
+endif()
+foreach(dll_target IN LISTS AVPLY_WHISPER_DLLS)
+    if(NOT TARGET ${dll_target})
+        message(FATAL_ERROR "whisper.cpp のターゲットが見つからない：${dll_target}"
+            " — whisper.cpp のタグ更新でターゲット構成が変わった可能性がある")
+    endif()
+    add_custom_command(TARGET avply POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:${dll_target}>"
+                "$<TARGET_FILE_DIR:avply>/"
+        COMMENT "${dll_target} を配置中..."
+    )
+endforeach()
 
 # avply.toml の出力ディレクトリへの配置
 # avply.local.toml は VCS 管理外の個人環境固有設定のためコピーしない

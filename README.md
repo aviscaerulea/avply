@@ -52,8 +52,11 @@ S キー、または右クリックメニューの項目で ON と OFF を切り
 認識中は画面下部に完了率を `Subtitle:42%` のように表示し、終わると `Subtitle:ON` になります。
 失敗すると `Subtitle:ERR` になります。
 
-whisper-cli かモデルファイルが無いときは、画面下部の表示が `Subtitle:N/A` になります。
-音声ファイルは対象外です。
+音声認識には、あらかじめモデルファイルが必要です。
+初めて字幕を ON にしたとき、確認の上でダウンロードします。ダウンロード中は `Subtitle:DL 42%` と表示します。
+GPU があれば認識に自動で使い、無ければ CPU で動きます。
+音声ファイルは対象外で、このときは `Subtitle:N/A` になります。
+詳しくは [字幕のモデルと GPU](https://aviscaerulea.github.io/avply/whisper-setup.html) を参照してください。
 
 ## インストール
 
@@ -62,10 +65,10 @@ whisper-cli かモデルファイルが無いときは、画面下部の表示�
 - Windows 11
 - ffmpeg（別途インストールが必要、再生時もメディア情報の取得に使用する）
 - NVIDIA GPU（動画を変換するときのみ必要、AV1 NVENC 対応、RTX 30 シリーズ以降を推奨）
-- whisper.cpp の whisper-cli とモデルファイル（字幕を使うときのみ必要）
+- Vulkan に対応した GPU ドライバ（字幕の認識を GPU で速くするときのみ必要）
 
 トリムは再エンコードしないため GPU は不要です。音声だけの変換も CPU で動作します。
-字幕は CPU でも動きますが、GPU 版の whisper-cli を推奨します。
+字幕は CPU でも動きますが、GPU の方が大幅に速く認識します。
 
 ### 手順
 
@@ -90,7 +93,7 @@ scoop install aviscaerulea/avply
 
 ## 使い方
 
-詳しい使い方と、字幕のための whisper-cli の導入手順は [使い方ページ](https://aviscaerulea.github.io/avply/) にまとめています。
+詳しい使い方と字幕の設定は [使い方ページ](https://aviscaerulea.github.io/avply/) にまとめています。
 
 ### ファイルの読み込み
 
@@ -167,9 +170,9 @@ PC 固有の値をリポジトリの管理から外したいときは、同じ�
 | `[playback]` | 初期の再生速度、ハードウェアデコーダの優先順位 |
 | `[window]` | 読込時のウィンドウサイズ上限（モニタに対する比率） |
 | `[audio]` | 初期の音量、サイレンストーン |
-| `[subtitle]` | whisper-cli とモデルファイルのパス、認識言語 |
+| `[subtitle]` | 字幕のモデル、ダウンロード元、認識言語 |
 
-ffmpeg と whisper-cli のパスは、`[ffmpeg]` の `path` または `[subtitle]` の `whisper_path`、Scoop の既定パス、`PATH` 環境変数の順で解決します。
+ffmpeg のパスは、`[ffmpeg]` の `path`、Scoop の既定パス、`PATH` 環境変数の順で解決します。
 Scoop か `PATH` から見つかる環境では設定不要です。
 明示するときは以下のように書きます。
 
@@ -178,11 +181,11 @@ Scoop か `PATH` から見つかる環境では設定不要です。
 path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 ```
 
-字幕のモデルファイルには既定がなく、`[subtitle]` の `model` で指定します。
+字幕のモデルは既定のものを自動でダウンロードします。別のモデルを使うときは `[subtitle]` の `model` に名前を書きます。
 
 ```toml
 [subtitle]
-model = "C:/models/ggml-large-v3-turbo.bin"
+model = "ggml-small.bin"
 ```
 
 再生中の最前面表示、多重起動の抑止、プロセス優先度は、右クリックメニューの設定から切り替えます。
@@ -195,7 +198,6 @@ model = "C:/models/ggml-large-v3-turbo.bin"
 - 音量の上限は 100% で、それを超える増幅には対応しない（小さい発言は音声強調で持ち上げる）
 - 動画の変換には AV1 NVENC に対応した NVIDIA GPU が必要
 - 字幕の認識が再生に追い付かない環境では、字幕が出ない区間が続く（小さいモデルへ変更する）
-- 字幕のモデルファイルは英数字だけのパスへ置く（whisper-cli が日本語などを含むパスを開けない）
 
 ## ビルド
 
@@ -204,6 +206,7 @@ model = "C:/models/ggml-large-v3-turbo.bin"
 - Visual Studio 2026 Build Tools（C++ ワークロード）
 - CMake `v3.25` 以上
 - Qt `v6.10.3` MSVC2022 x64
+- Vulkan SDK（字幕の認識を GPU 対応でビルドするときのみ必要）
 
 Qt は以下のコマンドで導入できます。
 インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` に合わせてください。
@@ -218,6 +221,8 @@ python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir <�
 ```powershell
 pwsh.exe -File build.ps1
 ```
+
+字幕の認識を GPU 対応にするには、Vulkan SDK を入れた上で `-DAVPLY_WHISPER_VULKAN=ON` を付けて構成します。
 
 ## ライセンス
 
@@ -234,6 +239,9 @@ avply 本体は GNU LGPL v3 で配布します。
 
 - WebRTC Audio Processing（BSD）  
   静的リンクする。BSD は LGPL v3 と両立し、再配布上の追加義務は生じない。
+
+- whisper.cpp（MIT）  
+  DLL を同梱する。MIT は LGPL v3 と両立し、再配布上の追加義務は生じない。
 
 - ffmpeg  
   外部プロセスとして呼び出すため、リンク関係は生じない。

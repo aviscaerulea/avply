@@ -1,36 +1,35 @@
 #pragma once
 #include <QObject>
 #include <QString>
-#include <QByteArray>
 #include "SubtitleTrack.h"
 
 class QProcess;
+class QThread;
+class WhisperEngine;
 
-// whisper-cli による字幕生成の実行とキャッシュを担う
-// 1 メディアにつき ffmpeg（16kHz モノラル WAV 抽出）→ whisper-cli（認識）の 2 段を順に走らせる。
-// whisper-cli が標準出力へ区間を書き出すたびに cueAdded で逐次通知する。
-// 完了時は全キューを SRT としてキャッシュへ保存する（キューが 1 件も無ければ作らない）。次回以降はプロセスを起動せず、
-// キャッシュから即時に全キューを通知する。
+// 字幕生成の実行とキャッシュを担う
+// 1 メディアにつき ffmpeg（16kHz モノラル float32 PCM 抽出）→ 組み込み whisper.cpp
+// （WhisperEngine、専用スレッド）の 2 段を順に走らせる。区間が確定するたび cueAdded で
+// 逐次通知し、認識の進捗は progressChanged で通知する。
+// 完了時は全キューを SRT としてキャッシュへ保存する（キューが 1 件も無ければ作らない）。
+// 次回以降は ffmpeg も認識も走らせず、キャッシュから即時に全キューを通知する。
 //
 // キャッシュのキーはメディアの部分ハッシュ（mediaHash）で、パス・更新日時に依存しない。
 // 同じ動画をコピーしても移動しても再認識しない。
 //
-// whisper-cli は narrow 文字の argv で動くため、ANSI コードページ外の文字を含むパスを開けない。
-// 入力音声はメディアの元パスを渡さず、%TEMP% 直下にハッシュ名（ASCII）で置いた WAV を渡して
-// ファイル名側の制約を避ける。%TEMP% 自体とモデルパス（-m）は利用者の環境に委ねる
-// （avply.toml が英数字のみのモデルパスを求める根拠）。
+// 中間 PCM は %TEMP% 直下にハッシュ名で置く。認識は全サンプルをメモリへ載せてから走るため、
+// 起動直後にファイルを閉じる。エンジンがファイルを掴み続けて停止時の削除を妨げることはない。
 //
-// 失敗（ffmpeg / whisper-cli の異常終了）は avply.log へ警告を残し、finished(false) で呼び出し側へ通知する。
-// それまでに通知したキューは有効なまま残り、呼び出し側が破棄しない限り表示に使える。
-// 再試行はしない。
+// 失敗（ffmpeg の異常終了、モデルのロード失敗、PCM の読み込み失敗）は avply.log へ警告を残し、
+// finished(false) で呼び出し側へ通知する。それまでに通知したキューは有効なまま残り、
+// 呼び出し側が破棄しない限り表示に使える。再試行はしない。
 class SubtitleTranscriber : public QObject {
     Q_OBJECT
 public:
     struct Params {
         QString ffmpegPath;   // 音声抽出に使う ffmpeg.exe
-        QString whisperPath;  // whisper-cli.exe
         QString modelPath;    // ggml モデル（.bin）
-        QString language;     // whisper の -l に渡す言語コード（例：ja）
+        QString language;     // whisper へ渡す言語コード（例：ja）
         QString cacheDir;     // SRT キャッシュの置き場（無ければ作る）
     };
 
@@ -38,13 +37,16 @@ public:
     ~SubtitleTranscriber() override;
 
     // mediaPath の字幕生成を開始する
-    // 実行中なら stop() で打ち切ってから始める。キャッシュ命中時はプロセスを起動せず、
-    // この呼び出しの中で全キューの cueAdded を同期的に emit する
+    // 実行中なら stop() で打ち切ってから始める。キャッシュ命中時はプロセスも認識も起動せず、
+    // この呼び出しの中で全キューの cueAdded と finished(true) を同期的に emit する
     void start(const Params& params, const QString& mediaPath);
 
-    // 実行中のプロセスを止め、中間 WAV を削除する
-    // 以後 cueAdded / finished は発火しない。実行中でなければ何もしない
+    // 実行中の抽出と認識を止め、中間 PCM を削除する
+    // 以後 cueAdded / progressChanged / finished は発火しない。実行中でなければ何もしない
     void stop();
+
+    // ロード済みモデルを解放してメモリを返す（字幕 OFF 時に呼ぶ）
+    void releaseModel();
 
     // メディアの部分ハッシュ（16 進小文字）を返す
     // ファイルサイズ + 先頭 1MiB + 末尾 1MiB の SHA-256。全体を読まないため数 GB でも一瞬で済む。
@@ -53,38 +55,52 @@ public:
     static QString mediaHash(const QString& path);
 
 signals:
-    // 字幕キューが 1 件確定したとき発火する（whisper-cli の逐次出力、またはキャッシュ復元）
+    // 字幕キューが 1 件確定したとき発火する（認識の逐次出力、またはキャッシュ復元）
     void cueAdded(const SubtitleCue& cue);
 
-    // 生成が終了したとき発火する。ok=false は ffmpeg / whisper-cli の失敗
-    // （ハッシュ計算失敗を含む）を示す。それまでに通知したキューは有効なまま残る。
-    // キャッシュ命中時は start() の中で全 cueAdded に続けて同期的に emit する
+    // 認識の進捗が変化したとき発火する（0〜99）
+    void progressChanged(int percent);
+
+    // 生成が終了したとき発火する。ok=false は上記の失敗のいずれかを示す
     void finished(bool ok);
 
+    // モデルのロードに失敗したとき、finished より先に発火する
+    // 受け手はモデルが壊れている前提で扱う（詳細は WhisperEngine の同名シグナル）
+    void modelLoadFailed(const QString& modelPath);
+
+private slots:
+    // WhisperEngine からの通知。自分が最後に発行したジョブ以外は捨てる
+    void onEngineCue(quint64 jobId, const SubtitleCue& cue);
+    void onEngineProgress(quint64 jobId, int percent);
+    void onEngineFinished(quint64 jobId, bool ok);
+
 private:
-    // ffmpeg で 16kHz モノラル WAV を抽出する。完了後 startWhisper へ進む
+    // ffmpeg で 16kHz モノラル float32 PCM を抽出する。完了後 startRecognize へ進む
     void startExtract();
 
-    // whisper-cli を起動し、標準出力を逐次パースする
-    void startWhisper();
-
-    // 標準出力の未処理バッファから完成した行を取り出してキューへ変換する
-    void consumeStdout();
+    // 抽出済み PCM の認識を認識スレッドへ依頼する
+    void startRecognize();
 
     // 実行中プロセスを解放する（disconnect → kill → 短時間 wait → deleteLater）
     // ~QProcess() の waitForFinished(30000) ブロックを避けるため親から切り離す
     void releaseProcess();
 
-    // 生成の終了処理。WAV を削除する
+    // 生成の終了処理。中間 PCM を削除する
     // 成功かつキューが 1 件以上のときだけキャッシュへ SRT を書く
-    // 無音メディアは exit 0 でもキャッシュを作らず、次回も再認識する（空 SRT を残さないため）
+    // 無音メディアは成功してもキャッシュを作らず、次回も再認識する（空 SRT を残さないため）
     void finish(bool ok);
 
     Params        m_params;
     QString       m_mediaPath;
-    QString       m_wavPath;
+    QString       m_pcmPath;
     QString       m_cachePath;
     QProcess*     m_proc = nullptr;
-    QByteArray    m_stdoutBuf;
     SubtitleTrack m_track;
+
+    // 認識エンジンとその専用スレッド
+    QThread*       m_engineThread = nullptr;
+    WhisperEngine* m_engine       = nullptr;
+
+    // 発行済みジョブの識別子。stop / 新規 start のたびに進め、旧ジョブの遅延通知を捨てる
+    quint64        m_jobId = 0;
 };

@@ -1,6 +1,8 @@
 #include "SubtitleTranscriber.h"
 #include "FfmpegRunner.h"
+#include "WhisperEngine.h"
 #include <QProcess>
+#include <QThread>
 #include <QFile>
 #include <QDir>
 #include <QCryptographicHash>
@@ -21,11 +23,30 @@ constexpr int kKillWaitMs = 1000;
 SubtitleTranscriber::SubtitleTranscriber(QObject* parent)
     : QObject(parent)
 {
+    // キューを認識スレッドから QueuedConnection で運ぶためメタタイプを登録する
+    qRegisterMetaType<SubtitleCue>();
+
+    m_engineThread = new QThread(this);
+    m_engineThread->setObjectName("whisper");
+    m_engine = new WhisperEngine;
+    m_engine->moveToThread(m_engineThread);
+    connect(m_engine, &WhisperEngine::cueAdded, this, &SubtitleTranscriber::onEngineCue);
+    connect(m_engine, &WhisperEngine::progressChanged, this, &SubtitleTranscriber::onEngineProgress);
+    connect(m_engine, &WhisperEngine::finished, this, &SubtitleTranscriber::onEngineFinished);
+    connect(m_engine, &WhisperEngine::modelLoadFailed, this, &SubtitleTranscriber::modelLoadFailed);
+    m_engineThread->start();
 }
 
 SubtitleTranscriber::~SubtitleTranscriber()
 {
     stop();
+    // 認識スレッドを止めてから解放する。stop の取り消しで whisper_full が戻り、
+    // スロットを抜けたイベントループが quit を処理する。停止後はどのスレッドも
+    // エンジンを触らないため GUI thread から delete してよい（VideoView の audio thread と同手順）
+    m_engineThread->quit();
+    m_engineThread->wait();
+    delete m_engine;
+    m_engine = nullptr;
 }
 
 QString SubtitleTranscriber::mediaHash(const QString& path)
@@ -57,10 +78,10 @@ void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
         return;
     }
     m_cachePath = params.cacheDir + "/" + hash + ".srt";
-    m_wavPath   = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                  + "/avply_sub_" + hash + ".wav";
+    m_pcmPath   = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                  + "/avply_sub_" + hash + ".f32";
 
-    // キャッシュ命中：プロセスを起動せず全キューを同期通知する
+    // キャッシュ命中：抽出も認識も起動せず全キューを同期通知する
     QFile cache(m_cachePath);
     if (cache.exists() && cache.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&cache);
@@ -78,30 +99,38 @@ void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
 
 void SubtitleTranscriber::stop()
 {
+    // ジョブ番号を進め、この後に届く旧ジョブの通知をすべて無効化する。
+    // 同じ番号を取り消しの基準としてエンジンへ渡し、実行中と待ち行列の両方を止める
+    ++m_jobId;
+    m_engine->cancelUpTo(m_jobId);
     releaseProcess();
-    m_stdoutBuf.clear();
     m_track.clear();
-    if (!m_wavPath.isEmpty()) {
-        QFile::remove(m_wavPath);
-        m_wavPath.clear();
+    if (!m_pcmPath.isEmpty()) {
+        QFile::remove(m_pcmPath);
+        m_pcmPath.clear();
     }
+}
+
+void SubtitleTranscriber::releaseModel()
+{
+    QMetaObject::invokeMethod(m_engine, &WhisperEngine::releaseModel, Qt::QueuedConnection);
 }
 
 void SubtitleTranscriber::startExtract()
 {
-    // whisper は 16kHz モノラルを要求する。ffmpeg 側で変換しておくと whisper-cli の
-    // 内蔵デコーダ（wav/mp3/flac/ogg のみ）に依存せず、任意のコンテナを扱える
+    // whisper は 16kHz モノラルの float32 サンプル列を要求する。ffmpeg に生 PCM を書かせれば
+    // ヘッダ解析なしでそのまま float 列として読める
     const QStringList args = {
         "-y", "-i", m_mediaPath,
-        "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
-        m_wavPath
+        "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-c:a", "pcm_f32le",
+        m_pcmPath
     };
 
     m_proc = new QProcess(this);
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     connect(m_proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus status) {
-        const bool ok = (status == QProcess::NormalExit && code == 0 && QFile::exists(m_wavPath));
+        const bool ok = (status == QProcess::NormalExit && code == 0 && QFile::exists(m_pcmPath));
         m_proc->deleteLater();
         m_proc = nullptr;
         if (!ok) {
@@ -109,7 +138,7 @@ void SubtitleTranscriber::startExtract()
             finish(false);
             return;
         }
-        startWhisper();
+        startRecognize();
     });
     Ffmpeg::connectStartFailureGuard(m_proc, this, [this]() {
         m_proc = nullptr;
@@ -119,55 +148,35 @@ void SubtitleTranscriber::startExtract()
     m_proc->start(m_params.ffmpegPath, args);
 }
 
-void SubtitleTranscriber::startWhisper()
+void SubtitleTranscriber::startRecognize()
 {
-    // -np はモデル情報・タイミング等のログ出力だけを抑止し、区間行の出力は残る。
-    // 区間行は標準出力へ 1 区間ごとに flush されるため、readyRead で逐次読める
-    const QStringList args = {
-        "-m", m_params.modelPath,
-        "-l", m_params.language,
-        "-np",
-        "-f", m_wavPath
-    };
-
-    m_proc = new QProcess(this);
-    m_proc->setProcessChannelMode(QProcess::SeparateChannels);
-    connect(m_proc, &QProcess::readyReadStandardOutput, this, [this]() {
-        m_stdoutBuf += m_proc->readAllStandardOutput();
-        consumeStdout();
-    });
-    connect(m_proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this](int code, QProcess::ExitStatus status) {
-        m_stdoutBuf += m_proc->readAllStandardOutput();
-        consumeStdout();
-        const bool ok = (status == QProcess::NormalExit && code == 0);
-        if (!ok) {
-            qWarning() << "SubtitleTranscriber: whisper-cli が異常終了 exit=" << code
-                       << QString::fromUtf8(m_proc->readAllStandardError()).trimmed();
-        }
-        m_proc->deleteLater();
-        m_proc = nullptr;
-        finish(ok);
-    });
-    Ffmpeg::connectStartFailureGuard(m_proc, this, [this]() {
-        m_proc = nullptr;
-        qWarning() << "SubtitleTranscriber: whisper-cli の起動に失敗:" << m_params.whisperPath;
-        finish(false);
-    });
-    m_proc->start(m_params.whisperPath, args);
+    const quint64 jobId    = ++m_jobId;
+    const QString model    = m_params.modelPath;
+    const QString pcm      = m_pcmPath;
+    const QString language = m_params.language;
+    WhisperEngine* engine  = m_engine;
+    QMetaObject::invokeMethod(engine, [engine, jobId, model, pcm, language]() {
+        engine->transcribe(jobId, model, pcm, language);
+    }, Qt::QueuedConnection);
 }
 
-void SubtitleTranscriber::consumeStdout()
+void SubtitleTranscriber::onEngineCue(quint64 jobId, const SubtitleCue& cue)
 {
-    int nl;
-    while ((nl = m_stdoutBuf.indexOf('\n')) >= 0) {
-        const QString line = QString::fromUtf8(m_stdoutBuf.left(nl));
-        m_stdoutBuf.remove(0, nl + 1);
-        SubtitleCue cue;
-        if (!SubtitleTrack::parseWhisperLine(line, cue)) continue;
-        m_track.append(cue);
-        emit cueAdded(cue);
-    }
+    if (jobId != m_jobId) return;
+    m_track.append(cue);
+    emit cueAdded(cue);
+}
+
+void SubtitleTranscriber::onEngineProgress(quint64 jobId, int percent)
+{
+    if (jobId != m_jobId) return;
+    emit progressChanged(percent);
+}
+
+void SubtitleTranscriber::onEngineFinished(quint64 jobId, bool ok)
+{
+    if (jobId != m_jobId) return;
+    finish(ok);
 }
 
 void SubtitleTranscriber::releaseProcess()
@@ -193,7 +202,7 @@ void SubtitleTranscriber::finish(bool ok)
             qWarning() << "SubtitleTranscriber: キャッシュの書き込みに失敗:" << m_cachePath;
         }
     }
-    QFile::remove(m_wavPath);
-    m_wavPath.clear();
+    QFile::remove(m_pcmPath);
+    m_pcmPath.clear();
     emit finished(ok);
 }

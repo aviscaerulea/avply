@@ -13,6 +13,7 @@
 #include "SilenceTone.h"
 #include "SubtitleTrack.h"
 #include "SubtitleTranscriber.h"
+#include "ModelDownloader.h"
 
 class QDragEnterEvent;
 class QDropEvent;
@@ -208,9 +209,15 @@ private:
     void updateSpeechEnhanceDisplay();
 
     // 字幕の ON/OFF をトグルする
-    // S キー押下から呼ばれる。whisper-cli またはモデルが無ければ OFF のまま何もしない。
+    // S キー押下とメニュー項目から呼ぶ。ON でモデルが未取得なら、確認の上でダウンロードを
+    // 開始し、完了後に生成へ進む。
     // 永続化はしない（起動時は常に OFF。インスタンス生存中はファイル切替をまたいで保持）
     void toggleSubtitle();
+
+    // モデルの取得を開始する（取得済みなら何もしない）
+    // ダウンロードの可否をダイアログで確認する。利用者が断った場合と、モデルをパス指定していて
+    // 実体が無い場合は false を返す（呼び出し側が字幕を OFF へ戻す、または ERR にする）
+    bool ensureSubtitleModel();
 
     // 現在のファイルの字幕生成を開始する
     // 字幕 OFF・未ロード・音声のみ・音声ストリーム無し・ffmpeg 不在のいずれかなら何もしない。
@@ -221,17 +228,14 @@ private:
     void stopSubtitleTranscription();
 
     // 字幕ラベルの表示を現在の状態に応じて更新する
-    // 常時表示で「Subtitle:ON/OFF/N/A/ERR/NN%」を表示する。生成中は完了率、完了で ON、失敗で ERR。
-    // N/A は whisper-cli かモデルが無い、または ON だが現在のファイルが音声のみ・
-    // 音声ストリーム無しで字幕を出せない状態。メニュー項目のチェック状態も同期する
+    // 常時表示で「Subtitle:ON/OFF/N/A/ERR/DL NN%/NN%」を表示する。モデル取得中は DL に続けて
+    // その完了率、認識中は認識の完了率、完了で ON、失敗で ERR。
+    // N/A は ON だが現在のファイルが音声のみ・音声ストリーム無しで字幕を出せない状態。
+    // メニュー項目のチェック状態も同期する
     void updateSubtitleDisplay();
 
     // 再生位置 ms の字幕テキストをオーバーレイへ反映する（同じテキストなら何もしない）
     void updateSubtitleOverlay(qint64 ms);
-
-    // whisper-cli とモデルの両方が存在するか
-    // ffmpeg と同じく状態を持たず都度判定する
-    bool isWhisperAvailable() const;
 
     // g キー押下時のトグル動作
     // 1 回目で再生速度/音量/音声強調を全て「中立値」へ揃え、
@@ -296,8 +300,10 @@ private:
     bool m_subtitleEnabled = false;
 
     // 字幕生成の設定（avply.toml の [subtitle]）と SRT キャッシュの置き場
-    QString m_whisperPath;
-    QString m_whisperModelPath;
+    // m_modelPath は解決済みの絶対パス。m_modelUrl は自動ダウンロード先で、
+    // 設定でモデルをパス指定した場合は空（自動取得しない印）
+    QString m_modelPath;
+    QString m_modelUrl;
     QString m_subtitleLanguage;
     QString m_subtitleCacheDir;
 
@@ -308,11 +314,14 @@ private:
     QString m_subtitleShown;
 
     // 字幕生成の進捗（%）。-1 は生成を走らせていない状態（未ロード等）で、
-    // 0〜99 は生成中、100 は完了。cueAdded の終端時刻をメディア長で割って更新する
+    // 0〜99 は生成中、100 は完了。認識エンジンの進捗通知をそのまま入れる
     int m_subtitlePercent = -1;
 
     // 字幕生成が失敗した（finished(false)）。stop で false に戻す
     bool m_subtitleFailed = false;
+
+    // モデル取得の進捗（%）。-1 は取得していない状態で、0〜100 が取得中
+    int m_modelDownloadPercent = -1;
 
     // g キーで参照する起動時デフォルト値のスナップショット
     // TOML から初回読込した値をコンストラクタで保存する
@@ -421,6 +430,9 @@ private:
     // 出力デバイスが省電力状態に落ちて再エンゲージするときの音切れを防ぐ
     SilenceTone* m_silenceTone = nullptr;
 
-    // 字幕生成（ffmpeg 抽出 → whisper-cli）とキャッシュを担う
+    // 字幕生成（ffmpeg 抽出 → 組み込み whisper.cpp）とキャッシュを担う
     SubtitleTranscriber* m_subtitleTranscriber = nullptr;
+
+    // 字幕モデルのダウンローダ
+    ModelDownloader* m_modelDownloader = nullptr;
 };

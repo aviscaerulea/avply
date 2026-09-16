@@ -76,18 +76,24 @@ silence_tone_amp = 0.0001
 
 # 字幕設定
 [subtitle]
-# whisper-cli.exe のフルパス
-# 再生中の字幕生成（S キー）に使う whisper.cpp の CLI を指定する。
-# 空のときは Scoop のデフォルトパス（whisper-cpp）→ PATH の順に探す。見つからなければ字幕機能は N/A になる。
-# GPU で動かすには whisper.cpp のリリースから CUDA 版（whisper-cublas-*-bin-x64.zip）を展開する。
-# 次にその中の whisper-cli.exe をここに指定する。Scoop 版は CPU 専用。
-whisper_path = ""
-# ggml モデルファイル（.bin）のフルパス
-# デフォルト値はなく、未設定なら字幕機能は N/A になる。
-# 日本語の実用品質には ggml-large-v3-turbo.bin（約 1.6GB）を推奨する。
-# CPU のみの環境では認識が再生に追い付かず字幕が出ないため、ggml-medium.bin 以下を選ぶ。
-# whisper-cli は ASCII 以外を含むパスを開けない場合があるため、英数字のみのパスに置く。
+# ggml モデルファイル（.bin）の名前またはフルパス
+# 再生中の字幕生成（S キー）に使う音声認識モデルを指定する。
+# 名前だけを書くと model_url と連結した URL から自動ダウンロードし、
+# avply.exe と同じフォルダの model/ へ置く（初回の S キー押下時に確認を出す）。
+# フルパスを書いた場合はその実体を使い、自動ダウンロードはしない。
+# model/ に他のモデルがあっても、ここで指定した 1 つだけを使う。
+# 空のときと未設定時はデフォルトの ggml-large-v3-turbo-q5_0.bin（約 574MB）を使う。
+# 主な候補：
+#   ggml-large-v3-turbo-q5_0.bin  約 574MB  量子化版。品質はほぼ同等で軽い（デフォルト）
+#   ggml-large-v3-turbo.bin       約 1.6GB  非量子化版
+#   ggml-medium.bin               約 1.5GB  GPU なしで品質を優先するとき
+#   ggml-small.bin                約 490MB  GPU なしで速さを優先するとき
+# whisper.cpp が対応しない新形式のモデルを使うには avply の更新が必要になる。
 model = ""
-# 認識言語（whisper の -l に渡す言語コード）
+# モデルのダウンロード元 URL（末尾のスラッシュを含む）
+# model に書いたファイル名をこの URL の後ろへ連結して取得する。
+# 空のときと未設定時はデフォルトの Hugging Face の whisper.cpp 公式リポジトリを使う。
+model_url = ""
+# 認識言語（whisper に渡す言語コード）
 # 英語の動画なら "en" にする。空のときと未設定時はデフォルトの "ja"（日本語）を使う。
 language = "ja"

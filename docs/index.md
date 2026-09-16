@@ -43,10 +43,11 @@ avply は、会議録画を「速く、聞きやすく、必要な所だけ」�
 | 表示 | 状態 |
 | --- | --- |
 | `Subtitle:OFF` | 字幕を使っていない |
+| `Subtitle:DL 42%` | 音声認識モデルをダウンロード中。数字は受信が済んだ割合 |
 | `Subtitle:42%` | 音声を認識中。数字は認識が終わった割合 |
 | `Subtitle:ON` | 認識が終わり、字幕を表示できる |
-| `Subtitle:N/A` | whisper-cli かモデルファイルが無い、または音声ファイルのため字幕を出せない |
-| `Subtitle:ERR` | 認識に失敗した。原因は `avply.exe` と同じフォルダの `avply.log` に残る |
+| `Subtitle:N/A` | 音声ファイル、または音声を含まない動画のため字幕を出せない |
+| `Subtitle:ERR` | ダウンロードか認識に失敗した。原因は `avply.exe` と同じフォルダの `avply.log` に残る |
 
 ## キー・マウス操作
 
@@ -95,8 +96,10 @@ S キー、または右クリックメニューの「字幕（Subtitle）」で 
 認識結果は動画ごとにキャッシュし、2 回目以降は待たずに表示します。
 音声ファイルは対象外です。
 
-字幕を使うには、whisper-cli とモデルファイルの準備が必要です。
-手順は [字幕のための whisper-cli 導入手順](whisper-setup.md) を参照してください。
+音声認識の機能は avply に内蔵しており、別のソフトを入れる必要はありません。
+初めて字幕を ON にしたとき、確認の上で音声認識モデルをダウンロードします。
+GPU があれば認識に自動で使い、無ければ CPU で動きます。
+モデルの選び方と GPU の確認方法は [字幕のモデルと GPU](whisper-setup.md) を参照してください。
 
 ## トリムと変換
 
@@ -134,9 +137,9 @@ PC 固有の値を書きたいときは、同じフォルダに `avply.local.tom
 | `[playback]` | 初期の再生速度、ハードウェアデコーダの優先順位 |
 | `[window]` | 読込時のウィンドウサイズ上限（モニタに対する比率） |
 | `[audio]` | 初期の音量、サイレンストーン |
-| `[subtitle]` | whisper-cli とモデルファイルのパス、認識言語 |
+| `[subtitle]` | 字幕のモデル、ダウンロード元、認識言語 |
 
-ffmpeg と whisper-cli のパスは、`[ffmpeg]` の `path` または `[subtitle]` の `whisper_path`、Scoop の既定パス、`PATH` 環境変数の順で解決します。
+ffmpeg のパスは、`[ffmpeg]` の `path`、Scoop の既定パス、`PATH` 環境変数の順で解決します。
 Scoop か `PATH` から見つかる環境では設定不要です。
 明示するときは以下のように書きます。
 
@@ -145,11 +148,11 @@ Scoop か `PATH` から見つかる環境では設定不要です。
 path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 ```
 
-字幕のモデルファイルには既定がなく、`[subtitle]` の `model` で指定します。
+字幕のモデルは既定のものを自動でダウンロードします。別のモデルを使うときは `[subtitle]` の `model` に名前を書きます。
 
 ```toml
 [subtitle]
-model = "C:/tools/whisper/models/ggml-large-v3-turbo.bin"
+model = "ggml-small.bin"
 ```
 
 再生中の最前面表示、多重起動の抑止、プロセス優先度は、右クリックメニューの「設定」から切り替えます。

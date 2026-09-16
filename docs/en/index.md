@@ -43,10 +43,11 @@ The subtitle display takes the following states.
 | Display | State |
 | --- | --- |
 | `Subtitle:OFF` | Subtitles are not in use |
+| `Subtitle:DL 42%` | Downloading the speech recognition model. The number is how much has arrived |
 | `Subtitle:42%` | Recognizing speech. The number is how much has been recognized |
 | `Subtitle:ON` | Recognition has finished and subtitles can be shown |
-| `Subtitle:N/A` | whisper-cli or the model file is missing, or the file is audio-only |
-| `Subtitle:ERR` | Recognition failed. The reason is in `avply.log` next to `avply.exe` |
+| `Subtitle:N/A` | The file is audio-only, or the video has no audio |
+| `Subtitle:ERR` | The download or the recognition failed. The reason is in `avply.log` next to `avply.exe` |
 
 ## Keyboard and mouse
 
@@ -95,8 +96,10 @@ If you seek to a position that has not been recognized yet, no subtitles appear 
 Results are cached per video, so they show without waiting from the second time on.
 Audio files are not supported.
 
-Subtitles require whisper-cli and a model file.
-See [Setting up whisper-cli for subtitles](whisper-setup.md) for the steps.
+The speech recognition engine is built into avply, so there is no other software to install.
+The first time you turn subtitles on, avply asks and then downloads the recognition model.
+A GPU is used automatically when available, and the CPU otherwise.
+See [Subtitle models and GPU](whisper-setup.md) for how to pick a model and check the GPU.
 
 ## Trimming and conversion
 
@@ -134,10 +137,10 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
-| `[subtitle]` | Paths to whisper-cli and the model file, recognition language |
+| `[subtitle]` | Subtitle model, download source, recognition language |
 
-The ffmpeg and whisper-cli paths are resolved in this order: `path` under `[ffmpeg]` or `whisper_path` under `[subtitle]`, the default Scoop location, then the `PATH` environment variable.
-No configuration is needed if they are available through Scoop or `PATH`.
+The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
+No configuration is needed if it is available through Scoop or `PATH`.
 To set it explicitly, write it as follows.
 
 ```toml
@@ -145,11 +148,11 @@ To set it explicitly, write it as follows.
 path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 ```
 
-The subtitle model file has no default and is set with `model` under `[subtitle]`.
+The default subtitle model is downloaded automatically. To use another one, write its name in `model` under `[subtitle]`.
 
 ```toml
 [subtitle]
-model = "C:/tools/whisper/models/ggml-large-v3-turbo.bin"
+model = "ggml-small.bin"
 ```
 
 Always-on-top during playback, single-instance enforcement, and process priority are toggled from "設定" (Settings) in the right-click menu.

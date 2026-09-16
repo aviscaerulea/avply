@@ -8,6 +8,7 @@
 | CMake | `v3.25` 以上（`CMakeLists.txt` の要件） |
 | Qt | `v6.10.3` MSVC2022 x64（インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` 参照） |
 | ffmpeg | scoop インストール推奨 |
+| Vulkan SDK | 任意（`AVPLY_WHISPER_VULKAN=ON` のときだけ必要） |
 | ビルドプリセット | `msvc-release`（`CMakePresets.json` 参照） |
 
 ## ビルド方法
@@ -22,6 +23,12 @@ cmake --build --preset msvc-release
 ```
 
 cmake が PATH 未追加の環境では `scoop install cmake` で追加する。
+
+### whisper.cpp の取り込み
+
+字幕の音声認識エンジンは whisper.cpp（`v1.9.4`、MIT）を FetchContent で取り込む。ggml のバックエンドを実行時ロードにする構成、そのために whisper 系ターゲットだけ共有ライブラリで組む理由、DLL を実行ファイル同階層へコピーする理由は、`CMakeLists.txt` の該当ブロックのコメントが正だ。
+
+GPU バックエンドは `-DAVPLY_WHISPER_VULKAN=ON` で有効にする。既定は OFF で、リリースの GHA だけ ON にする。配布物に必要な DLL の一覧は `.github/workflows/release.yml` の DLL 検証ステップが正だ。
 
 ### webrtc-audio-processing の同梱
 
@@ -62,7 +69,7 @@ ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレ
 
 ### 対象
 
-`tests/` 配下のテストバイナリ群。ユニットテスト対象は単体で完結して検証できるクラスに限定し、外部プロセス・音声デバイス・メディア再生の状態機械を含むクラス（例：`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance` / `SubtitleTranscriber`）は対象外とする。
+`tests/` 配下のテストバイナリ群。ユニットテスト対象は単体で完結して検証できるクラスに限定し、外部プロセス・ネットワーク・音声デバイス・メディア再生の状態機械を含むクラス（例：`MainWindow` / `VideoView` / `AudioWorker` / `Encoder` / `SilenceTone` / `SingleInstance` / `SubtitleTranscriber` / `WhisperEngine` / `ModelDownloader`）は対象外とする。
 
 | テスト | 対象 | 検証内容 |
 |--------|------|----------|
@@ -71,7 +78,7 @@ ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレ
 | `test_FfmpegRunner_path` | `Ffmpeg::ffprobePath` | 拡張子置換、空白を含むパス、相対パス絶対化 |
 | `test_RangeSlider` | `RangeSlider` | ホイール・ホバー・ドラッグの各シグナル発火パターン |
 | `test_SeekPreview` | `SeekPreview` | `showAt` のジオメトリ算出（中央配置・端クランプ・上下フリップ） |
-| `test_SubtitleTrack` | `SubtitleTrack` | whisper-cli 出力行の解釈、再生位置からの検索、SRT の往復変換 |
+| `test_SubtitleTrack` | `SubtitleTrack` | 再生位置からの検索、SRT の往復変換 |
 
 ### test_Settings 実装上の注意
 
@@ -210,13 +217,15 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 
 `SpeechEnhancer::reset()` でシーク・ファイル切替時に APM を `Initialize` し蓄積 / 出力 FIFO を破棄する。旧サンプルの遅延混入によるポップを防ぎ、ゲイン追従状態を持ち越さない。
 
-### 字幕（whisper-cli）
+### 字幕（whisper.cpp 組み込み）
 
-再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外は README の「字幕」節が正だ。whisper-cli の解決順とモデルの指定方法は README の「設定」節が正だ。ステータスバーの `Subtitle:` 表示のうち進捗・ERR・N/A の意味は README の「字幕」節が正で、N/A の判定条件は `MainWindow::updateSubtitleDisplay` が正だ。
+再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外、モデルの指定方法は README の「字幕」節と「設定」節が正だ。ステータスバーの `Subtitle:` 表示のうち進捗・DL・ERR・N/A の意味も README の「字幕」節が正で、状態の判定順と条件は `MainWindow::updateSubtitleDisplay` が正だ。
 
-方式は「先回り文字起こし」で、真のストリーミング認識ではない。外部プロセス whisper-cli がメディア全体を先頭から順に処理し、字幕は認識が追い越した区間から出る。GPU 版の whisper-cli は実時間より十分速く進む想定だが、所要時間は未計測だ。CPU で追い付かない場合は無字幕が続くだけだ。自動で小さいモデルへ落とすフォールバックは持たず、`[subtitle].model` で手動指定する。
+方式は「先回り文字起こし」で、真のストリーミング認識ではない。whisper.cpp がメディア全体を先頭から順に処理し、字幕は認識が追い越した区間から出る。GPU では実時間より十分速く進む想定だが、所要時間は未計測だ。CPU で追い付かない場合は無字幕が続くだけだ。自動で小さいモデルへ落とすフォールバックは持たず、`[subtitle].model` で手動指定する。
 
-- 処理段階、キャッシュキー、パスの制約、失敗時の扱いは `SubtitleTranscriber.h` のクラスコメントが正だ
+- 処理段階、キャッシュキー、失敗時の扱いは `SubtitleTranscriber.h` のクラスコメントが正だ
+- 認識エンジンのスレッド構成、モデルの保持と解放、バックエンドの実行時ロードは `WhisperEngine.h` のクラスコメントが正だ
+- 認識は PCM 全体をメモリへ載せてから走る。16kHz モノラル float32 で 1 時間あたり約 230MB を占め、ロード済みモデルと合算される。数時間の長尺では GB 級になるが、区間分割は whisper 側の文脈を切って品質を落とすため採らない
 - SRT キャッシュの置き場と、`%TEMP%` に置かない理由は `MainWindow` コンストラクタのコメントが正だ
 - 音声は再生経路から分岐せず、メディアから ffmpeg で直接抽出する
 - そのため音声強調（APM）を通らない（強いデノイズは ASR の精度を上げない）
@@ -226,6 +235,14 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 - QML 側で描く理由は同ファイルのコメントが正だ
 - 同名上書き（`onEncoderReleaseFile`）と `loadFile` の冒頭で生成を止める
 - 再開は `onProbeFinished` で ON のときだけ行う
+
+#### モデルの取得と追従
+
+モデルは配布物に含めず、初回の字幕 ON でダイアログの同意を得てから `ModelDownloader` が取得する。断られたときは字幕を OFF へ戻す。置き場は実行ファイル同階層の `model/` で、`[subtitle].model` に書いた 1 つだけを使う。同じディレクトリに他のモデルがあっても走査せず、量子化版と非量子化版の自動選択もしない。利用者の意図を推測しないためだ。設定が絶対パスのときは自動取得の対象外とし、実体が無ければ `ERR` にする。
+
+whisper.cpp が対応しない新形式のモデルが出た場合は、`CMakeLists.txt` の `GIT_TAG` を上げて avply をリリースする。同じ形式の新モデルなら利用者が `[subtitle].model` を書き換えるだけで使える。
+
+CUDA バックエンドは配布しない。`ggml-cuda.dll` は `GGML_BACKEND_API_VERSION` の一致検査を通る必要があり、他所のビルドを流用できない。同じタグから自前でビルドし、CUDA ランタイム DLL（数百 MB）も添える必要があるため、Vulkan で足りるうちは持たない。
 
 ### シーク・一時停止時の旧バッファ破棄・無音ランプ・再開時フェードイン・プリロール
 

@@ -382,9 +382,16 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_initialScreenRatio   = cfg.initialScreenRatio;
     m_playbackRate         = cfg.playbackSpeed;
     m_volume               = cfg.audioVolume;
-    m_whisperPath          = cfg.whisperPath;
-    m_whisperModelPath     = cfg.whisperModelPath;
     m_subtitleLanguage     = cfg.subtitleLanguage;
+    // モデルはファイル名指定なら実行ファイル同階層の model/ へ自動ダウンロードする。
+    // 絶対パス指定はその実体を使い、URL を空にして自動取得の対象から外す
+    if (QDir::isAbsolutePath(cfg.subtitleModel)) {
+        m_modelPath = cfg.subtitleModel;
+    }
+    else {
+        m_modelPath = Config::exeDirectory() + "/model/" + cfg.subtitleModel;
+        m_modelUrl  = cfg.subtitleModelUrl + cfg.subtitleModel;
+    }
     // SRT キャッシュは %TEMP% ではなく AppData に置く。生成に数分かかる成果物のため、
     // 波形 PNG と違って一時領域の掃除で消えてほしくない
     m_subtitleCacheDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
@@ -450,23 +457,54 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     updateSpeechEnhanceDisplay();
 
     // 字幕の生成器はキュー通知を受けて m_subtitles へ蓄積し、現在位置のオーバーレイを即時更新する。
-    // 完了率はキューの終端時刻から求める。100% は finished で確定する
+    // 完了率は認識エンジンの進捗通知をそのまま使う。100% は finished で確定する
     m_subtitleTranscriber = new SubtitleTranscriber(this);
     connect(m_subtitleTranscriber, &SubtitleTranscriber::cueAdded, this,
             [this](const SubtitleCue& cue) {
         m_subtitles.append(cue);
         updateSubtitleOverlay(m_videoView->position());
-        if (m_info.duration > 0.0) {
-            const int pct = static_cast<int>(cue.endMs / (m_info.duration * 1000.0) * 100.0);
-            m_subtitlePercent = std::clamp(pct, 0, 99);
-            updateSubtitleDisplay();
-        }
+    });
+    connect(m_subtitleTranscriber, &SubtitleTranscriber::progressChanged, this,
+            [this](int percent) {
+        m_subtitlePercent = percent;
+        updateSubtitleDisplay();
     });
     connect(m_subtitleTranscriber, &SubtitleTranscriber::finished, this, [this](bool ok) {
         if (ok) m_subtitlePercent = 100;
         m_subtitleFailed = !ok;
         updateSubtitleDisplay();
     });
+    // 自動取得したモデルのロードに失敗したら、その実体を捨てて次回の ON で取り直す。
+    // 中身が壊れたモデルは exists() を通ってしまい、放置すると字幕が二度と使えなくなる。
+    // 利用者がパス指定したモデルは avply の管理外のため消さない
+    connect(m_subtitleTranscriber, &SubtitleTranscriber::modelLoadFailed, this,
+            [this](const QString& modelPath) {
+        if (m_modelUrl.isEmpty()) return;
+        qWarning() << "MainWindow: 壊れた字幕モデルを削除して次回の取得に備える:" << modelPath;
+        QFile::remove(modelPath);
+    });
+
+    // モデル取得は GUI thread で進め、完了したらその場で生成を開始する
+    m_modelDownloader = new ModelDownloader(this);
+    connect(m_modelDownloader, &ModelDownloader::progress, this,
+            [this](qint64 received, qint64 total) {
+        m_modelDownloadPercent = (total > 0)
+            ? static_cast<int>(received * 100 / total) : 0;
+        updateSubtitleDisplay();
+    });
+    connect(m_modelDownloader, &ModelDownloader::finished, this,
+            [this](bool ok, const QString& error) {
+        m_modelDownloadPercent = -1;
+        if (ok) {
+            startSubtitleTranscription();
+        }
+        else {
+            m_subtitleFailed = true;
+            qWarning() << "MainWindow: 字幕モデルの取得に失敗:" << error;
+        }
+        updateSubtitleDisplay();
+    });
+
     updateSubtitleDisplay();
 
     updateMenuActionEnabled();
@@ -1256,9 +1294,9 @@ void MainWindow::updateMenuActionEnabled()
         const bool running = (m_runningOp == Operation::Trim);
         m_actTrim->setEnabled(running || (idle && fileReady && ffmpegOk && isTrimMeaningful()));
     }
-    // 音声強調・字幕はキー操作と同じく実行中は受け付けない。字幕は whisper 不在なら無効表示で N/A を示す
+    // 音声強調・字幕はキー操作と同じく実行中（変換・トリム）は受け付けない
     if (m_actClarity)  m_actClarity->setEnabled(idle);
-    if (m_actSubtitle) m_actSubtitle->setEnabled(idle && isWhisperAvailable());
+    if (m_actSubtitle) m_actSubtitle->setEnabled(idle);
 }
 
 bool MainWindow::isTrimMeaningful() const
@@ -1696,26 +1734,53 @@ void MainWindow::updateSpeechEnhanceDisplay()
     }
 }
 
-bool MainWindow::isWhisperAvailable() const
+bool MainWindow::ensureSubtitleModel()
 {
-    return !m_whisperPath.isEmpty() && QFile::exists(m_whisperPath)
-        && !m_whisperModelPath.isEmpty() && QFile::exists(m_whisperModelPath);
+    if (QFile::exists(m_modelPath)) return true;
+
+    if (m_modelUrl.isEmpty()) {
+        // 設定でパス指定したモデルが実在しない。利用者が直すべき設定ミスのため取得しない
+        qWarning() << "MainWindow: 指定された字幕モデルが見つからない:" << m_modelPath;
+        m_subtitleFailed = true;
+        return false;
+    }
+    if (m_modelDownloader->isRunning()) return false;
+
+    const QString name = QFileInfo(m_modelPath).fileName();
+    const auto answer = QMessageBox::question(this, "字幕モデルのダウンロード",
+        QString("字幕には音声認識モデルが必要です。\n"
+                "%1 を今すぐダウンロードしますか？\n\n"
+                "初回だけ数百 MB の通信が発生します。\n"
+                "保存先：%2").arg(name, QFileInfo(m_modelPath).absolutePath()));
+    if (answer != QMessageBox::Yes) return false;
+
+    m_subtitleFailed       = false;
+    m_modelDownloadPercent = 0;
+    m_modelDownloader->start(QUrl(m_modelUrl), m_modelPath);
+    return false;
 }
 
 void MainWindow::toggleSubtitle()
 {
-    if (!isWhisperAvailable()) {
-        qWarning() << "MainWindow: whisper-cli またはモデルが見つからないため字幕は無効"
-                   << m_whisperPath << m_whisperModelPath;
-        updateSubtitleDisplay();
-        return;
-    }
     m_subtitleEnabled = !m_subtitleEnabled;
     if (m_subtitleEnabled) {
+        // モデルが未取得ならダウンロードを始め、完了時のハンドラが生成へ進める。
+        // 利用者が取得を断った場合は字幕を OFF へ戻す
+        if (!ensureSubtitleModel()) {
+            if (!m_modelDownloader->isRunning() && !m_subtitleFailed) {
+                m_subtitleEnabled = false;
+            }
+            updateSubtitleDisplay();
+            return;
+        }
         startSubtitleTranscription();
     }
     else {
+        m_modelDownloader->cancel();
+        m_modelDownloadPercent = -1;
         stopSubtitleTranscription();
+        // 認識に使ったモデルは数百 MB を占めるため、OFF でメモリを返す
+        m_subtitleTranscriber->releaseModel();
     }
     updateSubtitleDisplay();
 }
@@ -1724,14 +1789,14 @@ void MainWindow::startSubtitleTranscription()
 {
     stopSubtitleTranscription();
     if (!m_subtitleEnabled || !m_info.valid || isAudioOnly() || !m_info.hasAudio()) return;
-    if (!isFfmpegAvailable() || !isWhisperAvailable()) return;
+    // モデル取得中はここで見送る。取得完了のハンドラが改めて呼ぶ
+    if (!isFfmpegAvailable() || !QFile::exists(m_modelPath)) return;
 
     SubtitleTranscriber::Params p;
-    p.ffmpegPath  = m_ffmpegPath;
-    p.whisperPath = m_whisperPath;
-    p.modelPath   = m_whisperModelPath;
-    p.language    = m_subtitleLanguage;
-    p.cacheDir    = m_subtitleCacheDir;
+    p.ffmpegPath = m_ffmpegPath;
+    p.modelPath  = m_modelPath;
+    p.language   = m_subtitleLanguage;
+    p.cacheDir   = m_subtitleCacheDir;
     // 音声抽出中は 0% を出す
     m_subtitlePercent = 0;
     m_subtitleFailed  = false;
@@ -1751,11 +1816,11 @@ void MainWindow::stopSubtitleTranscription()
 void MainWindow::updateSubtitleDisplay()
 {
     QString state;
-    if (!isWhisperAvailable()) {
-        state = "N/A";
-    }
-    else if (!m_subtitleEnabled) {
+    if (!m_subtitleEnabled) {
         state = "OFF";
+    }
+    else if (m_modelDownloadPercent >= 0) {
+        state = "DL " + QString::number(m_modelDownloadPercent) + "%";
     }
     else if (m_info.valid && (isAudioOnly() || !m_info.hasAudio())) {
         state = "N/A";

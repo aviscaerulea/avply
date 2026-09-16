@@ -55,8 +55,11 @@ Results are cached per video, so they show without waiting from the second time 
 While recognition is running, the bottom of the window shows the progress like `Subtitle:42%`, and it changes to `Subtitle:ON` when done.
 If it fails, it shows `Subtitle:ERR`.
 
-If whisper-cli or the model file is missing, the bottom of the window shows `Subtitle:N/A`.
-Audio files are not supported.
+Speech recognition needs a model file. The first time you turn subtitles on, avply asks and then downloads it.
+While downloading, the bottom of the window shows `Subtitle:DL 42%`.
+A GPU is used automatically when available, and the CPU otherwise.
+Audio files are not supported, and the display shows `Subtitle:N/A` for them.
+See [Subtitle models and GPU](https://aviscaerulea.github.io/avply/en/whisper-setup.html) for details.
 
 ## Installation
 
@@ -66,10 +69,10 @@ Audio files are not supported.
 - ffmpeg (installed separately; it is also used to read media information during playback)
 - NVIDIA GPU (only needed for video conversion; AV1 NVENC support required,
   RTX 30 series or later recommended)
-- whisper-cli from whisper.cpp and a model file (only needed for subtitles)
+- A GPU driver with Vulkan support (only needed to speed up subtitle recognition on the GPU)
 
 Trimming does not re-encode, so no GPU is required. Audio-only conversion also runs on the CPU.
-Subtitles work on the CPU too, but a GPU build of whisper-cli is recommended.
+Subtitles work on the CPU too, but a GPU recognizes speech far faster.
 
 ### Steps
 
@@ -94,7 +97,7 @@ To remove them completely, delete that key with the Registry Editor.
 
 ## Usage
 
-Detailed usage and the steps to set up whisper-cli for subtitles are on the [usage page](https://aviscaerulea.github.io/avply/).
+Detailed usage and the subtitle settings are on the [usage page](https://aviscaerulea.github.io/avply/).
 
 ### Loading a file
 
@@ -171,10 +174,10 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
-| `[subtitle]` | Paths to whisper-cli and the model file, recognition language |
+| `[subtitle]` | Subtitle model, download source, recognition language |
 
-The ffmpeg and whisper-cli paths are resolved in this order: `path` under `[ffmpeg]` or `whisper_path` under `[subtitle]`, the default Scoop location, then the `PATH` environment variable.
-No configuration is needed if they are available through Scoop or `PATH`.
+The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
+No configuration is needed if it is available through Scoop or `PATH`.
 To set it explicitly, write it as follows.
 
 ```toml
@@ -182,11 +185,11 @@ To set it explicitly, write it as follows.
 path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 ```
 
-The subtitle model file has no default and is set with `model` under `[subtitle]`.
+The default subtitle model is downloaded automatically. To use another one, write its name in `model` under `[subtitle]`.
 
 ```toml
 [subtitle]
-model = "C:/models/ggml-large-v3-turbo.bin"
+model = "ggml-small.bin"
 ```
 
 Always-on-top during playback, single-instance enforcement, and process priority are toggled from the settings in the right-click menu.
@@ -203,8 +206,6 @@ These are stored in the registry and kept for the next launch.
 - Video conversion requires an NVIDIA GPU with AV1 NVENC support
 - Where recognition cannot keep up with playback, stretches without subtitles continue
   (switch to a smaller model)
-- The subtitle model file must be placed in a path made of alphanumeric characters only
-  (whisper-cli cannot open paths containing Japanese or similar characters)
 
 ## Build
 
@@ -213,6 +214,7 @@ The following tools are required.
 - Visual Studio 2026 Build Tools (C++ workload)
 - CMake 3.25 or later
 - Qt 6.10.3 MSVC2022 x64
+- Vulkan SDK (only needed to build subtitle recognition with GPU support)
 
 Qt can be installed with the following command.
 Match the install location with `CMAKE_PREFIX_PATH` in `CMakePresets.json`.
@@ -228,6 +230,8 @@ The executable is generated at `out/Release/avply.exe`.
 pwsh.exe -File build.ps1
 ```
 
+To build subtitle recognition with GPU support, install the Vulkan SDK and add `-DAVPLY_WHISPER_VULKAN=ON` when configuring.
+
 ## License
 
 avply itself is distributed under the GNU LGPL v3.
@@ -241,4 +245,6 @@ License handling for the dependencies is as follows.
   under LGPL v3 to preserve the right to relink
 - WebRTC Audio Processing (BSD): linked statically; BSD is compatible with LGPL v3
   and adds no further redistribution obligations
+- whisper.cpp (MIT): bundled as DLLs; MIT is compatible with LGPL v3 and adds no
+  further redistribution obligations
 - ffmpeg: invoked as an external process, so no linking relationship arises

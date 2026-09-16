@@ -6,7 +6,7 @@
 namespace {
 
 // `HH:MM:SS<sep>mmm` をミリ秒へ変換する
-// sep は whisper-cli 出力が `.`、SRT が `,`。時の桁数は 2 桁以上を許容する（99 時間超の長尺）
+// sep は SRT 書式の `,`。時の桁数は 2 桁以上を許容する（99 時間超の長尺）
 qint64 parseTimestamp(const QString& h, const QString& m, const QString& s, const QString& ms)
 {
     return ((h.toLongLong() * 60 + m.toLongLong()) * 60 + s.toLongLong()) * 1000 + ms.toLongLong();
@@ -19,11 +19,6 @@ QString formatSrtTimestamp(qint64 ms)
     return QString::asprintf("%02lld:%02lld:%02lld,%03lld",
                              totalSec / 3600, (totalSec / 60) % 60, totalSec % 60, ms % 1000);
 }
-
-// whisper-cli の区間行
-// 例：`[00:00:00.000 --> 00:00:05.120]   こんにちは`
-const QRegularExpression kWhisperLineRe(
-    R"(^\[(\d{2,}):(\d{2}):(\d{2})\.(\d{3}) --> (\d{2,}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.*)$)");
 
 // SRT の時刻行
 // 例：`00:00:00,000 --> 00:00:05,120`
@@ -97,17 +92,4 @@ SubtitleTrack SubtitleTrack::fromSrt(const QString& srt)
         track.append(cue);
     }
     return track;
-}
-
-bool SubtitleTrack::parseWhisperLine(const QString& line, SubtitleCue& out)
-{
-    const QRegularExpressionMatch m = kWhisperLineRe.match(line.trimmed());
-    if (!m.hasMatch()) return false;
-    const QString text = m.captured(9).trimmed();
-    if (text.isEmpty()) return false;
-
-    out.startMs = parseTimestamp(m.captured(1), m.captured(2), m.captured(3), m.captured(4));
-    out.endMs   = parseTimestamp(m.captured(5), m.captured(6), m.captured(7), m.captured(8));
-    out.text    = text;
-    return true;
 }

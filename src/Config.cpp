@@ -140,9 +140,13 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "playback" && key == "hw_decoder_priority") cfg.hwDecoderPriority = value;
         if (section == "playback" && key == "thumbnail_hwaccel")   cfg.thumbnailHwaccel  = value;
 
-        // 字幕生成（whisper-cli）
-        if (section == "subtitle" && key == "whisper_path") cfg.whisperPath      = value;
-        if (section == "subtitle" && key == "model")        cfg.whisperModelPath = value;
+        // 字幕生成。空指定は「既定のまま」と解釈する（無効な空モデル名を持たせない）
+        if (section == "subtitle" && key == "model" && !value.trimmed().isEmpty()) {
+            cfg.subtitleModel = value.trimmed();
+        }
+        if (section == "subtitle" && key == "model_url" && !value.trimmed().isEmpty()) {
+            cfg.subtitleModelUrl = value.trimmed();
+        }
         if (section == "subtitle" && key == "language" && !value.trimmed().isEmpty()) {
             cfg.subtitleLanguage = value.trimmed();
         }
@@ -170,12 +174,6 @@ void clampConfig(AppConfig& cfg)
 QString scoopFallback()
 {
     return QDir::homePath() + "/scoop/apps/ffmpeg/current/bin/ffmpeg.exe";
-}
-
-// scoop デフォルトの whisper-cli.exe パスを返す（main バケットの whisper-cpp）
-QString scoopWhisperFallback()
-{
-    return QDir::homePath() + "/scoop/apps/whisper-cpp/current/whisper-cli.exe";
 }
 
 // 実行ファイルのパスを解決する
@@ -216,8 +214,7 @@ AppConfig Config::load()
     mergeFromFile(exeDir + "/avply.toml",       cfg);
     mergeFromFile(exeDir + "/avply.local.toml", cfg);
 
-    cfg.ffmpegPath  = resolveExecutable(cfg.ffmpegPath, scoopFallback(), "ffmpeg");
-    cfg.whisperPath = resolveExecutable(cfg.whisperPath, scoopWhisperFallback(), "whisper-cli");
+    cfg.ffmpegPath = resolveExecutable(cfg.ffmpegPath, scoopFallback(), "ffmpeg");
 
     clampConfig(cfg);
     return cfg;

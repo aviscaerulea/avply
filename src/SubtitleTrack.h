@@ -1,18 +1,20 @@
 #pragma once
 #include <QString>
+#include <QMetaType>
 #include <vector>
 
 // 字幕の 1 区間（キュー）
-// 時刻はメディア先頭からのミリ秒。text は改行を含まない 1 行の文字列
+// 時刻はメディア先頭からのミリ秒。text は改行を含まない 1 行の文字列。
+// 認識スレッドから QueuedConnection で運ぶためメタタイプ登録する（末尾の Q_DECLARE_METATYPE）
 struct SubtitleCue {
     qint64  startMs = 0;
     qint64  endMs   = 0;
     QString text;
 };
 
-// 字幕キューの集合と、その SRT 入出力・whisper-cli 出力行の解釈
-// 外部プロセスに依存しない純粋なデータ型で、逐次追加と再生位置からのテキスト検索を担う。
-// キューは開始時刻の昇順で保持する。whisper-cli は先頭から順に区間を吐くため append は
+// 字幕キューの集合と、その SRT 入出力
+// 認識エンジンに依存しない純粋なデータ型で、逐次追加と再生位置からのテキスト検索を担う。
+// キューは開始時刻の昇順で保持する。whisper は先頭から順に区間を確定するため append は
 // 通常末尾追加になるが、順序が崩れた入力（SRT の手編集等）にも備えて挿入位置を探す
 class SubtitleTrack {
 public:
@@ -40,11 +42,8 @@ public:
     // CRLF / LF いずれの改行も受理する
     static SubtitleTrack fromSrt(const QString& srt);
 
-    // whisper-cli の標準出力 1 行をキューへ変換する
-    // 書式は `[HH:MM:SS.mmm --> HH:MM:SS.mmm]  本文` で、それ以外の行（進捗・空行）は
-    // false を返して無視する。本文の前後空白は除去し、空本文の行も false とする
-    static bool parseWhisperLine(const QString& line, SubtitleCue& out);
-
 private:
     std::vector<SubtitleCue> m_cues;
 };
+
+Q_DECLARE_METATYPE(SubtitleCue)

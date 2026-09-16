@@ -50,13 +50,13 @@ struct AppConfig {
     double silenceToneFreqHz = 1000.0;
     double silenceToneAmp    = 0.0001;
 
-    // 字幕生成に使う whisper-cli.exe と ggml モデルのパス
-    // whisperPath は [subtitle].whisper_path 未設定時に scoop 既定パス → PATH 解決で補う。
-    // modelPath に既定はなく、未設定なら字幕機能は N/A になる
-    QString whisperPath;
-    QString whisperModelPath;
+    // 字幕生成に使う ggml モデル
+    // ファイル名だけなら subtitleModelUrl と連結した URL から自動ダウンロードし、
+    // 実行ファイルと同階層の model/ へ置く。絶対パスならその実体を使い、自動取得はしない
+    QString subtitleModel    = "ggml-large-v3-turbo-q5_0.bin";
+    QString subtitleModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
-    // whisper に渡す言語コード（-l）。既定は日本語
+    // whisper に渡す言語コード。既定は日本語
     QString subtitleLanguage = "ja";
 };
 
@@ -64,8 +64,7 @@ struct AppConfig {
 namespace Config {
     // 実行ファイルと同階層の avply.toml を読み、avply.local.toml が
     // 存在すれば同キーを後勝ちで上書きする。
-    // [ffmpeg].path と [subtitle].whisper_path の未設定時は scoop デフォルトパス → PATH 解決の
-    // 順にフォールバックする。
+    // [ffmpeg].path の未設定時は scoop デフォルトパス → PATH 解決の順にフォールバックする。
     AppConfig load();
 
     // 実行ファイルのあるディレクトリ絶対パス
