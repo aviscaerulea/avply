@@ -167,6 +167,11 @@ private:
     // 次回起動時に破損キャッシュをヒットさせない
     void stopWaveformProcess();
 
+    // 前ファイル由来の UI と非同期生成を一掃する
+    // loadFile 冒頭から呼ぶ。ffprobe 完了までは新ファイルの情報が何も無いため、
+    // この時点で消さないと probe 完了まで前ファイルの波形・マーカー・ラベルが残り続ける
+    void clearFileDependentUi();
+
     // カーソルキーによる相対シーク（delta > 0 で早送り、< 0 で巻き戻し）
     void seekRelative(int deltaMs);
 

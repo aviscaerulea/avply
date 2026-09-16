@@ -886,7 +886,7 @@ void MainWindow::onEncoderFinished(bool ok, const QString& outputPath, const QSt
     if (ok) {
         m_fileReleasedForOverwrite = false;
         // 完了直後に出力ファイルを開き直す
-        // loadFile→onProbeFinished が区間マーカー・進捗・各ラベルをリセットするため、
+        // loadFile 冒頭のリセットが区間マーカー・進捗・各ラベルを消すため、
         // 進捗 100% や完了ラベルの設定は不要（直後に上書きされる）
         loadFile(outputPath, false);
         return;
@@ -985,8 +985,9 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     m_filePath.clear();
     setWindowTitle(QStringLiteral("avply"));
     setUiEnabled(false);
-    // 旧ファイルの字幕生成とオーバーレイを消す。ON なら probe 完了後に新ファイルで再開する
-    stopSubtitleTranscription();
+    // 前ファイル由来の表示と非同期生成を一掃する
+    // 字幕が ON なら probe 完了後に新ファイルで再開する
+    clearFileDependentUi();
     StartupTrace::mark("loadfile_begin");
 
     // 再入検出用の世代番号を進める（m_loadGeneration のヘッダコメント参照）
@@ -2133,6 +2134,39 @@ void MainWindow::stopWaveformProcess()
     if (!stalePath.isEmpty()) {
         QFile::remove(stalePath);
     }
+}
+
+void MainWindow::clearFileDependentUi()
+{
+    // 前ファイルを入力にしている ffmpeg 子プロセスを止める
+    // サムネイルは同期待ちの必要がないため cancelInflight(false) を使う
+    // （onEncoderReleaseFile はファイルハンドル解放が目的のため true を渡す。ここは表示の更新が目的）
+    stopWaveformProcess();
+    stopSubtitleTranscription();
+    if (m_thumbExtractor) m_thumbExtractor->cancelInflight(false);
+    if (m_seekPreview) m_seekPreview->hide();
+    m_hoverPendingSec = -1;
+
+    // シークバーの表示要素を初期状態へ戻す
+    // setValue は再生位置シークを誘発しないよう QSignalBlocker で囲う
+    {
+        QSignalBlocker block(m_seekSlider);
+        m_seekSlider->setValue(0);
+    }
+    m_seekSlider->clearWaveform();
+    m_seekSlider->clearRangeMarkers();
+    m_seekSlider->clearProgress();
+
+    // ステータスバーのファイル依存ラベルを未読込の表示へ戻す
+    m_outputLabel->clear();
+    m_posLabel->setText("  --:--:-- / --:--:--");
+    m_videoInfoLabel->clear();
+
+    // クリア結果を即時描画する
+    // 呼び出し元の loadFile はこの後に旧 probe の waitForFinished(1000) を回すため、
+    // 通常の再描画契機（イベントループ復帰）まで待つと最悪 1 秒ほど旧表示が残る。
+    // repaint は paintEvent を直接呼ぶだけでイベントを配送しないため、再入の懸念がない
+    repaint();
 }
 
 // ---- シークバーホバープレビュー ----
