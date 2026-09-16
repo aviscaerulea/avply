@@ -46,9 +46,11 @@ public:
     void togglePlay();
 
     // 再生中なら一時停止する
+    // AudioWorker::pauseOutput を投げ、sink に残る音声を無音ランプで終わらせる（クリック対策）
     void pause();
 
     // 停止中なら再生を開始する（末尾到達状態からは先頭再生）
+    // AudioWorker::resumeOutput で一時停止ゲートを閉じてから再生する
     void play();
 
     bool isPlaying() const;
@@ -117,6 +119,10 @@ private slots:
     void onQmlFileDropped(const QString& url);
 
 private:
+    // AudioWorker::pauseOutput を audio thread へ投げる
+    // ユーザ操作の一時停止（pause）と末尾到達の自動停止の両方から呼ぶ
+    void requestPauseOutput();
+
     QQuickView*         m_quickView;
     QWidget*            m_videoContainer = nullptr;
     QMediaPlayer*       m_player;

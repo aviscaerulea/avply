@@ -233,6 +233,8 @@ VideoView::VideoView(QWidget* parent)
         if (s == QMediaPlayer::EndOfMedia && !m_pausingAtEnd) {
             m_pausingAtEnd = true;
             m_player->pause();
+            // 末尾の最終サンプルも 0 とは限らないため、ユーザ操作の一時停止と同じく無音ランプで終わらせる
+            requestPauseOutput();
             const qint64 dur = m_player->duration();
             if (dur > 0) {
                 m_player->setPosition(dur);
@@ -401,7 +403,7 @@ void VideoView::setSubtitleText(const QString& text)
 void VideoView::togglePlay()
 {
     if (isPlaying()) {
-        m_player->pause();
+        pause();
     }
     else {
         play();
@@ -410,7 +412,20 @@ void VideoView::togglePlay()
 
 void VideoView::pause()
 {
-    if (isPlaying()) m_player->pause();
+    if (!isPlaying()) return;
+    m_player->pause();
+    requestPauseOutput();
+}
+
+void VideoView::requestPauseOutput()
+{
+    // sink に残る音声が鳴り切る前に末尾を無音へ下ろし、再開時のフェードインを準備する
+    // （停止・再開のクリック対策。方針は AudioWorker::pauseOutput の宣言コメント）。
+    // pause() 後に遅れて届くバッファは AudioWorker 側の一時停止ゲートが破棄する
+    if (m_audioWorker) {
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->pauseOutput(); }, Qt::QueuedConnection);
+    }
 }
 
 void VideoView::play()
@@ -424,6 +439,12 @@ void VideoView::play()
     // 保証されないが、AudioWorker のシークゲートが目標 0 から離れたバッファを破棄する
     if (m_pausingAtEnd) {
         setPosition(0);
+    }
+    // 一時停止ゲートを閉じてから再開する。再開後のバッファは play() より後に post されるため
+    // 本呼び出しより先には届かない（AudioWorker::resumeOutput の宣言コメント）
+    if (m_audioWorker) {
+        AudioWorker* w = m_audioWorker;
+        QMetaObject::invokeMethod(w, [w]() { w->resumeOutput(); }, Qt::QueuedConnection);
     }
     m_player->play();
 }

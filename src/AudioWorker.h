@@ -51,6 +51,23 @@ public slots:
     // 旧音声が最大 200ms 残り得るが、シーク応答の遅れとして許容する（ユーザ判断）
     void reset(qint64 targetMs);
 
+    // 一時停止時の無音ランプの書き込みと再開準備
+    // 停止すると decoder からのバッファが止まり、sink に残る音声が鳴り切った瞬間に任意の
+    // サンプル値から無音へ落ちる段差がクリックになる。再開時は無音から任意値へ跳ぶ段差が
+    // 同じくクリックになる。reset() と同じくランプで無音へ下ろし、再開後の最初のバッファに
+    // フェードインとプリロールを掛ける。位置は変わらないためシークゲートは開かない。
+    // DSP と partial write の蓄積分は再開時にそのまま続きとして流すため捨てない
+    // （SoundTouch は倍速時に数十 ms を保持しており、捨てると一時停止のたびに再開直後が欠ける）。
+    // あわせて一時停止ゲートを開き、resumeOutput() まで受信バッファを破棄する。
+    // decoder は別スレッドから直接 post するため、pause() 直後に遅れて届くバッファを
+    // ランプ後に鳴らさないためのガードだ（鳴らすと末尾の段差でクリックが再発する）
+    void pauseOutput();
+
+    // 一時停止ゲートを閉じる
+    // 再生再開（VideoView::play）の直前に GUI thread から QueuedConnection で呼ぶ。
+    // 再開後のバッファは play() より後に post されるため、本スロットより先には届かない
+    void resumeOutput();
+
     // ソース切替時の強制リセット
     // 前ソースのサンプルが WASAPI バッファに残らないよう sink を reset()→start() で再起動する。
     // reset() と異なり m_workBuf / m_volumeWork もサイズゼロ化する。
@@ -106,12 +123,12 @@ private:
     // 現行デコード位置から鳴らし直す
     void recoverSink();
 
-    // シーク・ソース切替・sink 再生成の直後に 5ms フェードインを起動する
+    // シーク・一時停止・ソース切替・sink 再生成の直後に 5ms フェードインを起動する
     // 出力が無音から再開する経路で共通に呼び、開始段差のクリックを丸める
     void armFadeIn();
 
     // 最後に sink へ書いたサンプル値から 0 へ下る無音ランプを sink へ書く
-    // reset() と teardown() から呼ぶ。sink が空（旧音声が鳴り終わっている）なら書かない。
+    // reset()・pauseOutput()・teardown() から呼ぶ。sink が空（旧音声が鳴り終わっている）なら書かない。
     // 空の sink へ書くと 0 から開始値への段差になるためだ
     void writeFadeOutRamp();
 
@@ -167,6 +184,10 @@ private:
     // 受信バッファを破棄する。QueuedConnection の配送キューに残った旧ソースのバッファが
     // forceReset 後に届いて新ソースの先頭へ混入するのを防ぐ
     bool         m_suspended = false;
+    // 一時停止中のバッファ破棄ゲート
+    // pauseOutput で true、resumeOutput と resumeBuffers（ソース切替）で false にする。
+    // true の間 onAudioBuffer は受信バッファを破棄する（理由は pauseOutput の宣言コメント）
+    bool         m_pausedGate = false;
     // 等速再生時の SoundTouch バイパス状態
     // rate が 1.0 のときは時間圧縮が不要なため SoundTouch を通さず raw を直接 DSP へ送る。
     // SoundTouch は tempo 1.0 でも WSOLA のオーバーラップ加算でつなぎ目に微小な不連続を生み、
@@ -206,7 +227,7 @@ private:
     // フェードインの残フレーム数。sink へ書いた分だけ減らし、0 で通常音量になる
     qsizetype    m_fadeInFramesLeft = 0;
     // プリロール待ちフラグ
-    // 空から鳴らし始める全起点（createAndStartSink / forceReset / reset）で立て、
+    // 空から鳴らし始める全起点（createAndStartSink / forceReset / reset / pauseOutput）で立て、
     // 次に受理したバッファの書き込み直前に writePrerollSilence を 1 回だけ呼んで落とす
     bool         m_prerollPending = false;
     // SoundTouch インスタンス

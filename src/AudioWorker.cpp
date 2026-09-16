@@ -212,6 +212,8 @@ void AudioWorker::onAudioBuffer(const QAudioBuffer& buf)
 
     // ソース切替中（forceReset 後〜resumeBuffers 前）は旧ソースの pending バッファを破棄する
     if (m_suspended) return;
+    // 一時停止中（pauseOutput 後〜resumeOutput 前）に遅れて届いたバッファは破棄する
+    if (m_pausedGate) return;
     StartupTrace::mark("first_audio_buffer");
 
     // シークゲート：旧ストリームのバッファを破棄する（背景は m_seekTargetUs のコメント）
@@ -548,6 +550,20 @@ void AudioWorker::reset(qint64 targetMs)
     m_prerollPending = true;
 }
 
+void AudioWorker::pauseOutput()
+{
+    // 方針は AudioWorker.h の宣言コメント。DSP と partial write の蓄積は保持する
+    m_pausedGate = true;
+    armFadeIn();
+    writeFadeOutRamp();
+    m_prerollPending = true;
+}
+
+void AudioWorker::resumeOutput()
+{
+    m_pausedGate = false;
+}
+
 void AudioWorker::forceReset()
 {
     // ソース切替時の強制リセット。必ず sink を reset→start し、
@@ -584,6 +600,8 @@ void AudioWorker::forceReset()
 void AudioWorker::resumeBuffers()
 {
     m_suspended = false;
+    // 一時停止中にソースを切り替えた場合も、新ソースのバッファを通す
+    m_pausedGate = false;
 }
 
 void AudioWorker::setVolume(double volume)
