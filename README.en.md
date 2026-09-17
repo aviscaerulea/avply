@@ -174,7 +174,7 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
-| `[subtitle]` | Subtitle model, download source, recognition language |
+| `[subtitle]` | Subtitle model, download source, recognition language, context given to recognition |
 
 The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
 No configuration is needed if it is available through Scoop or `PATH`.
@@ -186,11 +186,15 @@ path = "C:/Users/yourname/scoop/apps/ffmpeg/current/bin/ffmpeg.exe"
 ```
 
 The default subtitle model is downloaded automatically. To use another one, write its name in `model` under `[subtitle]`.
+When proper nouns or technical terms are not picked up well, write a single sentence containing them in `prompt`; recognition then leans toward those words. They are not guaranteed to appear.
 
 ```toml
 [subtitle]
 model = "ggml-small.bin"
+prompt = "This is a meeting about the Hoge management system, Fuga terminals, and Piyo notifications."
 ```
+
+Changing `model` or `prompt` re-runs recognition, even for a video recognized before.
 
 Always-on-top during playback, single-instance enforcement, and process priority are toggled from the settings in the right-click menu.
 These are stored in the registry and kept for the next launch.
@@ -206,8 +210,6 @@ These are stored in the registry and kept for the next launch.
 - Video conversion requires an NVIDIA GPU with AV1 NVENC support
 - Where recognition cannot keep up with playback, stretches without subtitles continue
   (switch to a smaller model)
-- The subtitle cache is keyed on the video content alone, so switching models still shows
-  the previous recognition result
 
 ## Build
 

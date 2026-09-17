@@ -5,6 +5,7 @@
 #include <QThread>
 #include <QFile>
 #include <QDir>
+#include <QFileInfo>
 #include <QCryptographicHash>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -14,6 +15,11 @@ namespace {
 
 // 部分ハッシュで読む先頭・末尾のバイト数
 constexpr qint64 kHashChunkBytes = 1024 * 1024;
+
+// 認識条件ハッシュをキャッシュ名へ埋める長さ（16 進の文字数）
+// 16 文字 = 64bit で、1 メディアあたり数個しか作らない用途には衝突の心配がない。
+// 名前が長くなるとパス長の上限へ近づくため、SHA-256 の全長は使わない
+constexpr int kRecognitionKeyChars = 16;
 
 // kill 後にプロセス終了を待つ上限（ms）。波形生成の stopWaveformProcess と同じ実測値
 constexpr int kKillWaitMs = 1000;
@@ -65,6 +71,16 @@ QString SubtitleTranscriber::mediaHash(const QString& path)
     return QString::fromLatin1(hash.result().toHex());
 }
 
+QString SubtitleTranscriber::recognitionKey(const Params& params)
+{
+    // 区切りに改行を挟み、隣り合う値の境目が溶けて別の組と同じ並びになるのを防ぐ
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(QFileInfo(params.modelPath).fileName().toUtf8() + '\n');
+    hash.addData(params.language.toUtf8() + '\n');
+    hash.addData(params.prompt.toUtf8() + '\n');
+    return QString::fromLatin1(hash.result().toHex().left(kRecognitionKeyChars));
+}
+
 void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
 {
     stop();
@@ -77,7 +93,8 @@ void SubtitleTranscriber::start(const Params& params, const QString& mediaPath)
         emit finished(false);
         return;
     }
-    m_cachePath = params.cacheDir + "/" + hash + ".srt";
+    // SRT は認識条件ごとに別ファイルへ分ける。中間 PCM は条件に依存しないためメディア側だけで引く
+    m_cachePath = params.cacheDir + "/" + hash + "-" + recognitionKey(params) + ".srt";
     m_pcmPath   = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
                   + "/avply_sub_" + hash + ".f32";
 
@@ -154,9 +171,10 @@ void SubtitleTranscriber::startRecognize()
     const QString model    = m_params.modelPath;
     const QString pcm      = m_pcmPath;
     const QString language = m_params.language;
+    const QString prompt   = m_params.prompt;
     WhisperEngine* engine  = m_engine;
-    QMetaObject::invokeMethod(engine, [engine, jobId, model, pcm, language]() {
-        engine->transcribe(jobId, model, pcm, language);
+    QMetaObject::invokeMethod(engine, [engine, jobId, model, pcm, language, prompt]() {
+        engine->transcribe(jobId, model, pcm, language, prompt);
     }, Qt::QueuedConnection);
 }
 

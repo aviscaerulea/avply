@@ -58,6 +58,12 @@ struct AppConfig {
 
     // whisper に渡す言語コード。既定は日本語
     QString subtitleLanguage = "ja";
+
+    // whisper へ渡す事前文脈（initial_prompt）
+    // 固有名詞や専門用語を並べると認識がその語へ寄る。強制ではなく偏りを与えるだけで、
+    // 書いた語が必ず出る保証はない。空なら何も渡さない。
+    // whisper のテキスト文脈長の半分（224 トークン）を超えた分は whisper 側が捨てる
+    QString subtitlePrompt;
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ

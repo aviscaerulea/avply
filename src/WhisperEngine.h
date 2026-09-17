@@ -34,9 +34,10 @@ public:
 public slots:
     // pcmPath（16kHz モノラル float32 の生 PCM）を認識する
     // jobId は結果の識別子で、呼び出し側は自分が最後に発行した id 以外の通知を捨てる。
-    // モデルが未ロード、または前回と違うパスならロードし直す
+    // モデルが未ロード、または前回と違うパスならロードし直す。
+    // prompt は認識を寄せたい固有名詞や専門用語の事前文脈で、空なら何も渡さない
     void transcribe(quint64 jobId, const QString& modelPath, const QString& pcmPath,
-                    const QString& language);
+                    const QString& language, const QString& prompt);
 
     // ロード済みモデルを解放してメモリを返す（未ロードなら何もしない）
     void releaseModel();

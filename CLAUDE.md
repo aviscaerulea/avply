@@ -231,7 +231,7 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 
 ### 字幕（whisper.cpp 組み込み）
 
-再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外、モデルの指定方法は README の「字幕」節と「設定」節が正だ。ステータスバーの `Subtitle:` 表示のうち進捗・DL・ERR・N/A の意味も README の「字幕」節が正で、状態の判定順と条件は `MainWindow::updateSubtitleDisplay` が正だ。
+再生中の字幕生成。操作、表示位置、非永続、ファイル切替時の保持、音声のみ対象外、モデルと事前文脈の指定方法は README の「字幕」節と「設定」節が正だ。ステータスバーの `Subtitle:` 表示のうち進捗・DL・ERR・N/A の意味も README の「字幕」節が正で、状態の判定順と条件は `MainWindow::updateSubtitleDisplay` が正だ。
 
 方式は「先回り文字起こし」で、真のストリーミング認識ではない。whisper.cpp がメディア全体を先頭から順に処理し、字幕は認識が追い越した区間から出る。GPU では実時間より十分速く進む想定だが、所要時間は未計測だ。CPU で追い付かない場合は無字幕が続くだけだ。自動で小さいモデルへ落とすフォールバックは持たず、`[subtitle].model` で手動指定する。
 
@@ -247,6 +247,10 @@ NS レベル（`kNsLevel`）と AGC2 適応上限（`kMaxGainDb`）もコード�
 - QML 側で描く理由は同ファイルのコメントが正だ
 - 同名上書き（`onEncoderReleaseFile`）と `loadFile` の冒頭で生成を止める
 - 再開は `onProbeFinished` で ON のときだけ行う
+- 事前文脈（`[subtitle].prompt`）は whisper の `initial_prompt` へ渡す
+- 事前文脈の仕様は `avply.toml` のコメントが正だ
+- `prompt` が空でないときは `carry_initial_prompt` も立てる  
+  既定の false では 30 秒のデコード窓ごとに直前の認識結果が文脈を埋め、長い録画の後半で用語のヒントが消えるためだ。
 
 #### モデルの取得と追従
 

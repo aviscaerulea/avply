@@ -383,6 +383,7 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_playbackRate         = cfg.playbackSpeed;
     m_volume               = cfg.audioVolume;
     m_subtitleLanguage     = cfg.subtitleLanguage;
+    m_subtitlePrompt       = cfg.subtitlePrompt;
     // モデルはファイル名指定なら実行ファイル同階層の model/ へ自動ダウンロードする。
     // 絶対パス指定はその実体を使い、URL を空にして自動取得の対象から外す
     if (QDir::isAbsolutePath(cfg.subtitleModel)) {
@@ -1797,6 +1798,7 @@ void MainWindow::startSubtitleTranscription()
     p.ffmpegPath = m_ffmpegPath;
     p.modelPath  = m_modelPath;
     p.language   = m_subtitleLanguage;
+    p.prompt     = m_subtitlePrompt;
     p.cacheDir   = m_subtitleCacheDir;
     // 音声抽出中は 0% を出す
     m_subtitlePercent = 0;

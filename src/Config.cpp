@@ -150,6 +150,12 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         if (section == "subtitle" && key == "language" && !value.trimmed().isEmpty()) {
             cfg.subtitleLanguage = value.trimmed();
         }
+        // prompt は空指定を「事前文脈なし」として受理する
+        // 上のモデル系と違い、空に落としても機能が壊れない。avply.local.toml で
+        // avply.toml の指定を打ち消せるようにするため、空チェックを掛けない。
+        // trimmed で空白だけの指定も「なし」へ寄せる。前後の空白は認識へ効かないのに、
+        // 残すと whisper へ無意味な文脈を渡し、キャッシュも別扱いになってしまう
+        if (section == "subtitle" && key == "prompt") cfg.subtitlePrompt = value.trimmed();
     }
 }
 

@@ -86,7 +86,8 @@ bool WhisperEngine::ensureModel(const QString& modelPath)
 }
 
 void WhisperEngine::transcribe(quint64 jobId, const QString& modelPath,
-                               const QString& pcmPath, const QString& language)
+                               const QString& pcmPath, const QString& language,
+                               const QString& prompt)
 {
     m_jobId = jobId;
     // キューで待つ間に取り消されたジョブは、モデルのロードにも入らず終える
@@ -131,9 +132,20 @@ void WhisperEngine::transcribe(quint64 jobId, const QString& modelPath,
     params.translate        = false;
     params.no_timestamps    = false;
 
-    // language は whisper_full の実行中だけ参照される。QByteArray をこのスコープで保持する
+    // language と initial_prompt は params が const char* で保持し、whisper_full が実行中ずっと
+    // 参照する。いずれも QByteArray をこのスコープで保持して寿命を合わせる
     const QByteArray lang = language.toUtf8();
     params.language = lang.constData();
+
+    // 事前文脈を与えて固有名詞や専門用語へ認識を寄せる
+    // carry_initial_prompt を立てるのは、既定の false では 30 秒のデコード窓ごとに
+    // 直前の認識結果が文脈を埋め、長い録画の後半で用語のヒントが消えるためだ。
+    // 代償として直前のテキストへの条件付けは弱まるが、会議録では用語の一貫性を優先する
+    const QByteArray promptUtf8 = prompt.toUtf8();
+    if (!promptUtf8.isEmpty()) {
+        params.initial_prompt       = promptUtf8.constData();
+        params.carry_initial_prompt = true;
+    }
 
     params.new_segment_callback           = &WhisperEngine::newSegmentCb;
     params.new_segment_callback_user_data = this;

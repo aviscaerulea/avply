@@ -310,6 +310,7 @@ private:
     QString m_modelPath;
     QString m_modelUrl;
     QString m_subtitleLanguage;
+    QString m_subtitlePrompt;
     QString m_subtitleCacheDir;
 
     // 現在のファイルの字幕。生成中は cueAdded のたびに増える
