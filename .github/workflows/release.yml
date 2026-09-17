@@ -34,11 +34,32 @@ jobs:
           cache: true
 
       # ggml の Vulkan バックエンドは SDK 同梱の glslc でシェーダをコンパイルする
+      # LunarG の Windows インストーラは Qt Installer Framework 形式のため、書庫として展開しても
+      # Include/ と Lib/ が現れない。サイレントインストールで正規の配置にする
+      # （humbletim/install-vulkan-sdk@v1.2 は 7z 展開方式で、この形式に対応できず configure が失敗した）
+      # 導入先を指定しない既定の配置は C:\VulkanSDK\<version> だ。llama.cpp の CI が同じ手順を使う
+      # 配置を明示検証するのは、SDK が欠けたまま CPU 版の配布物を作る事故を防ぐためだ
+      # SDK はキャッシュしない。リリースは低頻度で、253MB のダウンロードを毎回払っても割に合う
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: 1.4.313.0
-          cache: true
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ver = '1.4.313.0'
+          $root = "C:\VulkanSDK\$ver"
+          $exe = "$env:RUNNER_TEMP\vulkansdk-installer.exe"
+          # 進捗表示のレンダリングは 253MB の取得を大きく遅らせるため止める
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -OutFile $exe `
+            -Uri "https://sdk.lunarg.com/sdk/download/$ver/windows/vulkansdk-windows-X64-$ver.exe"
+          & $exe --accept-licenses --default-answer --confirm-command install
+          foreach ($p in @("$root\Include\vulkan\vulkan.h", "$root\Lib\vulkan-1.lib", "$root\Bin\glslc.exe")) {
+              if (-not (Test-Path $p)) {
+                  Write-Error "Vulkan SDK の配置が想定と異なる：$p が無い"
+                  exit 1
+              }
+          }
+          "VULKAN_SDK=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$root\Bin"        | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Configure CMake
         shell: pwsh
