@@ -8,7 +8,7 @@
 | CMake | `v3.25` 以上（`CMakeLists.txt` の要件） |
 | Qt | `v6.10.3` MSVC2022 x64（インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` 参照） |
 | ffmpeg | scoop インストール推奨 |
-| Vulkan SDK | 任意（`AVPLY_WHISPER_VULKAN=ON` のときだけ必要） |
+| Vulkan SDK | `v1.4.313.0` で検証済み（要否は「ビルド方法」節が正だ） |
 | ビルドプリセット | `msvc-release`（`CMakePresets.json` 参照） |
 
 ## ビルド方法
@@ -24,11 +24,15 @@ cmake --build --preset msvc-release
 
 cmake が PATH 未追加の環境では `scoop install cmake` で追加する。
 
+上記のビルド方法と `build-and-test.ps1` は、いずれも `msvc-release` プリセットで configure する。プリセットが `AVPLY_WHISPER_VULKAN=ON` を指定するため、これらの経路は Vulkan SDK を要求する。SDK を持たない環境向けの手順は README の「ビルド」節が正だ。
+
+cmake はプリセットの `cacheVariables` を既存キャッシュより優先する。そのため `out/` へ `AVPLY_WHISPER_VULKAN=OFF` で構成しても、プリセット経由で configure し直すと `ON` へ戻る。ビルドコマンド単体はキャッシュへ `cacheVariables` を書き戻さない。
+
 ### whisper.cpp の取り込み
 
 字幕の音声認識エンジンは whisper.cpp（`v1.9.4`、MIT）を FetchContent で取り込む。ggml のバックエンドを実行時ロードにする構成、そのために whisper 系ターゲットだけ共有ライブラリで組む理由、DLL を実行ファイル同階層へコピーする理由は、`CMakeLists.txt` の該当ブロックのコメントが正だ。
 
-GPU バックエンドは `-DAVPLY_WHISPER_VULKAN=ON` で有効にする。既定は OFF で、リリースの GHA だけ ON にする。配布物に必要な DLL の一覧は `.github/workflows/release.yml` の DLL 検証ステップが正だ。
+GPU バックエンドは `AVPLY_WHISPER_VULKAN` で切り替える。option の既定値とその理由は `CMakeLists.txt` の該当ブロックのコメントが正だ。配布物に必要な DLL の一覧は `.github/workflows/release.yml` の DLL 検証ステップが正だ。
 
 ### webrtc-audio-processing の同梱
 
@@ -63,9 +67,17 @@ pwsh.exe -File build-and-test.ps1
 pwsh.exe -File build-and-test.ps1 -Reconfigure
 ```
 
-`build-and-test.ps1` は `build.ps1` と独立した経路だ。`build.ps1` は本体 `avply.exe` のみ、`build-and-test.ps1` は `-DAVPLY_BUILD_TESTS=ON` でテストバイナリも含めて構築する。両者は同じ `out/` を共有する。`build-and-test.ps1` はキャッシュに `AVPLY_BUILD_TESTS=ON` が無ければ再構成するが、`build.ps1` は `CMakeCache.txt` の有無しか見ないため、ON が残ったキャッシュではテストも引き続きビルドする。本体のみへ戻すには `build.ps1 -Reconfigure` を使う。`AVPLY_BUILD_TESTS` は本体ターゲットに影響しないため、どちらの経路でも `avply.exe` は同一だ。
+`build-and-test.ps1` は `build.ps1` と独立した経路だ。`build.ps1` は本体 `avply.exe` のみ、`build-and-test.ps1` は `-DAVPLY_BUILD_TESTS=ON` でテストバイナリも含めて構築する。両者は同じ `out/` を共有する。両スクリプトとも、キャッシュの不在、生成完了マーカーの不在、`AVPLY_WHISPER_VULKAN=ON` の欠落のいずれかで再構成する。`build-and-test.ps1` はこれに加えて `AVPLY_BUILD_TESTS=ON` の欠落でも再構成する。判定材料の意図は `build.ps1` のコメントが正だ。`build.ps1` は `AVPLY_BUILD_TESTS` を見ないため、ON が残ったキャッシュではテストも引き続きビルドする。本体のみへ戻すには `build.ps1 -Reconfigure` を使う。`AVPLY_BUILD_TESTS` は本体ターゲットに影響しないため、どちらの経路でも `avply.exe` は同一だ。
 
-ctest は逐次実行する（`-j` 未指定）。その理由と、ヘッドレス実行向けの `QT_QPA_PLATFORM=offscreen` 指定は `build-and-test.ps1` のコメントが正だ。
+テスト自体は Vulkan に依存しない。Vulkan SDK を持たない環境は次の手順でテストを回す。
+
+1. README の「ビルド」節の configure コマンドへ `-DAVPLY_BUILD_TESTS=ON` を足して実行する
+2. 同じコードブロックの `cmake --build` を実行する
+3. `ctest --test-dir <手順 1 で指定したビルドディレクトリ> -C Release` を実行する
+
+ctest は逐次実行する（`-j` 未指定）。その理由は `build-and-test.ps1` のコメントが正だ。
+
+ヘッドレス実行向けの `QT_QPA_PLATFORM=offscreen` は `tests/CMakeLists.txt` が各テストへ注入する。そのため上記の手順ではシェル側で設定しない。`build-and-test.ps1` も同じ値をシェルへ設定するが、これは注入と重なる保険だ。
 
 ### 対象
 

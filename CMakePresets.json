@@ -12,7 +12,8 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.3/msvc2022_64"
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.3/msvc2022_64",
+        "AVPLY_WHISPER_VULKAN": "ON"
       }
     }
   ],

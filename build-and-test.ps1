@@ -23,10 +23,16 @@ Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments 
 $buildDir = Join-Path $PSScriptRoot "out"
 if ($Reconfigure -and (Test-Path $buildDir)) { Remove-Item -Recurse -Force $buildDir }
 
-# AVPLY_BUILD_TESTS=ON のキャッシュが入っていなければ再 configure する
+# 再 configure の要否を判定する
+# 判定材料は build.ps1 と同じもの（キャッシュ不在、生成完了マーカー不在、Vulkan 設定の欠落）に
+# AVPLY_BUILD_TESTS=ON の欠落を足したものだ。両スクリプトは同じ out/ を共有するため、
+# 各材料の意図は build.ps1 のコメントがそのまま当てはまる。
 $cache = Join-Path $buildDir "CMakeCache.txt"
+$stamp = Join-Path $buildDir "CMakeFiles\generate.stamp"
 $needsReconfigure = -not (Test-Path $cache) -or
-    -not (Select-String -Path $cache -Pattern 'AVPLY_BUILD_TESTS:BOOL=ON' -Quiet)
+    -not (Test-Path $stamp) -or
+    -not (Select-String -Path $cache -Pattern 'AVPLY_BUILD_TESTS:BOOL=ON' -Quiet) -or
+    -not (Select-String -Path $cache -Pattern 'AVPLY_WHISPER_VULKAN:BOOL=ON' -Quiet)
 if ($needsReconfigure) {
     cmake --preset msvc-release -DAVPLY_BUILD_TESTS=ON
     if ($LASTEXITCODE) { exit 1 }

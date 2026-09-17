@@ -46,7 +46,9 @@ FetchContent_MakeAvailable(SoundTouch)
 # ggml のバックエンドは実行時ロード（GGML_BACKEND_DL）とし、exe と同階層の ggml-*.dll から読む。
 # これは BUILD_SHARED_LIBS=ON が前提のため、whisper 系ターゲットだけ共有ライブラリで組む
 # （SoundTouch は上で構築済みのため影響を受けない。末尾で OFF へ戻し、以後の構築へ波及させない）。
-# Vulkan バックエンドは Vulkan SDK の glslc が要るため既定 OFF とし、リリースの GHA でのみ ON にする。
+# Vulkan バックエンドは Vulkan SDK の glslc が要るため option の既定は OFF とする
+# （SDK を持たない環境でも生の cmake で組めるようにするため）。
+# msvc-release プリセットと GHA のリリースビルドはいずれも ON を明示し、配布物と手元のビルドを揃える。
 # ggml-vulkan.dll は vulkan-1.dll が無い環境ではロードに失敗して無視され、CPU バックエンドで動く。
 # GGML_NATIVE=OFF でビルドマシン固有の命令セット最適化を止め（配布先での不正命令を防ぐ）、
 # GGML_OPENMP=OFF で MSVC の vcomp140.dll 依存を避ける

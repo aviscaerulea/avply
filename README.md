@@ -206,7 +206,7 @@ model = "ggml-small.bin"
 - Visual Studio 2026 Build Tools（C++ ワークロード）
 - CMake `v3.25` 以上
 - Qt `v6.10.3` MSVC2022 x64
-- Vulkan SDK（字幕の認識を GPU 対応でビルドするときのみ必要）
+- Vulkan SDK（字幕の認識を GPU 対応でビルドするために必要）
 
 Qt は以下のコマンドで導入できます。
 インストール先は `CMakePresets.json` の `CMAKE_PREFIX_PATH` に合わせてください。
@@ -222,7 +222,16 @@ python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir <�
 pwsh.exe -File build.ps1
 ```
 
-字幕の認識を GPU 対応にするには、Vulkan SDK を入れた上で `-DAVPLY_WHISPER_VULKAN=ON` を付けて構成します。
+このビルドは配布物と同じく、字幕の認識を GPU 対応で構成します。そのため Vulkan SDK が必要です。
+
+Vulkan SDK を用意できない場合は、以下のコマンドで `AVPLY_WHISPER_VULKAN=OFF` を指定して構成してください。字幕の認識は CPU で動きます。
+ビルドディレクトリは `out/` と分けます。`out/` へ構成しても、次に `build.ps1` を実行すると GPU 対応へ戻ります。
+
+```powershell
+cmake -S . -B out-cpu -G "Visual Studio 18 2026" -A x64 `
+    -DCMAKE_PREFIX_PATH="<CMakePresets.json の CMAKE_PREFIX_PATH と同じ値>" -DAVPLY_WHISPER_VULKAN=OFF
+cmake --build out-cpu --config Release
+```
 
 ## ライセンス
 

@@ -214,7 +214,7 @@ The following tools are required.
 - Visual Studio 2026 Build Tools (C++ workload)
 - CMake 3.25 or later
 - Qt 6.10.3 MSVC2022 x64
-- Vulkan SDK (only needed to build subtitle recognition with GPU support)
+- Vulkan SDK (required to build subtitle recognition with GPU support)
 
 Qt can be installed with the following command.
 Match the install location with `CMAKE_PREFIX_PATH` in `CMakePresets.json`.
@@ -230,7 +230,16 @@ The executable is generated at `out/Release/avply.exe`.
 pwsh.exe -File build.ps1
 ```
 
-To build subtitle recognition with GPU support, install the Vulkan SDK and add `-DAVPLY_WHISPER_VULKAN=ON` when configuring.
+This build configures subtitle recognition with GPU support, the same as the released binaries. It therefore requires the Vulkan SDK.
+
+If the Vulkan SDK is not available, configure with `AVPLY_WHISPER_VULKAN=OFF` using the command below. Subtitle recognition then runs on the CPU.
+Keep the build directory separate from `out/`. If you configure into `out/`, the next `build.ps1` run reverts it to the GPU configuration.
+
+```powershell
+cmake -S . -B out-cpu -G "Visual Studio 18 2026" -A x64 `
+    -DCMAKE_PREFIX_PATH="<same value as CMAKE_PREFIX_PATH in CMakePresets.json>" -DAVPLY_WHISPER_VULKAN=OFF
+cmake --build out-cpu --config Release
+```
 
 ## License
 
