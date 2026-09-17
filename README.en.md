@@ -97,7 +97,7 @@ To remove them completely, delete that key with the Registry Editor.
 
 ## Usage
 
-Detailed usage and the subtitle settings are on the [usage page](https://aviscaerulea.github.io/avply/).
+Detailed usage and the subtitle settings are on the [usage page](https://aviscaerulea.github.io/avply/en/).
 
 ### Loading a file
 
@@ -206,6 +206,8 @@ These are stored in the registry and kept for the next launch.
 - Video conversion requires an NVIDIA GPU with AV1 NVENC support
 - Where recognition cannot keep up with playback, stretches without subtitles continue
   (switch to a smaller model)
+- The subtitle cache is keyed on the video content alone, so switching models still shows
+  the previous recognition result
 
 ## Build
 
