@@ -1683,15 +1683,18 @@ void MainWindow::stepFrame(int dir)
     // 隣のフレームへ落ちるのを防ぐためだ。FFmpeg バックエンドは目標以前で最新の PTS を
     // 持つフレームを表示するため、中央を指せば移動先は必ず当該フレームになる
     const double frameMs = 1000.0 / m_info.frameRate;
-    const qint64 pos = m_videoView->position();
+    // 末尾判定と番号の逆算には映像ストリーム尺を使う。音声が映像より長いコンテナでは末尾自動一時停止で
+    // position がコンテナ尺（映像終端より後）へ固定されるため、映像尺へクランプしてから逆算する。
+    // クランプ後の idx は映像終端を指す。戻る入力を受けると最終フレームへ移る
+    const qint64 videoDurationMs = static_cast<qint64>(m_info.videoDuration * 1000.0);
+    const qint64 pos = std::min(m_videoView->position(), videoDurationMs);
     const qint64 idx = static_cast<qint64>(std::floor(static_cast<double>(pos + 1) / frameMs));
     const double targetMs = (static_cast<double>(idx + dir) + 0.5) * frameMs;
-    const qint64 durationMs = static_cast<qint64>(m_info.duration * 1000.0);
     // 先頭より前・末尾以降へは移動しない。範囲外を丸めて setPosition を呼ぶと、位置が変わらないのに
     // VideoView の末尾自動一時停止フラグだけが落ち、次の再生要求が先頭へ戻らなくなるためだ
     //（VideoView::setPosition と play() のコメントを参照）。先頭・末尾での無駄なシークも省ける。
     // 一時停止より前に判定するのは、移動しない入力で再生状態だけ変えないためだ
-    if (targetMs < 0.0 || targetMs >= static_cast<double>(durationMs)) return;
+    if (targetMs < 0.0 || targetMs >= static_cast<double>(videoDurationMs)) return;
 
     // コマ送りは静止画の確認操作のため、再生中なら先に一時停止する（MPC-HC・mpv と同じ挙動）
     m_videoView->pause();

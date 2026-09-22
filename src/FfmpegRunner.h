@@ -13,6 +13,10 @@ struct VideoInfo {
     int width = 0;
     int height = 0;
     double frameRate = 0.0;    // 映像フレームレート（fps）
+    // 映像ストリームの尺（秒）。音声が映像より長いコンテナでは duration（format 尺）より短い。
+    // コマ送りの末尾判定にだけ使う。ffprobe がどの置き場にも尺を持たないコンテナでは
+    // format 尺を入れる。映像があり duration > 0 なら 0 < videoDuration <= duration が成り立つ
+    double videoDuration = 0.0;
     QString codec;             // 映像コーデック名（例: av1, h264）
     double videoBitrate = 0.0; // 映像ビットレート（bps）
     QString audioCodec;        // 音声コーデック名（例: aac, opus）

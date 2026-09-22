@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QFileInfo>
 #include <QFile>
 #include <QDir>
@@ -30,6 +31,30 @@ int jsonToInt(const QJsonValue& v)
     if (v.isDouble()) return v.toInt();
     if (v.isString()) return v.toString().toInt();
     return 0;
+}
+
+// ストリームの尺（秒）を取り出す
+// matroska / webm は stream 直下の duration を持たず、代わりに tags の DURATION へ
+// "HH:MM:SS.nnnnnnnnn" 形式で入れる。両方の置き場を見ないと、音声が映像より長いコンテナで
+// 映像ストリームの尺を取り損ねる。どちらも無ければ 0.0 を返す
+double streamDuration(const QJsonObject& stream)
+{
+    const double direct = jsonToDouble(stream["duration"]);
+    if (direct > 0.0) return direct;
+
+    // タグ名は muxer により大小文字が揺れるため、時分秒形式に合致する最初のタグを採る
+    const QJsonObject tags = stream["tags"].toObject();
+    static const QRegularExpression re(
+        R"(^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$)");
+    for (auto it = tags.begin(); it != tags.end(); ++it) {
+        if (it.key().compare("DURATION", Qt::CaseInsensitive) != 0) continue;
+        const auto m = re.match(it.value().toString());
+        if (!m.hasMatch()) break;
+        return m.captured(1).toDouble() * 3600.0
+             + m.captured(2).toDouble() * 60.0
+             + m.captured(3).toDouble();
+    }
+    return 0.0;
 }
 
 // ffprobe の JSON 出力から VideoInfo を組み立てる
@@ -67,6 +92,12 @@ VideoInfo parseProbeJson(const QByteArray& jsonBytes, FfmpegResult& result)
                 const double num = parts[0].toDouble();
                 const double den = parts[1].toDouble();
                 if (den > 0.0) info.frameRate = num / den;
+            }
+            // どの置き場にも尺が無いコンテナでは format 尺へ倒す。この場合コマ送りの末尾判定は
+            // 従来どおりコンテナ尺基準となり、音声が映像より長いファイルでの空振りは残る
+            info.videoDuration = streamDuration(s);
+            if (info.videoDuration <= 0.0 || info.videoDuration > info.duration) {
+                info.videoDuration = info.duration;
             }
             gotVideo = true;
         }

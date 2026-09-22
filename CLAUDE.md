@@ -125,6 +125,11 @@ ctest は逐次実行する（`-j` 未指定）。その理由は `build-and-tes
 対応音声拡張子は中身に関わらず音声扱いに倒す。mp3 等は ID3v2 APIC（アルバムアート）が `disposition.attached_pic` 付き video stream として ffprobe から返るため、ffprobe 結果だけで判定すると動画 UI に倒れてしまう。
 動画拡張子は ffprobe 結果（`VideoInfo.codec` と `width`）で判定する。中身が音声のみのコンテナ（例：mkv 内が音声のみ）はコンパクト UI へ追従する。
 
+### コマ送りの末尾判定
+
+`MainWindow::stepFrame` はフレーム番号の逆算と末尾判定に `VideoInfo.videoDuration`（映像ストリームの尺）を使う。`duration`（コンテナ全体の尺）は、音声が映像より長い編集済み動画で映像終端より大きい。末尾自動一時停止で position がそこへ固定されるため、コンテナ尺で逆算すると戻る操作が空振りする。
+映像ストリームの尺の取得元は ffprobe 出力の 2 箇所だ。mp4/mov は stream 直下の `duration`、matroska/webm は stream の `tags.DURATION`（`HH:MM:SS.nnnnnnnnn` 形式）に入る。どちらも無いコンテナでは format 尺へ倒し、従来と同じ挙動になる。
+
 ### エンコード仕様
 
 変換（再エンコード）：
