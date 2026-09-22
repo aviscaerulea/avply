@@ -51,7 +51,7 @@
 // トリム開始位置はキーフレーム丸めが支配的なため、この精度で実用上問題ない
 static constexpr int kSliderMax = 10000;
 
-// 再生速度の増減刻み（`.` / `,` キー、Ctrl + ホイール）
+// 再生速度の増減刻み（Ctrl+↑ / Ctrl+↓ キー、Ctrl + ホイール）
 static constexpr qreal kPlaybackRateStep = 0.05;
 // 音量の増減刻み（↑ / ↓ キー、Shift + ホイール）
 static constexpr qreal kVolumeStep = 0.05;
@@ -1528,11 +1528,12 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     // 実行中（変換またはトリム）はメディア操作キーのみ無効化する。
     // システムキーやアプリ全体のショートカットは素通しし、ウィンドウ閉鎖やフォーカス移動をブロックしない。
     // 素通しの経路は 2 系統ある。アプリが case を持たないキー（Alt+F4・Tab 等）は switch の
-    // default で素通しし、case を持つキーの修飾子付き入力（Ctrl+C・Ctrl+. 等）は各 case 先頭の
+    // default で素通しし、case を持つキーの修飾子付き入力（Ctrl+C・Ctrl+G 等）は各 case 先頭の
     // 修飾子ガードで素通しする。switch は修飾子を含まない key() で分岐するため、
     // Ctrl+C も case Qt::Key_C へ入り default へは到達しないためだ。
-    // 例外はアプリが割当を持つ修飾子付き入力だ。Alt+←→（フォルダ内の前後ファイル切替）は
-    // 修飾子付きでも消費する。
+    // 例外はアプリが割当を持つ修飾子付き入力だ。Alt+←→（フォルダ内の前後ファイル切替）、
+    // Ctrl+←→（1 フレームステップ）、Ctrl+↑↓（再生速度）は修飾子付きでも消費する。
+    // これらは MPC-HC の既定キーに揃えた割当だ。
     // ただし実行中は各 case の running ガードが修飾子ガードより先に走るため、
     // case を持つキーは修飾子付きでも消費する（実行中のメディア操作キー無効化を優先する仕様）。
     // 「メディア操作キーの集合」は下の switch の case 列挙が唯一の定義であり、
@@ -1545,15 +1546,19 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     case Qt::Key_Left:
     case Qt::Key_Right: {
         // 無修飾は通常シーク。Shift 単独付きは大シーク（avply.toml [seek] の shift_*_ms）。
-        // Alt 単独付きはフォルダ内の前後ファイル切替。
+        // Alt 単独付きはフォルダ内の前後ファイル切替。Ctrl 単独付きは 1 フレームステップ
+        //（MPC-HC の既定キーと同一）。
         // 実行中は修飾子の有無に関わらず消費する（↑↓ キーと同挙動）。
-        // 上記以外の修飾子付き（Ctrl+← 等）は素通しする。冒頭コメントのシステムキー契約を守るためだ。
-        // Ctrl+←→ は未割当のまま温存する。
+        // 上記以外の修飾子付き（Ctrl+Shift+← 等）は素通しする。冒頭コメントのシステムキー契約を守るためだ。
         if (running) return true;
         const bool forward = (ke->key() == Qt::Key_Right);
         const auto mods = ke->modifiers() & kModifierMask;
         if (mods == Qt::AltModifier) {
             loadNeighborFile(forward ? +1 : -1);
+            return true;
+        }
+        if (mods == Qt::ControlModifier) {
+            stepFrame(forward ? +1 : -1);
             return true;
         }
         if (mods != Qt::NoModifier && mods != Qt::ShiftModifier) {
@@ -1582,41 +1587,20 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     }
     case Qt::Key_Up:
     case Qt::Key_Down: {
-        // 音量 ±0.05
+        // 無修飾は音量 ±0.05。Ctrl 単独付きは再生速度 ±0.05（MPC-HC の既定キーと同一）。
         // 実行中は修飾子の有無に関わらず消費する（従来の抑止リストと同挙動）。
-        // 修飾子付き（Shift/Ctrl/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
+        // 上記以外の修飾子付き（Shift/Alt/Meta）は OS/IME ショートカットと衝突しうるため素通し。
         if (running) return true;
         const auto mods = ke->modifiers() & kModifierMask;
+        const bool up = (ke->key() == Qt::Key_Up);
+        if (mods == Qt::ControlModifier) {
+            changePlaybackRate(up ? kPlaybackRateStep : -kPlaybackRateStep);
+            return true;
+        }
         if (mods != Qt::NoModifier) {
             return QMainWindow::eventFilter(watched, event);
         }
-        changeVolume((ke->key() == Qt::Key_Up) ? kVolumeStep : -kVolumeStep);
-        return true;
-    }
-    case Qt::Key_Period: {
-        // 再生速度 +0.05
-        // 実行中は修飾子の有無に関わらず消費する（↑↓ キーと同挙動）。
-        // 修飾子付き（Ctrl+. 等）はシステムショートカットと衝突するため素通しし、
-        // 冒頭コメントのシステムキー契約を守る（↑↓ キーと同型のガード）
-        if (running) return true;
-        const auto mods = ke->modifiers() & kModifierMask;
-        if (mods != Qt::NoModifier) {
-            return QMainWindow::eventFilter(watched, event);
-        }
-        changePlaybackRate(kPlaybackRateStep);
-        return true;
-    }
-    case Qt::Key_Comma: {
-        // 再生速度 -0.05
-        // 実行中は修飾子の有無に関わらず消費する（↑↓ キーと同挙動）。
-        // 修飾子付き（Ctrl+, 等）はシステムショートカットと衝突するため素通しし、
-        // 冒頭コメントのシステムキー契約を守る（↑↓ キーと同型のガード）
-        if (running) return true;
-        const auto mods = ke->modifiers() & kModifierMask;
-        if (mods != Qt::NoModifier) {
-            return QMainWindow::eventFilter(watched, event);
-        }
-        changePlaybackRate(-kPlaybackRateStep);
+        changeVolume(up ? kVolumeStep : -kVolumeStep);
         return true;
     }
     case Qt::Key_G: {
@@ -1686,6 +1670,32 @@ void MainWindow::seekRelative(int deltaMs)
     const qint64 durationMs = static_cast<qint64>(m_info.duration * 1000.0);
     const qint64 newPos = qBound(qint64(0), m_videoView->position() + deltaMs, durationMs);
     m_videoView->setPosition(newPos);
+}
+
+void MainWindow::stepFrame(int dir)
+{
+    // フレームレート不明（音声のみ、ffprobe 取得失敗）では移動先を決められないため何もしない
+    if (m_info.duration <= 0.0 || m_info.frameRate <= 0.0) return;
+
+    // 現在フレーム番号を復元し、隣のフレームの「中央時刻」へシークする。
+    // position() は PTS を ms へ切り捨てた値のため、+1 で切り捨て分を補正してから
+    // フレーム長で割る。目標を境界ではなく中央（+0.5 フレーム）に置くのは、ms 丸めで
+    // 隣のフレームへ落ちるのを防ぐためだ。FFmpeg バックエンドは目標以前で最新の PTS を
+    // 持つフレームを表示するため、中央を指せば移動先は必ず当該フレームになる
+    const double frameMs = 1000.0 / m_info.frameRate;
+    const qint64 pos = m_videoView->position();
+    const qint64 idx = static_cast<qint64>(std::floor(static_cast<double>(pos + 1) / frameMs));
+    const double targetMs = (static_cast<double>(idx + dir) + 0.5) * frameMs;
+    const qint64 durationMs = static_cast<qint64>(m_info.duration * 1000.0);
+    // 先頭より前・末尾以降へは移動しない。範囲外を丸めて setPosition を呼ぶと、位置が変わらないのに
+    // VideoView の末尾自動一時停止フラグだけが落ち、次の再生要求が先頭へ戻らなくなるためだ
+    //（VideoView::setPosition と play() のコメントを参照）。先頭・末尾での無駄なシークも省ける。
+    // 一時停止より前に判定するのは、移動しない入力で再生状態だけ変えないためだ
+    if (targetMs < 0.0 || targetMs >= static_cast<double>(durationMs)) return;
+
+    // コマ送りは静止画の確認操作のため、再生中なら先に一時停止する（MPC-HC・mpv と同じ挙動）
+    m_videoView->pause();
+    m_videoView->setPosition(static_cast<qint64>(std::llround(targetMs)));
 }
 
 void MainWindow::changePlaybackRate(qreal delta)

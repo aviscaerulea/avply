@@ -175,6 +175,11 @@ private:
     // カーソルキーによる相対シーク（delta > 0 で早送り、< 0 で巻き戻し）
     void seekRelative(int deltaMs);
 
+    // 1 フレームステップ（dir は +1 で次フレーム、-1 で前フレーム）
+    // 再生中なら先に一時停止してから移動する。フレームレート不明（音声のみ等）と、
+    // 移動先が先頭より前・末尾以降になる場合は何もしない
+    void stepFrame(int dir);
+
     // 再生速度を相対変更してステータス表示を更新する（delta は 0.05 単位想定）
     void changePlaybackRate(qreal delta);
 

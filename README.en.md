@@ -119,8 +119,9 @@ Playback controls are as follows.
 | Play / pause | Space | Click the preview area (not available for audio-only files) |
 | Seek | ← → | Drag the seek bar, or scroll over the seek bar or preview area |
 | Large seek | Shift+← / Shift+→ | |
+| Step one frame forward / back | Ctrl+→ / Ctrl+← | |
 | Previous / next file in the folder | Alt+← / Alt+→ | |
-| Playback speed ±0.05x | `.` faster / `,` slower | Ctrl+wheel |
+| Playback speed ±0.05x | Ctrl+↑ faster / Ctrl+↓ slower | Ctrl+wheel |
 | Volume ±0.05 | ↑ ↓ | Shift+wheel |
 | Switch voice enhancement | C | |
 | Switch subtitles | S | |
@@ -136,6 +137,7 @@ Trimming controls are as follows.
 | Run / cancel trimming | | ✂ button |
 
 The first press of G returns to neutral values (speed 1.00, volume 100%, voice enhancement off), and the second press restores the speed and volume from startup.
+Frame stepping pauses playback first, and is not available for audio-only files.
 File switching follows the file-name order and stops at the first and last files in the folder.
 The bottom of the window always shows the current playback speed, volume, voice enhancement, and subtitle state.
 
