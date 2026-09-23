@@ -126,6 +126,7 @@ Playback controls are as follows.
 | Switch voice enhancement | C | |
 | Switch subtitles | S | |
 | Reset playback settings | G | |
+| Show the keyboard and mouse list | ? | |
 
 Trimming controls are as follows.
 

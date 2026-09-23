@@ -125,6 +125,8 @@ qt_add_executable(avply WIN32
     src/WhisperEngine.cpp
     src/ModelDownloader.h
     src/ModelDownloader.cpp
+    src/ShortcutHelpDialog.h
+    src/ShortcutHelpDialog.cpp
     src/icons.qrc
     src/app.rc
 )

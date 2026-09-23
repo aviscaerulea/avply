@@ -118,6 +118,13 @@ ctest は逐次実行する（`-j` 未指定）。その理由は `build-and-tes
 
 白フラッシュ抑制のためウィンドウは描画完了まで透明化し、復帰直後に `MainWindow::windowRevealed` を emit する。初回ファイルロード・ffmpeg パス検証・`SilenceTone` 起動はこのシグナルへ QueuedConnection で繋ぎ、可視化後に走らせる。復帰契機の使い分けと理由は `MainWindow` コンストラクタの `setWindowOpacity(0.0)` 周辺のコメントが正だ。
 
+### キー・マウス操作一覧ダイアログ
+
+`?` キーと右クリックメニューの「キー操作一覧」で `ShortcutHelpDialog` を非モーダル表示する。再生は止めない。
+一覧の本文は README の「キー・マウス操作」節の 2 表を写した固定 HTML で、マウス列だけは `docs/index.md` と同じく右クリックメニューからの操作も載せる。
+キー割当を変えたときは `README.md`、`README.en.md`、`docs/index.md`、`docs/en/index.md` と同時に更新する。
+`?` は `MainWindow::eventFilter` の case のうち唯一 running ガードを持たず、変換・トリムの実行中も開ける。
+
 ### 受け入れ可能ファイル
 
 対応拡張子の一覧は README の「対応ファイル形式」節が正だ。

@@ -423,6 +423,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
         QDesktopServices::openUrl(QUrl(kHelpUrl));
     });
 
+    // キー操作一覧。? キーと同じダイアログを開く（メニューから ? の存在も伝える）
+    m_actShortcutHelp = new QAction("キー操作一覧（?）", this);
+    connect(m_actShortcutHelp, &QAction::triggered, this, &MainWindow::showShortcutHelp);
+
     m_actConvert = new QAction("ファイルを変換する", this);
     connect(m_actConvert, &QAction::triggered, this, &MainWindow::onConvertOrCancel);
 
@@ -1538,7 +1542,8 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     // case を持つキーは修飾子付きでも消費する（実行中のメディア操作キー無効化を優先する仕様）。
     // 「メディア操作キーの集合」は下の switch の case 列挙が唯一の定義であり、
     // 各 case 先頭の running ガード（消費のみして処理しない）で実行中無効化を実現する。
-    // キー追加時は case を足せば実行中無効化も同時に効き、抑止リストとの二重管理は生じない
+    // キー追加時は case を足せば実行中無効化も同時に効き、抑止リストとの二重管理は生じない。
+    // 例外は ?（操作一覧の表示）で、メディア操作ではないため running ガードを持たず実行中も開ける
     const auto* ke = static_cast<QKeyEvent*>(event);
     const bool running = (m_runningOp != Operation::None);
 
@@ -1657,6 +1662,13 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             return QMainWindow::eventFilter(watched, event);
         }
         toggleSubtitle();
+        return true;
+    }
+    case Qt::Key_Question: {
+        // キー・マウス操作一覧の表示。メディア操作ではないため running ガードを置かず、
+        // 変換・トリムの実行中も開ける（冒頭コメントの例外）。
+        // ? は US・JP 配列とも Shift+/ で入力し modifiers() に Shift を含むため、修飾子ガードも置かない
+        showShortcutHelp();
         return true;
     }
     default:
@@ -2023,6 +2035,7 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
         QDesktopServices::openUrl(QUrl("https://github.com/aviscaerulea/avply"));
     });
     menu.addAction(m_actHelp);
+    menu.addAction(m_actShortcutHelp);
     menu.addSeparator();
 
     menu.addAction(m_actOpen);
@@ -2045,6 +2058,14 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     settings->setToolTipsVisible(true);
 
     menu.exec(globalPos);
+}
+
+void MainWindow::showShortcutHelp()
+{
+    if (!m_shortcutHelp) m_shortcutHelp = new ShortcutHelpDialog(this);
+    m_shortcutHelp->show();
+    m_shortcutHelp->raise();
+    m_shortcutHelp->activateWindow();
 }
 
 void MainWindow::onToggleTopmost(bool checked)

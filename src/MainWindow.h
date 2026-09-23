@@ -14,6 +14,7 @@
 #include "SubtitleTrack.h"
 #include "SubtitleTranscriber.h"
 #include "ModelDownloader.h"
+#include "ShortcutHelpDialog.h"
 
 class QDragEnterEvent;
 class QDropEvent;
@@ -268,6 +269,12 @@ private:
     // contextMenuEvent と VideoView 経由のシグナルから共通で呼び出す
     void showContextMenuAt(const QPoint& globalPos);
 
+    // キー・マウス操作一覧ダイアログの表示
+    // 初回に生成して以後は使い回す。非モーダルのため再生は止まらない。
+    // 表示中もアプリ全体のイベントフィルタが効くため、再生操作キーはそのまま使える。
+    // 表示中の再呼び出しは前面化だけ行う
+    void showShortcutHelp();
+
     // 現在のシークスライダー位置から SeekPreview の表示位置を更新する
     void updateSeekPreviewPosition(int x);
 
@@ -376,6 +383,10 @@ private:
     QAction*      m_actCopyPath      = nullptr;
     // 使い方ページ（GitHub Pages）をブラウザで開く。常に有効
     QAction*      m_actHelp          = nullptr;
+    // キー・マウス操作一覧ダイアログを開く。? キーと同じ処理を呼ぶ。常に有効
+    QAction*      m_actShortcutHelp  = nullptr;
+    // キー・マウス操作一覧。初回表示時に生成して以後使い回す
+    ShortcutHelpDialog* m_shortcutHelp = nullptr;
     QAction*      m_actConvert       = nullptr;
     QAction*      m_actTrim          = nullptr;
     QAction*      m_actTopmost       = nullptr;

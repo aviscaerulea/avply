@@ -65,6 +65,7 @@ Playback controls are as follows.
 | Switch voice enhancement | C | Right-click menu |
 | Switch subtitles | S | Right-click menu |
 | Reset playback settings | G | |
+| Show the keyboard and mouse list | ? | Right-click menu |
 
 Trimming controls are as follows.
 
