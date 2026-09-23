@@ -59,7 +59,7 @@ Speech recognition needs a model file. The first time you turn subtitles on, avp
 While downloading, the bottom of the window shows `Subtitle:DL 42%`.
 A GPU is used automatically when available, and the CPU otherwise.
 Audio files are not supported, and the display shows `Subtitle:N/A` for them.
-See [Subtitle models and GPU](https://aviscaerulea.github.io/avply/en/whisper-setup.html) for details.
+See [Subtitle models and GPU](docs/en/whisper-setup.md) for details.
 
 ## Installation
 
@@ -97,7 +97,7 @@ To remove them completely, delete that key with the Registry Editor.
 
 ## Usage
 
-Detailed usage and the subtitle settings are on the [usage page](https://aviscaerulea.github.io/avply/en/).
+Detailed usage and the subtitle settings are on the [usage page](docs/en/index.md).
 
 ### Loading a file
 

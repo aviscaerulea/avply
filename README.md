@@ -56,7 +56,7 @@ S キー、または右クリックメニューの項目で ON と OFF を切り
 初めて字幕を ON にしたとき、確認の上でダウンロードします。ダウンロード中は `Subtitle:DL 42%` と表示します。
 GPU があれば認識に自動で使い、無ければ CPU で動きます。
 音声ファイルは対象外で、このときは `Subtitle:N/A` になります。
-詳しくは [字幕のモデルと GPU](https://aviscaerulea.github.io/avply/whisper-setup.html) を参照してください。
+詳しくは [字幕のモデルと GPU](docs/whisper-setup.md) を参照してください。
 
 ## インストール
 
@@ -93,7 +93,7 @@ scoop install aviscaerulea/avply
 
 ## 使い方
 
-詳しい使い方と字幕の設定は [使い方ページ](https://aviscaerulea.github.io/avply/) にまとめています。
+詳しい使い方と字幕の設定は [使い方ページ](docs/index.md) にまとめています。
 
 ### ファイルの読み込み
 

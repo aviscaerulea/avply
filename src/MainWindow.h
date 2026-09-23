@@ -381,8 +381,6 @@ private:
     // 「変換」は実行中に「中止」表記へ切り替え、「トリム」はメインの m_trimBtn と同期する
     QAction*      m_actOpen          = nullptr;
     QAction*      m_actCopyPath      = nullptr;
-    // 使い方ページ（GitHub Pages）をブラウザで開く。常に有効
-    QAction*      m_actHelp          = nullptr;
     // キー・マウス操作一覧ダイアログを開く。? キーと同じ処理を呼ぶ。常に有効
     QAction*      m_actShortcutHelp  = nullptr;
     // キー・マウス操作一覧。初回表示時に生成して以後使い回す

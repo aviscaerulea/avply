@@ -102,9 +102,6 @@ const QString kSubtitlePrefix      = "  Subtitle:";
 // コンテキストメニューとその設定サブメニューの両方へ適用する
 const QString kMenuStyle = QStringLiteral("QMenu { border-radius: 2px; }");
 
-// 使い方ページの URL。コンテキストメニューの「使い方」が開く
-const QString kHelpUrl = QStringLiteral("https://aviscaerulea.github.io/avply/");
-
 // 受け入れ可能なメディア拡張子（小文字、ドットなし）
 // QFileDialog のフィルタ生成・D&D 判定・音声/動画振り分けで共通使用する
 const QStringList kVideoExts = { "mp4", "mkv", "mov", "avi", "webm" };
@@ -417,11 +414,6 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
 
     m_actCopyPath = new QAction("ファイルパスをコピー", this);
     connect(m_actCopyPath, &QAction::triggered, this, &MainWindow::onCopyFilePath);
-
-    m_actHelp = new QAction("使い方", this);
-    connect(m_actHelp, &QAction::triggered, this, []() {
-        QDesktopServices::openUrl(QUrl(kHelpUrl));
-    });
 
     // キー操作一覧。? キーと同じダイアログを開く（メニューから ? の存在も伝える）
     m_actShortcutHelp = new QAction("キー操作一覧（?）", this);
@@ -2034,7 +2026,6 @@ void MainWindow::showContextMenuAt(const QPoint& globalPos)
     connect(about, &QAction::triggered, this, []() {
         QDesktopServices::openUrl(QUrl("https://github.com/aviscaerulea/avply"));
     });
-    menu.addAction(m_actHelp);
     menu.addAction(m_actShortcutHelp);
     menu.addSeparator();
 
