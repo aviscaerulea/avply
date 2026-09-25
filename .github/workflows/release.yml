@@ -96,14 +96,17 @@ jobs:
           Copy-Item avply.toml out\Release\avply.toml
           Copy-Item avply.toml out\Release\avply.toml.example
           New-Item -Path out\Release\avply.local.toml -ItemType File
+          # 字幕モデルの置き場。Scoop が persist で版をまたいで保持できるよう空で同梱する
+          New-Item -Path out\Release\model -ItemType Directory
 
+      # Compress-Archive は空ディレクトリを格納しない場合があるため、空の model/ も確実に入る ZipFile を使う
       - name: Create zip
         shell: pwsh
         run: |
-          Compress-Archive `
-            -Path out\Release\* `
-            -DestinationPath "out\avply-${{ steps.version.outputs.version }}-x64.zip" `
-            -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            (Resolve-Path out\Release).Path,
+            (Join-Path (Resolve-Path out).Path "avply-${{ steps.version.outputs.version }}-x64.zip"))
 
       - name: Upload to release
         env:
