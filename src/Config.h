@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QColor>
 
 // アプリケーション設定
 struct AppConfig {
@@ -64,6 +65,15 @@ struct AppConfig {
     // 書いた語が必ず出る保証はない。空なら何も渡さない。
     // whisper のテキスト文脈長の半分（224 トークン）を超えた分は whisper 側が捨てる
     QString subtitlePrompt;
+
+    // 字幕の文字色と背景色（avply.toml では "#RRGGBB" で指定する）
+    // 空指定と解釈できない値は既定値のままにする
+    QColor subtitleTextColor       = QColor(0xFF, 0xFF, 0xFF);
+    QColor subtitleBackgroundColor = QColor(0x00, 0x00, 0x00);
+
+    // 字幕背景の不透明度（0.0 で透明、1.0 で塗りつぶし）。0.0〜1.0 にクランプする。
+    // 既定の 0.80 は、白地の多い映像でも文字が背景に埋もれないように旧固定値（約 0.63）から上げた値だ
+    double subtitleBackgroundOpacity = 0.80;
 };
 
 // avply.toml / avply.local.toml から設定を読み込むユーティリティ

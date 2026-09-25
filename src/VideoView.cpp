@@ -404,6 +404,14 @@ void VideoView::setSubtitleText(const QString& text)
     }
 }
 
+void VideoView::setSubtitleStyle(const QColor& textColor, const QColor& backgroundColor)
+{
+    if (QObject* root = m_quickView->rootObject()) {
+        root->setProperty("subtitleTextColor", textColor);
+        root->setProperty("subtitleBackgroundColor", backgroundColor);
+    }
+}
+
 void VideoView::togglePlay()
 {
     if (isPlaying()) {

@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QString>
+#include <QColor>
 #include <QTimer>
 
 class QQuickView;
@@ -74,6 +75,10 @@ public:
     // 映像上に重ねる字幕テキストを設定する（空文字で非表示）
     // QML ルートの subtitleText プロパティへ書くだけで、表示位置・折り返しは QML 側が担う
     void setSubtitleText(const QString& text);
+
+    // 字幕の文字色と背景色を設定する
+    // 背景の不透明度は backgroundColor のアルファで渡す。QML ルートのプロパティへ書くだけで、描画は QML 側が担う
+    void setSubtitleStyle(const QColor& textColor, const QColor& backgroundColor);
 
 protected:
     void wheelEvent(QWheelEvent* event) override;

@@ -391,6 +391,10 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     m_volume               = cfg.audioVolume;
     m_subtitleLanguage     = cfg.subtitleLanguage;
     m_subtitlePrompt       = cfg.subtitlePrompt;
+    // 字幕の表示色は起動時に 1 回だけ渡す（再生中の変更手段は持たない）
+    QColor subtitleBg = cfg.subtitleBackgroundColor;
+    subtitleBg.setAlphaF(cfg.subtitleBackgroundOpacity);
+    m_videoView->setSubtitleStyle(cfg.subtitleTextColor, subtitleBg);
     // モデルはファイル名指定なら実行ファイル同階層の model/ へ自動ダウンロードする。
     // 絶対パス指定はその実体を使い、URL を空にして自動取得の対象から外す
     if (QDir::isAbsolutePath(cfg.subtitleModel)) {

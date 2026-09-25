@@ -156,6 +156,15 @@ void mergeFromFile(const QString& path, AppConfig& cfg)
         // trimmed で空白だけの指定も「なし」へ寄せる。前後の空白は認識へ効かないのに、
         // 残すと whisper へ無意味な文脈を渡し、キャッシュも別扱いになってしまう
         if (section == "subtitle" && key == "prompt") cfg.subtitlePrompt = value.trimmed();
+
+        // 字幕の表示色。空指定と QColor が解釈できない値は既定値のままにする
+        auto assignColor = [&](QColor& target) {
+            const QColor c = QColor::fromString(value.trimmed());
+            if (c.isValid()) target = c;
+        };
+        if (section == "subtitle" && key == "text_color")         assignColor(cfg.subtitleTextColor);
+        if (section == "subtitle" && key == "background_color")   assignColor(cfg.subtitleBackgroundColor);
+        if (section == "subtitle" && key == "background_opacity") assignDouble(cfg.subtitleBackgroundOpacity);
     }
 }
 
@@ -174,6 +183,8 @@ void clampConfig(AppConfig& cfg)
     // 振幅 0.01（-40dB）は明確に可聴で常用には不適。設定ミス時の保険として上限を低く取る
     cfg.silenceToneFreqHz = std::clamp(cfg.silenceToneFreqHz, 20.0, 20000.0);
     cfg.silenceToneAmp    = std::clamp(cfg.silenceToneAmp, 0.0, 0.01);
+    // 字幕背景の不透明度は 0.0〜1.0 にクランプする（範囲外は QColor のアルファとして解釈できない）
+    cfg.subtitleBackgroundOpacity = std::clamp(cfg.subtitleBackgroundOpacity, 0.0, 1.0);
 }
 
 // scoop デフォルトの ffmpeg.exe パスを返す

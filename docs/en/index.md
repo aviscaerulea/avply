@@ -140,7 +140,7 @@ The main entries are listed below. Default values and valid ranges for each key 
 | `[playback]` | Initial playback speed, hardware decoder priority |
 | `[window]` | Maximum window size on load (ratio of the monitor) |
 | `[audio]` | Initial volume, silence tone |
-| `[subtitle]` | Subtitle model, download source, recognition language, context given to recognition |
+| `[subtitle]` | Subtitle model, download source, recognition language, context given to recognition, display colors and background opacity |
 
 The ffmpeg path is resolved in this order: `path` under `[ffmpeg]`, the default Scoop location, then the `PATH` environment variable.
 No configuration is needed if it is available through Scoop or `PATH`.

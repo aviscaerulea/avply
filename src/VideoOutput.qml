@@ -19,6 +19,10 @@ Item {
 
     // C++ 側（VideoView::setSubtitleText）が書き換える字幕テキスト。空なら非表示
     property string subtitleText: ""
+    // C++ 側（VideoView::setSubtitleStyle）が起動時に書き換える字幕の文字色と背景色。
+    // 初期値は AppConfig の既定値（白、黒の不透明度 0.80）と揃える
+    property color subtitleTextColor: "white"
+    property color subtitleBackgroundColor: "#CC000000"
 
     VideoOutput {
         id: videoOutput
@@ -37,13 +41,13 @@ Item {
         width: subtitleLabel.width + 16
         height: subtitleLabel.height + 8
         radius: 4
-        color: "#A0000000"
+        color: root.subtitleBackgroundColor
 
         Text {
             id: subtitleLabel
             anchors.centerIn: parent
             text: root.subtitleText
-            color: "white"
+            color: root.subtitleTextColor
             font.pixelSize: Math.max(14, Math.round(root.height / 22))
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
