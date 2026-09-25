@@ -275,6 +275,11 @@ private:
     // 表示中の再呼び出しは前面化だけ行う
     void showShortcutHelp();
 
+    // シークバー由来のシークを即時発行し、最小間隔タイマとフレーム待ちを開始する
+    void issueSliderSeek(qint64 ms);
+    // 保留中のシーク要求があり、最小間隔の満了とフレーム到達の両方を満たしていれば発行する
+    void flushPendingSeek();
+
     // 現在のシークスライダー位置から SeekPreview の表示位置を更新する
     void updateSeekPreviewPosition(int x);
 
@@ -441,9 +446,13 @@ private:
     // QMessageBox::critical のネストイベントループ中に D&D 等で loadFile が呼ばれても無視する
     bool m_loadInhibited = false;
 
-    // シーク要求のスロットル（連続 valueChanged を間引く）
+    // シークバー由来のシーク要求のスロットル（連続 valueChanged を間引く）
+    // 次のシークは、最小間隔 m_seekTimer の満了と、直前シークの映像フレーム到達の両方を待って発行する。
+    // フレームが届かない場合（映像の終端より後ろへのシーク等）は m_seekFrameTimeout で待ちを打ち切る
     QTimer  m_seekTimer;
+    QTimer  m_seekFrameTimeout;
     qint64  m_pendingSeekMs = -1;
+    bool    m_seekAwaitingFrame = false;
 
     // BT ヘッドセットのアイドル復帰時プチノイズ抑制用の常時不可聴トーン出力
     // QMediaPlayer とは独立した QAudioSink で 1kHz / 約 -80dBFS を流し続け、

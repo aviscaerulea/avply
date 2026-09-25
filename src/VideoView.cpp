@@ -62,9 +62,13 @@ VideoView::VideoView(QWidget* parent)
         auto* sink = root->property("videoSink").value<QVideoSink*>();
         if (sink) {
             m_player->setVideoSink(sink);
-            // 起動計測用：最初の映像フレーム到達を記録する（2 回目以降は mark 側で無視）
+            // 起動計測用に最初の映像フレーム到達を記録する（2 回目以降は mark 側で無視）。
+            // あわせて毎フレームの到達を videoFrameArrived で通知する
             connect(sink, &QVideoSink::videoFrameChanged,
-                    this, []() { StartupTrace::mark("first_video_frame"); });
+                    this, [this]() {
+                StartupTrace::mark("first_video_frame");
+                emit videoFrameArrived();
+            });
         }
         // QML シグナルを C++ スロットに接続する。
         // QML 側のシグネチャと不一致になっていれば connect が失敗するため警告ログで通知する

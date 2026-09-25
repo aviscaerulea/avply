@@ -356,14 +356,24 @@ MainWindow::MainWindow(const QString& initialPath, QWidget* parent)
     statusBar()->addPermanentWidget(m_subtitleLabel);
     StartupTrace::mark("statusbar_widgets_added");
 
-    // シーク要求スロットル：先頭は即時、後続は 40ms 間隔で最新値を反映
+    // シーク要求スロットル：先頭は即時、後続は最小 40ms 間隔かつ直前シークの映像フレーム到達後に最新値を反映する。
+    // 固定間隔だけで発行すると、長い GOP の動画（キーフレーム 5 秒間隔の AV1 等）で 1 回のシークが
+    // 間隔内に表示まで至らず次のシークに上書きされ続け、ドラッグ中に映像が止まったままになるためだ。
+    // タイムアウト 1000ms は、フレームが届かないシーク（映像の終端より後ろ等）で待ちが永続しないための上限
     m_seekTimer.setSingleShot(true);
     m_seekTimer.setInterval(40);
-    connect(&m_seekTimer, &QTimer::timeout, this, [this]() {
-        if (m_pendingSeekMs < 0) return;
-        m_videoView->setPosition(m_pendingSeekMs);
-        m_pendingSeekMs = -1;
-        m_seekTimer.start();
+    connect(&m_seekTimer, &QTimer::timeout, this, &MainWindow::flushPendingSeek);
+    m_seekFrameTimeout.setSingleShot(true);
+    m_seekFrameTimeout.setInterval(1000);
+    connect(&m_seekFrameTimeout, &QTimer::timeout, this, [this]() {
+        m_seekAwaitingFrame = false;
+        flushPendingSeek();
+    });
+    connect(m_videoView, &VideoView::videoFrameArrived, this, [this]() {
+        if (!m_seekAwaitingFrame) return;
+        m_seekAwaitingFrame = false;
+        m_seekFrameTimeout.stop();
+        flushPendingSeek();
     });
 
     // 設定読込
@@ -710,13 +720,26 @@ void MainWindow::onSeekSliderChanged(int value)
 {
     if (m_info.duration <= 0.0) return;
     const qint64 ms = static_cast<qint64>(sliderToSec(value) * 1000.0);
-    // 先頭の要求は即時反映し、後続はタイマーで 40ms ごとに最新値だけ反映する
+    // 最新値だけを保留し、発行条件を満たしていれば即時に発行する
     m_pendingSeekMs = ms;
-    if (!m_seekTimer.isActive()) {
-        m_videoView->setPosition(ms);
-        m_pendingSeekMs = -1;
-        m_seekTimer.start();
-    }
+    flushPendingSeek();
+}
+
+void MainWindow::issueSliderSeek(qint64 ms)
+{
+    m_videoView->setPosition(ms);
+    m_pendingSeekMs = -1;
+    m_seekTimer.start();
+    // 音声のみのファイルは映像フレームが届かないため、フレームを待たず最小間隔だけで間引く
+    m_seekAwaitingFrame = !isAudioOnly();
+    if (m_seekAwaitingFrame) m_seekFrameTimeout.start();
+}
+
+void MainWindow::flushPendingSeek()
+{
+    if (m_pendingSeekMs < 0) return;
+    if (m_seekTimer.isActive() || m_seekAwaitingFrame) return;
+    issueSliderSeek(m_pendingSeekMs);
 }
 
 void MainWindow::onPlayerPositionChanged(qint64 ms)
@@ -974,9 +997,11 @@ void MainWindow::loadFile(const QString& rawPath, bool centerOnMonitor)
     // 同じ理由で世代番号の加算も setSource() より前に置く。setSource が同期的に InvalidMedia を
     // 出すと showLoadError の QMessageBox がネストイベントループを回し、その間に旧 probe の
     // コールバックが発火し得るため、加算が後だと旧世代がガードを通過して旧パスの結果を反映してしまう
-    // 保留中のシーク要求も同時に破棄する。40ms のスロットル窓内でファイルが切り替わると、
+    // 保留中のシーク要求とフレーム待ちも同時に破棄する。スロットルの待ち中にファイルが切り替わると、
     // 旧ファイル基準の位置が新ソースへ適用され、新ファイルが先頭から始まらないためだ
     m_seekTimer.stop();
+    m_seekFrameTimeout.stop();
+    m_seekAwaitingFrame = false;
     m_pendingSeekMs = -1;
     m_info = VideoInfo();
     m_filePath.clear();

@@ -101,6 +101,10 @@ signals:
     // 音声拡張子で起動して VideoView が非表示のままの場合は emit されない
     void firstFrameRendered();
 
+    // 映像フレームが video sink へ届くたびに emit する（GUI thread へ queued 配送）
+    // MainWindow がシークバードラッグ中のシーク発行を、直前シークのフレーム到達まで待つために使う
+    void videoFrameArrived();
+
     // 右クリックでコンテキストメニュー要求が発生したとき emit する
     // QQuickView はネイティブ子ウィンドウのため Win32 が右クリックを親 QWidget へ
     // 伝搬しない。プレビュー上のメニュー表示を実現するため QML 側で受けて転送する
